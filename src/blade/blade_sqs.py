@@ -12,11 +12,13 @@ def supercell_size(self, fractions):
     # Count only actual atomic site lines: "x y z label"
     a_sites = 0
     b_sites = 0
+    sites = 0
     for line in self.rndstr.splitlines():
         parts = line.split()
         if len(parts) != 4:
             continue
         label = parts[-1]
+        sites += 1
         if label == "B":
             b_sites += 1
         else:
@@ -28,18 +30,17 @@ def supercell_size(self, fractions):
     # Choose a number of 'a' sites that can represent the fractions exactly
     n_a = math.lcm(base_sites, denom_lcm)
 
-    # Optional cap like you had (kept, but now based on n_a)
     if n_a >= 100:
         n_a = base_sites * len(fracs)
 
-    counts = [int(n_a * f) for f in fracs]
-
-    # Total atoms = a-sites + fixed B-sites (per basis replicate)
-    # You were doing "+ count_B" once; keep that behavior:
     n_total = n_a + count_B
+    n_total = ((n_total + (sites-1)) // sites) * sites
 
-    # Round total to multiple of 20 (your original behavior)
-    n_total = ((n_total + 19) // 20) * 20
+    n_a = n_total - count_B
+
+    counts = [int(n_a * f) for f in fracs]
+    diff = n_a - sum(counts)
+    counts[0] += diff
 
     return n_total, counts
 
@@ -100,11 +101,13 @@ class BladeSQS:
         # Count only actual atomic site lines: "x y z label"
         a_sites = 0
         b_sites = 0
+        sites = 0
         for line in self.rndstr.splitlines():
             parts = line.split()
             if len(parts) != 4:
                 continue
             label = parts[-1]
+            sites += 1
             if label == "B":
                 b_sites += 1
             else:
@@ -116,23 +119,22 @@ class BladeSQS:
         # Choose a number of 'a' sites that can represent the fractions exactly
         n_a = math.lcm(base_sites, denom_lcm)
 
-        # Optional cap like you had (kept, but now based on n_a)
         if n_a >= 100:
             n_a = base_sites * len(fracs)
 
-        counts = [int(n_a * f) for f in fracs]
-
-        # Total atoms = a-sites + fixed B-sites (per basis replicate)
-        # You were doing "+ count_B" once; keep that behavior:
         n_total = n_a + count_B
+        n_total = ((n_total + (sites-1)) // sites) * sites
 
-        # Round total to multiple of 20 (your original behavior)
-        n_total = ((n_total + 19) // 20) * 20
+        n_a = n_total - count_B
+
+        counts = [int(n_a * f) for f in fracs]
+        diff = n_a - sum(counts)
+        counts[0] += diff
 
         return n_total, counts
 
 
-    def sqs_gen(self, unique_len_comps, phase, path, path1, time):
+    def sqs_gen(self, unique_len_comps, phase, path1, time):
         # Generate sqs
         for length in unique_len_comps:
             dir_name = os.path.join(path1, (phase+"_"+str(length)))
@@ -140,7 +142,6 @@ class BladeSQS:
             file_path = os.path.join(dir_name, "rndstr.skel")
             sqsgen, rndstr = self.sqs_struct()
             with open(file_path, "w") as f:
-                print("f.write(rndstr)",os.getcwd())
                 f.write(rndstr)
             print(f"File created at: {file_path}")
 
@@ -148,20 +149,17 @@ class BladeSQS:
             os.makedirs(dir_name, exist_ok=True)
             file_path = os.path.join(dir_name, "sqsgen.in")
             with open(file_path, "w") as f:
-                print("f.write(sqsgen)", os.getcwd())
                 f.write(sqsgen)
             print(f"File created at: {file_path}")
 
             cmd = ['sqs2tdb', '-mk']
             # Run the command in the target directory
-            print("result = subprocess.run(cmd, cwd=dir_name, capture_output=True, text=True)", dir_name)
             result = subprocess.run(cmd, cwd=dir_name, capture_output=True, text=True)
             # Output results (optional)
             print(result.stdout)
             if result.stderr:
                 print("Error:", result.stderr)
 
-            print("for sqsdir in parent_dir.glob('sqsdb_lev=*/'):", os.getcwd())
             parent_dir = Path(os.path.join(path1, (phase+"_"+str(length))))
             for sqsdir in parent_dir.glob('sqsdb_lev=*/'):
                 folder_name = sqsdir.name

@@ -2,9 +2,8 @@ import os
 import itertools
 
 class BladePhaseDiagram:
-    def __init__(self, compositions, liquid, path2, phase):
+    def __init__(self, liquid, path2, phase):
 
-        self.compositions = compositions
         self.liquid = liquid
         self.path2 = path2
         self.phase = phase
@@ -15,15 +14,13 @@ class BladePhaseDiagram:
         file = f'{self.path2}{"".join(comp)}'
         os.makedirs(file, exist_ok=True)
 
-        main_dir = os.getcwd()
-
         # Specify inputs
         if self.liquid == True:
             phases = [(self.phase+"_"+str(length)), 'LIQUID']
         else:
             phases = [(self.phase+"_"+str(length))]
 
-        return main_dir, file, phases
+        return file, phases
 
     def file_names(self, comp):
         # Editing names
