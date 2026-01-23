@@ -1,4 +1,6 @@
-# BLADE: High-Entropy Diboride Oxidation Screening Framework
+# BLADE: Boride Learning and Design Engine
+
+High-Entropy Diboride Oxidation Screening Framework
 
 ## Overview
 
