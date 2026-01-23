@@ -12,6 +12,9 @@ High-entropy diborides are highly customizable ceramics in which:
 
 This structural flexibility leads to a vast composition space, which is efficiently explored using automated SQS generation and thermodynamic fitting.
 
+<img width="435" height="102" alt="BLADE_Framework" src="https://github.com/user-attachments/assets/8a64271d-0427-4e2e-b964-df0af7ff18d0" />
+**Figure 1.** Overview of the current BLADE framework and workflow.
+
 ---
 
 ## Code Structure and Workflow
@@ -45,6 +48,9 @@ Users define:
 
 These inputs control which compositions are explicitly sampled and how well random alloy statistics are approximated.
 
+<img width="642" height="345" alt="HEDB_Lattice" src="https://github.com/user-attachments/assets/b3b0bf3b-051a-4d18-82a5-fe79b9f9441e" />
+**Figure 2.** Schematic of the HEDB lattice. Boron is held fixed on the central sublattice, and metal atoms are substituted on the outer sublattices. Reproduced from Gild et al. (2016) under the Creative Commons Attribution (CC BY) license. [1]
+
 ---
 
 ### `blade_sqs.py`
@@ -74,6 +80,9 @@ After SQS structures are generated and relaxed:
 
 These phase diagrams are used to identify metal combinations that are likely to form stable or metastable HEDB solid solutions.
 
+<img width="2700" height="2100" alt="CR_NB_Phase_Diagram" src="https://github.com/user-attachments/assets/9f68e914-e764-49af-91bd-a04f1a9e71c0" />
+**Figure 3.** Example phase diagram generated with the BLADE framework showing a miscibility gap in the Cr–Nb–B₂ system.
+
 ---
 
 ## Outputs
@@ -93,6 +102,9 @@ It is particularly useful for:
 * Identifying metal combinations with favorable mixing behavior
 * Ranking candidate HEDBs prior to more expensive oxidation modeling
 * Guiding experimental alloy selection
+
+<img width="169" height="66" alt="Multiverse" src="https://github.com/user-attachments/assets/f8de55aa-16ba-427d-baf9-22373655f391" />
+**Figure 4.** Overview of the BLADE framework and its integration with external tools and supporting frameworks (the Multi-verse).
 
 ---
 
