@@ -1,5 +1,6 @@
-import os
 import itertools
+import os
+
 
 class BladePhaseDiagram:
     def __init__(self, liquid, path2, phase):
@@ -15,8 +16,8 @@ class BladePhaseDiagram:
         os.makedirs(file, exist_ok=True)
 
         # Specify inputs
-        if self.liquid == True:
-            phases = [(self.phase+"_"+str(length)), 'LIQUID']
+        if self.liquid:
+            phases = [(self.phase+"_"+str(length)), "LIQUID"]
         else:
             phases = [(self.phase+"_"+str(length))]
 

@@ -1,9 +1,10 @@
+import math
 import os
 import subprocess
-import math
-from pathlib import Path
 import threading
 from fractions import Fraction
+from pathlib import Path
+
 
 def supercell_size(self, fractions):
     fracs = [Fraction(str(f)).limit_denominator() for f in fractions]
@@ -53,7 +54,7 @@ def sqs_struct(self):
     """
 
     sqsgen = ""
-    for i in range((self.level+1)):
+    for i in range(self.level+1):
         sqsgen += self.sqsgen_levels[i] + "\n"
 
     rndstr = rndstr1.strip() + "\n" + self.unit_cell.strip()
@@ -84,7 +85,7 @@ class BladeSQS:
         """
 
         sqsgen = ""
-        for i in range((self.level+1)):
+        for i in range(self.level+1):
             sqsgen += self.sqsgen_levels[i] + "\n"
 
         rndstr = rndstr1.strip() + "\n" + self.unit_cell.strip()
@@ -152,7 +153,7 @@ class BladeSQS:
                 f.write(sqsgen)
             print(f"File created at: {file_path}")
 
-            cmd = ['sqs2tdb', '-mk']
+            cmd = ["sqs2tdb", "-mk"]
             # Run the command in the target directory
             result = subprocess.run(cmd, cwd=dir_name, capture_output=True, text=True)
             # Output results (optional)
@@ -161,12 +162,12 @@ class BladeSQS:
                 print("Error:", result.stderr)
 
             parent_dir = Path(os.path.join(path1, (phase+"_"+str(length))))
-            for sqsdir in parent_dir.glob('sqsdb_lev=*/'):
+            for sqsdir in parent_dir.glob("sqsdb_lev=*/"):
                 folder_name = sqsdir.name
-                folder_lev = folder_name.split('=')[1]
-                folder_lev = folder_lev.split('_')[0]
-                comp_str = folder_name.split('=')[-1]   # e.g. "0.75,0.125,0.125"
-                fractions = [float(x) for x in comp_str.split(',')]
+                folder_lev = folder_name.split("=")[1]
+                folder_lev = folder_lev.split("_")[0]
+                comp_str = folder_name.split("=")[-1]   # e.g. "0.75,0.125,0.125"
+                fractions = [float(x) for x in comp_str.split(",")]
                 # Skip pure-species (end-member) folders
                 if len(fractions) == 1:    # Only one species, no mixing
                     print(fractions)

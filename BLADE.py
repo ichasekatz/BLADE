@@ -1,20 +1,21 @@
-from materialsframework.calculators import GraceCalculator as Calculator
-from materialsframework.tools.sqs2tdb import Sqs2tdb
-from blade.blade_compositions import BladeCompositions
-from blade.blade_sqs import BladeSQS
-from blade.blade_phase_diagram import BladePhaseDiagram
-import matplotlib.pyplot as plt
-from pycalphad import Database, binplot, ternplot
-from pycalphad import variables as v, binplot
-import pycalphad.variables as v
 import os
 
-phase = 'HEDB1'
+import matplotlib.pyplot as plt
+from materialsframework.calculators import GraceCalculator as Calculator
+from materialsframework.tools.sqs2tdb import Sqs2tdb
+from pycalphad import Database, binplot
+from pycalphad import variables as v
+
+from blade.blade_compositions import BladeCompositions
+from blade.blade_phase_diagram import BladePhaseDiagram
+from blade.blade_sqs import BladeSQS
+
+phase = "HEDB1"
 liquid = True
 liquid = False
-path0 = '/Users/chasekatz/Desktop/School/Research'
-path1 = os.path.join(path0, 'PhaseForge/PhaseForge/atat/data/sqsdb/')
-path2 = os.path.join(path0, 'MF_tests/p10/')
+path0 = "/Users/chasekatz/Desktop/School/Research"
+path1 = os.path.join(path0, "PhaseForge/PhaseForge/atat/data/sqsdb/")
+path2 = os.path.join(path0, "MF_tests/p10/")
 level = 4
 time = 30
 
@@ -28,9 +29,9 @@ re_element_range = [0, 0]
 allow_lower_order = True
 #allow_lower_order = False
 
-comp_gen = BladeCompositions(transition_metals, rare_earths, system_size, 
-                                 tm_min=tm_element_range[0], tm_max=tm_element_range[1], 
-                                 re_min=re_element_range[0], re_max=re_element_range[1], 
+comp_gen = BladeCompositions(transition_metals, rare_earths, system_size,
+                                 tm_min=tm_element_range[0], tm_max=tm_element_range[1],
+                                 re_min=re_element_range[0], re_max=re_element_range[1],
                                  allow_lower_order=allow_lower_order)
 
 compositions = comp_gen.generate_compositions()
@@ -72,7 +73,7 @@ rndstr = """
 """
 
 sqsgen_levels = [
-"""level=0         a=1""", 
+"""level=0         a=1""",
 """level=1         a=0.5,0.5""",
 """level=2         a=0.75,0.25""",
 """level=3         a=0.33333,0.33333,0.33333""",
@@ -115,10 +116,10 @@ def plot(tdb, elements, phases, file):
     binplot(
         tdb, elements, phases,
         {v.X(elements[0]): (0, 1, 0.02), v.T: (1, 4000, 10), v.P: 101325, v.N: 1},
-        plot_kwargs={'ax': axes}
+        plot_kwargs={"ax": axes}
     )
     plt.tight_layout()
-    plt.savefig(f'{file}_Phase_Diagram.png', dpi=300)
+    plt.savefig(f"{file}_Phase_Diagram.png", dpi=300)
 
 phasediagram = BladePhaseDiagram(liquid, path2, phase)
 
@@ -131,8 +132,8 @@ for comp in compositions:
     # Load database and choose the phases that will be considered
 
     for files in file_names:
-        if os.path.isfile(f'{files}.tdb'):
-            tdb = Database(f'{files}.tdb')
+        if os.path.isfile(f"{files}.tdb"):
+            tdb = Database(f"{files}.tdb")
             #plot(tdb, elements, phases, files)
 
     # Change back to main folder

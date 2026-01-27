@@ -1,5 +1,6 @@
 import itertools
 
+
 class BladeCompositions:
     def __init__(self, transition_metals, rare_earths, system_size,
                  tm_min, tm_max, re_min, re_max, allow_lower_order):
@@ -15,7 +16,7 @@ class BladeCompositions:
 
     def generate_compositions(self):
         # Generate compositions
-        
+
         # Generate all possible transition metal compositions
         tm_elements = list(range(self.tm_min, self.tm_max + 1))
         re_elements = list(range(self.re_min, self.re_max + 1))
@@ -61,7 +62,7 @@ class BladeCompositions:
             compositions = [c for c in compositions if len(c) == self.system_size]
         compositions = sorted(compositions)
         print(compositions)
-        print(f'Total compositions: {len(compositions)}')
+        print(f"Total compositions: {len(compositions)}")
 
         # Ensure no duplicate compositions
         unique_comps = {tuple(sorted(c)) for c in compositions}
