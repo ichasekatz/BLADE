@@ -1,5 +1,5 @@
 [project]
-name = "Blade"
+name = "blade"
 version = "0.1.0"
 description = "BLADE utilities"
 requires-python = ">=3.10"
