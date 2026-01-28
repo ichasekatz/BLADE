@@ -16,16 +16,15 @@ liquid = True
 liquid = False
 path0 = Path("/Users/chasekatz/Desktop/School/Research")
 path1 = path0 / "PhaseForge/PhaseForge/atat/data/sqsdb/"
-path2 = path0 / "MF_tests/p10/"
+path2 = path0 / "BLADE/BLADE/"
 level = 4
 time = 30
 
 # Specify elements and system size (Total # elements)
 transition_metals = ["Zr", "Hf", "Ta", "Cr", "Ti", "V", "Nb", "Mo", "W"]
 rare_earths = ["Sc", "Y", "La", "Pr", "Nd", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er", "Tm", "Yb", "Lu"]
-transition_metals = ["Zr", "Hf", "Ta", "Cr", "Ti", "V", "Nb", "Mo", "W", "Sc"]
-system_size = 3
-tm_element_range = [3, 3]
+system_size = 2
+tm_element_range = [2, 2]
 re_element_range = [0, 0]
 allow_lower_order = True
 
@@ -114,11 +113,11 @@ def sqsfit_func(comp, phases, level):
     )
 
 
-TERNARY_SYSTEM_SIZE = 3
+PHASE_DIAGRAM_SYSTEM_SIZE = 4
 
 
 def plot(tdb, elements, phases, file):
-    if len(elements) == TERNARY_SYSTEM_SIZE:
+    if len(elements) >= PHASE_DIAGRAM_SYSTEM_SIZE:
         return
     fig = plt.figure(figsize=(9, 7))
     axes = fig.gca()
