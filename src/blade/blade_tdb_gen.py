@@ -88,5 +88,3 @@ class BladeTDBGen:
 
             # Change back to main folder
             os.chdir(self.path0)
-        
-        return composition_list
