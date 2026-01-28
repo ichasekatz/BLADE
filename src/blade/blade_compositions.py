@@ -1,9 +1,8 @@
 import itertools
 
-class BladeCompositions:
-    def __init__(self, transition_metals, rare_earths, system_size,
-                 tm_min, tm_max, re_min, re_max, allow_lower_order):
 
+class BladeCompositions:
+    def __init__(self, transition_metals, rare_earths, system_size, tm_min, tm_max, re_min, re_max, allow_lower_order):
         self.transition_metals = transition_metals
         self.rare_earths = rare_earths
         self.system_size = system_size
@@ -15,7 +14,7 @@ class BladeCompositions:
 
     def generate_compositions(self):
         # Generate compositions
-        
+
         # Generate all possible transition metal compositions
         tm_elements = list(range(self.tm_min, self.tm_max + 1))
         re_elements = list(range(self.re_min, self.re_max + 1))
@@ -57,11 +56,11 @@ class BladeCompositions:
         # Add Boron to each combination, remove lower order compositions if needed, and sort
         for i in combined_comps:
             compositions += [sorted(i)]
-        if self.allow_lower_order == False:
+        if not self.allow_lower_order:
             compositions = [c for c in compositions if len(c) == self.system_size]
         compositions = sorted(compositions)
         print(compositions)
-        print(f'Total compositions: {len(compositions)}')
+        print(f"Total compositions: {len(compositions)}")
 
         # Ensure no duplicate compositions
         unique_comps = {tuple(sorted(c)) for c in compositions}
@@ -77,9 +76,6 @@ class BladeCompositions:
         for i in compositions:
             len_comps += [len(i)]
         print(len_comps)
-        if len(len_comps) >= 2:
-            unique_len_comps = set(len_comps)
-        else:
-            unique_len_comps = {len_comps[0]}
+        unique_len_comps = set(len_comps) if len(len_comps) >= 2 else {len_comps[0]}
         print("Unique Systems:", unique_len_comps)
         return unique_len_comps
