@@ -16,7 +16,7 @@ liquid = False
 path0 = Path("/Users/chasekatz/Desktop/School/Research")
 path1 = path0 / "PhaseForge/PhaseForge/atat/data/sqsdb/"
 path2 = path0 / "BLADE/BLADE/"
-level = 4
+level = 6
 time = 30
 
 # Specify elements and system size (Total # elements)
@@ -35,13 +35,6 @@ beta = 90
 gamma = 120
 
 rndstr = """
-0.000000 0.000000 0.000000  a
-0.333333 0.666667 0.000000  a
-0.666667 0.333333 0.000000  a
-0.500000 0.000000 0.000000  a
-0.000000 0.500000 0.000000  a
-0.500000 0.500000 0.000000  a
-0.250000 0.750000 0.000000  a
 0.166667 0.833333 0.5       B
 0.833333 0.166667 0.5       B
 0.250000 0.250000 0.5       B
@@ -70,7 +63,6 @@ sqsgen_levels = [
 paths = [path0, path1, path2]
 composition_settings = [transition_metals, rare_earths, system_size,
                         tm_element_range, re_element_range, allow_lower_order]
-sqs_gen_settings = [a, b, c, alpha, beta, gamma, rndstr, sqsgen_levels, level, time]
 
 
 compositions = BladeCompositions(
@@ -93,14 +85,17 @@ print("Total # compositions: ", len(composition_list))
 print("Unique length compositions: ", unique_len_comps)
 
 
+for phase in phases:
+    sqs_gen = BladeSQS(a, b, c, alpha, beta, gamma, rndstr, sqsgen_levels, level)
+    sqs_gen.sqs_gen(unique_len_comps, phase, path1, time)
+
 BladeTDBGen(
     phases,
     liquid,
     paths,
-    composition_settings,
-    sqs_gen_settings,
+    composition_list,
+    level,
 )
-
 
 fraction = "0.75, 0.125, 0.125"
 fractions = [float(x) for x in fraction.split(",")]
@@ -108,7 +103,7 @@ sqs_gen = BladeSQS(a, b, c, alpha, beta, gamma, rndstr, sqsgen_levels, level)
 N_atoms, counts = sqs_gen.supercell_size(fractions)
 print(N_atoms, counts)
 
-PHASE_DIAGRAM_SYSTEM_SIZE = 4
+PHASE_DIAGRAM_SYSTEM_SIZE = 3
 
 def plot(tdb, elements, phases, file, comp):
     if len(elements) >= PHASE_DIAGRAM_SYSTEM_SIZE:

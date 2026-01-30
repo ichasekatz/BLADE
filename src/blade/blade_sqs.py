@@ -6,23 +6,23 @@ from pathlib import Path
 
 
 def supercell_size(self, fractions):
-    fracs = [Fraction(str(f)).limit_denominator() for f in fractions]
+    fracs = [Fraction(float(f)).limit_denominator(96) for f in fractions]
     denom_lcm = math.lcm(*[f.denominator for f in fracs])
 
     # Count only actual atomic site lines: "x y z label"
     a_sites = 0
     b_sites = 0
     sites = 0
-    for line in self.rndstr.splitlines():
+    for line in self.unit_cell.splitlines():
         parts = line.split()
         if len(parts) != 4:
             continue
         label = parts[-1]
         sites += 1
-        if label == "B":
-            b_sites += 1
-        else:
+        if label == "a":
             a_sites += 1
+        else:
+            b_sites += 1
 
     base_sites = a_sites
     count_b = b_sites
@@ -30,39 +30,22 @@ def supercell_size(self, fractions):
     # Choose a number of 'a' sites that can represent the fractions exactly
     n_a = math.lcm(base_sites, denom_lcm)
 
-    if n_a >= 100:
-        n_a = base_sites * len(fracs)
+    k = n_a // a_sites
+    n_total = n_a + count_b * k
 
-    n_total = n_a + count_b
+    min_total = 2 * sites
+    if n_total < min_total: 
+        n_total = min_total
+
     n_total = ((n_total + (sites - 1)) // sites) * sites
 
-    n_a = n_total - count_b
+    n_a = n_total - count_b * k
 
     counts = [int(n_a * f) for f in fracs]
     diff = n_a - sum(counts)
     counts[0] += diff
 
     return n_total, counts
-
-
-def sqs_struct(self):
-    rndstr1 = f"""
-    {self.a} {self.b} {self.c} {self.alpha} {self.beta} {self.gamma}
-    {self.a} 0 0
-    {self.a / 2} {self.a * math.sqrt(3) / 2} 0
-    0 0 {self.c}
-    """
-
-    sqsgen = ""
-    for i in range(self.level + 1):
-        sqsgen += self.sqsgen_levels[i] + "\n"
-
-    rndstr = rndstr1.strip() + "\n" + self.unit_cell.strip()
-    self.sqsgen_text = sqsgen
-    self.rndstr = rndstr
-
-    return sqsgen, rndstr
-
 
 class BladeSQS:
     def __init__(self, a, b, c, alpha, beta, gamma, unit_cell, sqsgen_levels, level):
@@ -89,32 +72,29 @@ class BladeSQS:
             sqsgen += self.sqsgen_levels[i] + "\n"
 
         rndstr = rndstr1.strip() + "\n" + self.unit_cell.strip()
-
-        self.sqs_gen_text = sqsgen
+        self.sqsgen_text = sqsgen
         self.rndstr = rndstr
 
         return sqsgen, rndstr
 
     def supercell_size(self, fractions):
-        fracs = [Fraction(str(f)).limit_denominator() for f in fractions]
+        fracs = [Fraction(float(f)).limit_denominator(96) for f in fractions]
         denom_lcm = math.lcm(*[f.denominator for f in fracs])
 
         # Count only actual atomic site lines: "x y z label"
         a_sites = 0
         b_sites = 0
         sites = 0
-
-        sqs_struct(self)
-        for line in self.rndstr.splitlines():
+        for line in self.unit_cell.splitlines():
             parts = line.split()
             if len(parts) != 4:
                 continue
             label = parts[-1]
             sites += 1
-            if label != "a":
-                b_sites += 1
-            else:
+            if label == "a":
                 a_sites += 1
+            else:
+                b_sites += 1
 
         base_sites = a_sites
         count_b = b_sites
@@ -122,13 +102,16 @@ class BladeSQS:
         # Choose a number of 'a' sites that can represent the fractions exactly
         n_a = math.lcm(base_sites, denom_lcm)
 
-        if n_a >= 100:
-            n_a = base_sites * len(fracs)
+        k = n_a // a_sites
+        n_total = n_a + count_b * k
 
-        n_total = n_a + count_b
+        min_total = 2 * sites
+        if n_total < min_total: 
+            n_total = min_total
+
         n_total = ((n_total + (sites - 1)) // sites) * sites
 
-        n_a = n_total - count_b
+        n_a = n_total - count_b * k
 
         counts = [int(n_a * f) for f in fracs]
         diff = n_a - sum(counts)
