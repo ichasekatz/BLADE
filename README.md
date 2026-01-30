@@ -22,11 +22,6 @@ This structural flexibility leads to a vast composition space, which is efficien
 
 ## Code Structure and Workflow
 
-### `BLADE.py`
-
-`BLADE.py` serves as the **main driver** for the framework.
-It coordinates composition generation, SQS construction, thermodynamic fitting, and visualization by calling the supporting modules described below.
-
 ---
 
 ### `blade_compositions.py`
@@ -71,6 +66,18 @@ Each generated SQS is intended to be relaxed using first-principles calculations
 
 ---
 
+### `blade_tdb_gen.py`
+
+This module relaxes SQS structures, performs first-principles calculations, and organizes results for thermodynamic database construction.
+
+Key features include:
+* First-principles relaxation and fitting managed by `Sqs2tdb`, which relaxes the generated SQS structures.
+* Produces reusable thermodynamic models suitable for phase-diagram and phase-stability calculations.
+
+The output is a .tdb file that can be used to describe the thermodynamic properties of materials.
+
+---
+
 ### Thermodynamic Fitting and Phase Diagrams
 
 After SQS structures are generated and relaxed:
@@ -111,6 +118,12 @@ It is particularly useful for:
 <img width="700" alt="Multiverse" src="https://github.com/user-attachments/assets/f8de55aa-16ba-427d-baf9-22373655f391" />
 
 **Figure 4.** Overview of the BLADE framework and its integration with external tools and supporting frameworks (the Multi-verse).
+
+---
+
+## Example Usage
+
+An example script demonstrating SQS generation and TDB construction is provided in `examples/tdb_gen.py`.
 
 ---
 
