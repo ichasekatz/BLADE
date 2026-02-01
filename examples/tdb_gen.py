@@ -9,6 +9,7 @@ from pycalphad import variables as v
 from blade.blade_compositions import BladeCompositions
 from blade.blade_sqs import BladeSQS
 from blade.blade_tdb_gen import BladeTDBGen
+from blade.blade_visual import BLADEVisualizer
 
 phases = ["HEDB1"]
 liquid = True
@@ -137,3 +138,32 @@ for comp in composition_list:
         if Path(f"{files}.tdb").is_file():
             tdb = Database(f"{files}.tdb")
             plot(tdb, elements, phases, files, comp)
+
+viz = BLADEVisualizer()
+pngs = []
+for comp in composition_list:
+    comp_dir = Path(f"{path2}{''.join(comp)}")
+    pngs.extend(comp_dir.glob("*_Phase_Diagram.png"))
+if pngs:
+    viz.phase_diagram(
+        pngs,
+        save = Path(f"{path2}{''.join('Combined_Phase_Diagrams.png')}")
+    )
+    print("Combined phase diagrams saved as Combined_Phase_Diagrams.png")
+
+
+
+for comp in composition_list:
+    comp_dir = Path(f"{path2}{''.join(comp)}")
+    if not comp_dir.exists():
+        continue
+    for phase_dir in sorted(p for p in comp_dir.iterdir() if p.is_dir()):
+        poscars = sorted(phase_dir.glob("sqs_lev=*/POSCAR"))
+        if not poscars:
+            continue
+        out = comp_dir / "Combined_POSCARs.png"
+        viz.poscar(
+            poscars,
+            save=out
+        )
+        print(f"Saved combined POSCARs → {out}")
