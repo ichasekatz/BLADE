@@ -64,7 +64,10 @@ class BladeTDBGen:
                 phases (list[str]): Phase or lattice identifiers to include in the fit.
                 level (int): SQS level controlling the database depth and fitting configuration.
             """
-            sqs = Sqs2tdb(fmax=0.001, verbose=True, calculator=Calculator(device="cpu"))
+            calc = Calculator(device="cpu")
+            calc.steps = 5000
+
+            sqs = Sqs2tdb(fmax=1e-6, verbose=True, calculator=calc)
 
             sqs.fit(
                 species=comp,

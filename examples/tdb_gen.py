@@ -19,7 +19,7 @@ path0 = Path("/Users/chasekatz/Desktop/School/Research")
 path1 = path0 / "PhaseForge/PhaseForge/atat/data/sqsdb/"
 path2 = path0 / "BLADE/BLADE/"
 level = 6
-time = 1
+sqs_iter = 300000
 
 # Define elements and composition settings
 transition_metals = ["Zr", "Hf", "Ta", "Cr", "Ti", "V", "Nb", "Mo", "W"]
@@ -91,7 +91,7 @@ print("Unique length compositions: ", unique_len_comps)
 # Generate SQS structures for every composition system in each phase
 for specific_phase in phases:
     sqs_gen = BladeSQS(phases[specific_phase], sqsgen_levels, level)
-    sqs_gen.sqs_gen(unique_len_comps, specific_phase, path1, time)
+    sqs_gen.sqs_gen(unique_len_comps, specific_phase, path1, sqs_iter)
 
 BladeTDBGen(
     phases,

@@ -131,7 +131,7 @@ class BladeSQS:
 
         return n_total, counts
 
-    def sqs_gen(self, unique_len_comps, phase, path1, time):
+    def sqs_gen(self, unique_len_comps, phase, path1, iter):
         """
         Generate SQS folders and run corrdump + mcsqs for each composition.
 
@@ -182,7 +182,6 @@ class BladeSQS:
                     print(f"Skipping pure species directory: {sqsdir}")
                     continue
                 n_atoms, counts = self.supercell_size(fractions)
-
                 print(f"Running corrdump in {fractions}")
                 try:
                     subprocess.run(
@@ -201,23 +200,12 @@ class BladeSQS:
                     )
 
                     print(f"Running mcsqs with {n_atoms} atoms in {fractions}")
-                    completed = threading.Event()
+                    subprocess.run(
+                        ["mcsqs", f"-n={n_atoms}", f"-ms={iter}"],
+                        cwd=sqsdir,
+                        check=True,
+                    )
 
-                    def make_stopsqs(sqsdir, time, fractions):
-                        if not completed.is_set():
-                            Path(sqsdir, "stopsqs").touch()
-                            print(f"touch stopsqs in {fractions} after {time} seconds")
-
-                    timer = threading.Timer(time, make_stopsqs, args=(sqsdir, time, fractions))
-                    timer.start()
-
-                    try:
-                        subprocess.run(["mcsqs", f"-n={n_atoms}"], cwd=sqsdir, check=True)
-                        completed.set()
-                    except subprocess.CalledProcessError:
-                        print(f"corrdump or mcsqs failed in {sqsdir}, continuing.")
-                    finally:
-                        timer.cancel()
                 except subprocess.CalledProcessError:
                     print(f"corrdump or mcsqs failed in {sqsdir}, continuing.")
                     continue
