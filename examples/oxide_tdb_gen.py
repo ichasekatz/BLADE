@@ -22,21 +22,18 @@ from blade.blade_visual import BLADEVisualizer
 
 
 # Define phases, pathways, and SQS generation settings
-phases = ["HEDB1"]
-phases = ["FCC1", "HCP1"]
+phases = ["HEDB2"]
 liquid = False
 path0 = Path("/Users/chasekatz/Desktop/School/Research")
 path1 = path0 / "PhaseForge/PhaseForge/atat/data/sqsdb/"
-path2 = path0 / "BLADE/BLADE/"
+path2 = path0 / "BLADE/BLADEO/"
 level = 6
-sqs_iter = 2000
-use_time = [30, False]
+sqs_iter = 1000000
 
 # Define elements and composition settings
 transition_metals = ["Zr", "Hf", "Ta", "Cr", "Ti", "V", "Nb", "Mo", "W"]
 rare_earths = ["Sc", "Y", "La", "Pr", "Nd", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er", "Tm", "Yb", "Lu"]
-transition_metals = ["Hf", "Cr"]
-transition_metals = ["Ni", "Re"]
+transition_metals = ["Hf", "Fe"]
 system_size = 2
 tm_element_range = [2, 2]
 re_element_range = [0, 0]
@@ -45,45 +42,7 @@ allow_lower_order = True
 # Define phases
 phases = {}
 
-# phases["HEDB1"] = {
-#     "a": 1,
-#     "b": 1,
-#     "c": 1.63299,
-#     "alpha": 90,
-#     "beta": 90,
-#     "gamma": 120,
-#     "coords": """
-# 0.000000 0.000000 0.000000  a
-# 0.333333 0.666667 0.500000  B
-# 0.666667 0.333333 0.500000  B
-# """,
-# }
-
-# phases["BCC1"] = {
-#     "a": 1,
-#     "b": 1,
-#     "c": 1,
-#     "alpha": 109.47122,
-#     "beta": 109.47122,
-#     "gamma": 109.47122,
-#     "coords": """
-# 0.000000 0.000000 0.000000  a
-# """,
-# }
-
-phases["FCC1"] = {
-    "a": 1,
-    "b": 1,
-    "c": 1,
-    "alpha": 60,
-    "beta": 60,
-    "gamma": 60,
-    "coords": """
-0.000000 0.000000 0.000000  a
-""",
-}
-
-phases["HCP1"] = {
+phases["HEDB1"] = {
     "a": 1,
     "b": 1,
     "c": 1.63299,
@@ -92,7 +51,8 @@ phases["HCP1"] = {
     "gamma": 120,
     "coords": """
 0.000000 0.000000 0.000000  a
-0.666667 0.333333 0.500000  a
+0.333333 0.666667 0.500000  B
+0.666667 0.333333 0.500000  B
 """,
 }
 
@@ -132,7 +92,7 @@ print("Unique length compositions: ", unique_len_comps)
 # Generate SQS structures for every composition system in each phase
 for specific_phase in phases:
     sqs_gen = BladeSQS(phases[specific_phase], sqsgen_levels, level)
-    sqs_gen.sqs_gen(unique_len_comps, specific_phase, path1, sqs_iter, use_time)
+    sqs_gen.sqs_gen(unique_len_comps, specific_phase, path1, sqs_iter)
 
 BladeTDBGen(
     phases,

@@ -8,9 +8,11 @@ for choosing a supercell size that matches requested fractional compositions on 
 
 import math
 import subprocess
-import threading
 from fractions import Fraction
 from pathlib import Path
+import threading
+
+from blade.blade_cutoff import BladeCutoff
 
 
 class BladeSQS:
@@ -35,6 +37,7 @@ class BladeSQS:
             sqsgen_levels (list[str]): Lines for sqsgen.in, where higher indices correspond to higher optimization levels.
             level (int): Maximum sqsgen level to include (inclusive). For example, level=2 will include levels [0, 1, 2].
         """
+        self.phases_dict = phases_dict
         self.a = phases_dict["a"]
         self.b = phases_dict["b"]
         self.c = phases_dict["c"]
@@ -131,7 +134,7 @@ class BladeSQS:
 
         return n_total, counts
 
-    def sqs_gen(self, unique_len_comps, phase, path1, iter):
+    def sqs_gen(self, unique_len_comps, phase, path1, iter, use_time):
         """
         Generate SQS folders and run corrdump + mcsqs for each composition.
 
@@ -182,6 +185,14 @@ class BladeSQS:
                     print(f"Skipping pure species directory: {sqsdir}")
                     continue
                 n_atoms, counts = self.supercell_size(fractions)
+
+                cutoffs = BladeCutoff(self.phases_dict, tol=1e-6, supercell=int(n_atoms/len(self.unit_cell.strip().splitlines())))
+                cut2,cut3,shells=cutoffs.get_cutoffs(pair_shells=3)
+
+                print("\nRecommended SQS cutoffs:")
+                print(f"-2 = {cut2:.5f}")
+                print(f"-3 = {cut3:.5f}")
+
                 print(f"Running corrdump in {fractions}")
                 try:
                     subprocess.run(
@@ -192,19 +203,44 @@ class BladeSQS:
                             "-noe",
                             "-nop",
                             "-clus",
-                            "-2=1,2,3,4",
-                            "-3=1,2",
+                            # "-2=1,2,3,4",
+                            # "-3=1,2,3",
+                            f"-2={cut2:.5f}",
+                            f"-3={cut3:.5f}",
                         ],
                         cwd=sqsdir,
                         check=True,
                     )
 
                     print(f"Running mcsqs with {n_atoms} atoms in {fractions}")
-                    subprocess.run(
-                        ["mcsqs", f"-n={n_atoms}", f"-ms={iter}", "-tol=1e-3"],
-                        cwd=sqsdir,
-                        check=True,
-                    )
+                    if use_time[1] == False:
+                        subprocess.run(
+                            ["mcsqs", f"-n={n_atoms}", f"-ms={iter}"], #f"-ms={iter}", "-tol=1e-3"
+                            cwd=sqsdir,
+                            check=True,
+                        )
+                    if use_time[1] == True:
+                        completed = threading.Event()
+
+                        def make_stopsqs(sqsdir, time, fractions):
+                            if not completed.is_set():
+                                Path(sqsdir, "stopsqs").touch()
+                                print(f"touch stopsqs in {fractions} after {time} seconds")
+
+                        timer = threading.Timer(use_time[0], make_stopsqs, args=(sqsdir, use_time[0], fractions))
+                        timer.start()
+
+                        try:
+                            subprocess.run(
+                                ["mcsqs", f"-n={n_atoms}"], #f"-ms={iter}", "-tol=1e-3"
+                                cwd=sqsdir, 
+                                check=True
+                            )
+                            completed.set()
+                        except subprocess.CalledProcessError:
+                            print(f"corrdump or mcsqs failed in {sqsdir}, continuing.")
+                        finally:
+                            timer.cancel()
 
                 except subprocess.CalledProcessError:
                     print(f"corrdump or mcsqs failed in {sqsdir}, continuing.")
