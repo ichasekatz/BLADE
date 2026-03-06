@@ -24,23 +24,27 @@ from blade.blade_visual import BLADEVisualizer
 # Define phases, pathways, and SQS generation settings
 phases = ["HEDB1"]
 phases = ["FCC1", "HCP1"]
+#phases = ["FCC1"]
 liquid = False
 path0 = Path("/Users/chasekatz/Desktop/School/Research")
 path1 = path0 / "PhaseForge/PhaseForge/atat/data/sqsdb/"
 path2 = path0 / "BLADE/BLADE/"
 level = 6
-sqs_iter = 2000
+sqs_iter = 10000
 use_time = [30, False]
 
 # Define elements and composition settings
 transition_metals = ["Zr", "Hf", "Ta", "Cr", "Ti", "V", "Nb", "Mo", "W"]
+transition_metals = ["Zr", "Hf", "Ta", "Cr", "Ti", "Nb", "Mo"]
 rare_earths = ["Sc", "Y", "La", "Pr", "Nd", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er", "Tm", "Yb", "Lu"]
-transition_metals = ["Hf", "Cr"]
+rare_earths = ["Sc", "Lu", "Er", "Sm", "Ho", "Yb", "Tm", "La", "Y", "Dy", "Gd", "Nd", "Pr", "Eu", "Tb"]
+rare_earths = ["Sc"]
+# transition_metals = ["Hf", "Cr"]
 transition_metals = ["Ni", "Re"]
 system_size = 2
 tm_element_range = [2, 2]
 re_element_range = [0, 0]
-allow_lower_order = True
+allow_lower_order = False
 
 # Define phases
 phases = {}
@@ -52,6 +56,11 @@ phases = {}
 #     "alpha": 90,
 #     "beta": 90,
 #     "gamma": 120,
+#     "vectors":"""
+# 1 0 0
+# 0 1 0
+# 0 0 1
+# """,
 #     "coords": """
 # 0.000000 0.000000 0.000000  a
 # 0.333333 0.666667 0.500000  B
@@ -63,11 +72,17 @@ phases = {}
 #     "a": 1,
 #     "b": 1,
 #     "c": 1,
-#     "alpha": 109.47122,
-#     "beta": 109.47122,
-#     "gamma": 109.47122,
-#     "coords": """
+#     "alpha": 90,
+#     "beta": 90,
+#     "gamma": 90,
+#     "vectors":"""
+# 0.5 0.5 0.5
+# 0.5 -0.5 0.5
+# 0.5 0.5 -0.5
+# """,
+#     "coords":"""
 # 0.000000 0.000000 0.000000  a
+# 0.500000 0.500000 0.500000  a
 # """,
 # }
 
@@ -78,6 +93,11 @@ phases["FCC1"] = {
     "alpha": 60,
     "beta": 60,
     "gamma": 60,
+    "vectors":"""
+1 0 0
+0 1 0
+0 0 1
+""",
     "coords": """
 0.000000 0.000000 0.000000  a
 """,
@@ -90,6 +110,11 @@ phases["HCP1"] = {
     "alpha": 90,
     "beta": 90,
     "gamma": 120,
+    "vectors":"""
+1 0 0
+0 1 0
+0 0 1
+""",
     "coords": """
 0.000000 0.000000 0.000000  a
 0.666667 0.333333 0.500000  a

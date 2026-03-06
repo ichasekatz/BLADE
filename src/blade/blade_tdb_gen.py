@@ -66,7 +66,7 @@ class BladeTDBGen:
             """
             calc = Calculator(steps=1000, device="cpu")
 
-            sqs = Sqs2tdb(fmax=0.001, verbose=True, calculator=calc)
+            sqs = Sqs2tdb(fmax=0.005, verbose=True, calculator=calc)
 
             sqs.fit(
                 species=comp,

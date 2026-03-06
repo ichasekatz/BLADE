@@ -44,6 +44,7 @@ class BladeSQS:
         self.alpha = phases_dict["alpha"]
         self.beta = phases_dict["beta"]
         self.gamma = phases_dict["gamma"]
+        self.vectors = phases_dict["vectors"]
         self.unit_cell = phases_dict["coords"]
         self.sqsgen_levels = sqsgen_levels
         self.level = level
@@ -56,12 +57,11 @@ class BladeSQS:
             tuple[str, str]:
                 (sqsgen_text, rndstr_text)
         """
-        rndstr1 = f"""
-        {self.a} {self.b} {self.c} {self.alpha} {self.beta} {self.gamma}
-        1 0 0
-        0 1 0
-        0 0 1
-        """
+        rndstr1 = (
+            f"{self.a} {self.b} {self.c} {self.alpha} {self.beta} {self.gamma}\n"
+            f"{self.vectors.strip()}"
+        )
+        print(rndstr1)
         sqsgen = ""
         for i in range(self.level + 1):
             sqsgen += self.sqsgen_levels[i] + "\n"
@@ -73,7 +73,7 @@ class BladeSQS:
 
         return sqsgen, rndstr
 
-    def supercell_size(self, fractions, min_a_sites=1, max_den=96):
+    def supercell_size(self, fractions, min_a_sites=1, max_den=100):
         """
         Determine a supercell size compatible with target fractions.
 
@@ -134,6 +134,7 @@ class BladeSQS:
 
         return n_total, counts
 
+        
     def sqs_gen(self, unique_len_comps, phase, path1, iter, use_time):
         """
         Generate SQS folders and run corrdump + mcsqs for each composition.
@@ -180,18 +181,26 @@ class BladeSQS:
                 folder_lev = folder_lev.split("_")[0]
                 comp_str = folder_name.split("=")[-1]  # e.g. "0.75,0.125,0.125"
                 fractions = [float(x) for x in comp_str.split(",")]
+                print(fractions)
                 if len(fractions) == 1:  # Only one species, no mixing
                     print(fractions)
                     print(f"Skipping pure species directory: {sqsdir}")
                     continue
-                n_atoms, counts = self.supercell_size(fractions)
+                n_atoms, counts = self.supercell_size(fractions, min_a_sites=48, max_den=100)
 
-                cutoffs = BladeCutoff(self.phases_dict, tol=1e-6, supercell=int(n_atoms/len(self.unit_cell.strip().splitlines())))
-                cut2,cut3,shells=cutoffs.get_cutoffs(pair_shells=3)
+                cutoff = BladeCutoff()
+                lattice=cutoff.lattice_from_params(self.a,self.b,self.c,self.alpha,self.beta,self.gamma)
 
-                print("\nRecommended SQS cutoffs:")
-                print(f"-2 = {cut2:.5f}")
-                print(f"-3 = {cut3:.5f}")
+                frac=cutoff.read_coords(self.unit_cell)
+
+                shells=cutoff.get_shells(lattice, frac, (5,5,5))
+        
+                print("Neighbor shells (Å):")
+                for i,s in enumerate(shells[:10],1):
+                    print(f"{i}NN = {s:.6f}")
+
+                cutoff_dict = cutoff.derive_cutoffs(len(fractions), shells)
+                print(f"Derived cutoffs: {cutoff_dict['-2']:.5f} (pairs), {cutoff_dict['-3']:.5f} (triplets), {cutoff_dict['-4']:.5f} (quadruplets)")
 
                 print(f"Running corrdump in {fractions}")
                 try:
@@ -203,19 +212,44 @@ class BladeSQS:
                             "-noe",
                             "-nop",
                             "-clus",
-                            # "-2=1,2,3,4",
-                            # "-3=1,2,3",
-                            f"-2={cut2:.5f}",
-                            f"-3={cut3:.5f}",
+                            f"-2={cutoff_dict['-2']}",
+                            f"-3={cutoff_dict['-3']}",
+                            f"-4={cutoff_dict['-4']}",
+                            "-2=1"
                         ],
                         cwd=sqsdir,
                         check=True,
                     )
+                    print(sqsdir)
+                    clusters = cutoff.derive_cutoffs2(sqsdir)
+
+                    maxvals = {"pair": None, "triplet": None, "quadruplet": None}
+
+                    for kind, r in clusters:
+                        if kind in maxvals:
+                            if maxvals[kind] is None or r > maxvals[kind]:
+                                maxvals[kind] = r
+
+                    cut2 = maxvals["pair"]
+                    cut3 = maxvals["triplet"]
+                    cut4 = maxvals["quadruplet"]
+                    print(f"Max cluster distances from corrdump: {cut2:.5f} (pairs), {cut3:.5f} (triplets), {cut4:.5f} (quadruplets)")
 
                     print(f"Running mcsqs with {n_atoms} atoms in {fractions}")
                     if use_time[1] == False:
                         subprocess.run(
-                            ["mcsqs", f"-n={n_atoms}", f"-ms={iter}"], #f"-ms={iter}", "-tol=1e-3"
+                            [
+                                "mcsqs",
+                                f"-n={n_atoms}", 
+                                # f"-2={cut2}",
+                                # f"-3={cut3}",
+                                # f"-4={cut4}",
+                                "-wr=50",
+                                "-wn=1"
+                                "-wd=1"
+                                "-l=rndstr.in", 
+                                f"-ms={iter}",
+                            ], #f"-ms={iter}", "-tol=1e-3"
                             cwd=sqsdir,
                             check=True,
                         )
@@ -232,7 +266,15 @@ class BladeSQS:
 
                         try:
                             subprocess.run(
-                                ["mcsqs", f"-n={n_atoms}"], #f"-ms={iter}", "-tol=1e-3"
+                            [
+                                "mcsqs",
+                                f"-n={n_atoms}", 
+                                f"-2={cut2:.5f}",
+                                f"-3={cut3:.5f}",
+                                f"-4={cut4:.5f}",
+                                "-l=rndstr.in", 
+                                "-tol=5e-3",
+                            ], #f"-ms={iter}", "-tol=1e-3"
                                 cwd=sqsdir, 
                                 check=True
                             )
@@ -245,3 +287,5 @@ class BladeSQS:
                 except subprocess.CalledProcessError:
                     print(f"corrdump or mcsqs failed in {sqsdir}, continuing.")
                     continue
+
+
