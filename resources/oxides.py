@@ -15,10 +15,10 @@ import matplotlib.pyplot as plt
 from pycalphad import Database, binplot
 from pycalphad import variables as v
 
-from blade.blade_compositions import BladeCompositions
-from blade.blade_sqs import BladeSQS
-from blade.blade_tdb_gen import BladeTDBGen
-from blade.blade_visual import BLADEVisualizer
+from blade.tools.blade_compositions import BladeCompositions
+from blade.tools.blade_sqs import BladeSQS
+from blade.tools.blade_tdb_gen import BladeTDBGen
+from blade.analysis.blade_visual import BLADEVisualizer
 
 
 # Define phases, pathways, and SQS generation settings
