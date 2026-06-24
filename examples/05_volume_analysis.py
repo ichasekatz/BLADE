@@ -30,7 +30,7 @@ print("Example 1: Single composition (CrHf)")
 print("=" * 60)
 
 vol = BLADEVolume()
-comp_dir = path1 / "CrHf"
+comp_dir = path1 / "Files" / "Comps" / "CrHf"
 
 if comp_dir.exists():
     df = vol.scan_poscars(comp_dir)

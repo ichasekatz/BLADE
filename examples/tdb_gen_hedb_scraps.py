@@ -1,10 +1,8 @@
-"""Full BLADE workflow: compositions → SQS → TDB → phase diagrams → visualization.
+"""BLADE workflow for HEDB system using SCRAPS instead of mcsqs for SQS generation.
 
-This is the main driver script showing an example of HEDBs but uses the refactored BLADE API:
-
-  - BladeTDBGen stores config on construction; call gen.fit() to run
-  - BladeVisualizer (not BLADEVisualizer)
-  - All classes imported from blade.*
+Mirrors tdb_gen_hedb.py exactly, replacing BladeSQS with ScrapsSQSGen.
+Output goes to Files/Comps_scraps/ so mcsqs and SCRAPS results can be
+compared side-by-side without overwriting each other.
 """
 
 from collections import Counter
@@ -14,7 +12,7 @@ from pathlib import Path
 from pycalphad import Database
 
 from blade.tools.blade_compositions import BladeCompositions
-from blade.tools.blade_sqsgen import BladeSQS
+from blade.tools.blade_scraps_gen import ScrapsSQSGen
 from blade.tools.blade_tdb_gen import BladeTDBGen
 from blade.analysis.blade_visual import BladeVisualizer
 
@@ -26,11 +24,14 @@ path1 = path0 / "BLADE"
 path2 = path0 / "PhaseForge" / "PhaseForge" / "atat" / "data" / "sqsdb"
 paths = [path0, path1, path2]
 
+SCRAPS_REPO  = path0 / "SCRAPS" / "scraps-perpair"
+SCRAPS_BIN   = SCRAPS_REPO / "SCRAPs" / "scraps"
+SCRAPS_TOOLS = SCRAPS_REPO / "tools"
+
 # ------------------------------------------------------------------
 # Run flags
 # ------------------------------------------------------------------
 level = 5
-sqs_iter = 1_000_000
 run_sqs = True
 skip_existing_sqs = False
 
@@ -40,7 +41,7 @@ skip_existing_tdb = False
 # ------------------------------------------------------------------
 # MLIP calculator — change mlip to swap potentials (see MaterialsFramework registry)
 # ------------------------------------------------------------------
-mlip        = "grace"                            # e.g. "grace", "mace", "uma", "chgnet", "orb"
+mlip        = "grace"                           # e.g. "grace", "mace", "uma", "chgnet", "orb"
 mlip_kwargs = {"steps": 1000, "device": "cpu"} # kwargs forwarded to the calculator constructor
 
 tdb_params = {
@@ -57,11 +58,8 @@ tdb_params = {
     "terms": None,
 }
 
-# Optional per-phase model overrides — set to None to use ATAT defaults.
-# Keys are lattice base names (e.g. "CARBIDE1", "FCC1", "BCC1").
-
 terms_in: dict | None = None
-terms_in = {"HEDB1": 
+terms_in = {"HEDB2": 
     "1,0:1,0\n"
     "2,2:1,0\n"
     }
@@ -106,16 +104,17 @@ _DIBORIDE_C = {
     "Cr": 3.066, "Hf": 3.470, "Mo": 3.169, "Nb": 3.269,
     "Ta": 3.227, "Ti": 3.228, "V":  3.057, "W":  3.137, "Zr": 3.530,
 }
-_active_d = [el for el in primary_elements if el in _DIBORIDE_A]
-_avg_a = sum(_DIBORIDE_A[el] for el in _active_d) / len(_active_d)
-_avg_c = sum(_DIBORIDE_C[el] for el in _active_d) / len(_active_d)
-print(f"Diboride lattice estimate: a={_avg_a:.4f} Å  c={_avg_c:.4f} Å  (avg of {_active_d})")
+
+_active = [el for el in primary_elements if el in _DIBORIDE_A]
+_avg_a = sum(_DIBORIDE_A[el] for el in _active) / len(_active)
+_avg_c = sum(_DIBORIDE_C[el] for el in _active) / len(_active)
+print(f"Diboride lattice estimate: a={_avg_a:.4f} Å  c={_avg_c:.4f} Å  (avg of {_active})")
 
 # ------------------------------------------------------------------
 # Phase prototypes
 # ------------------------------------------------------------------
 phases: dict[str, dict] = {
-    "HEDB1": {
+    "HEDB2": {
         "a": _avg_a,
         "b": _avg_a,
         "c": _avg_c,
@@ -132,9 +131,7 @@ phases: dict[str, dict] = {
 }
 
 phase_list = [
-    # supercell_size controls n_atoms = unit_cell_sites × product(supercell_size)
-    # (2,2,2) → 64 atoms   (4,4,2) → 128   (4,4,4) → 256
-    {"generator_name": "HEDB", "lattice": "HEDB1",  "supercell_size": (4, 3, 2)},
+    {"generator_name": "HEDB", "lattice": "HEDB2", "supercell_size": (4, 4, 3)},
 ]
 
 liquid = False
@@ -153,20 +150,14 @@ sqsgen_levels = [
 ]
 
 # ------------------------------------------------------------------
-# mcsqs run parameters
+# SCRAPS parameters
 # ------------------------------------------------------------------
-mcsqs_params = {
-    "use_time": True,
-    "time": 30,          # seconds per sqsdb directory
-    "cutoff_mode": "nn", # "nn" = NN shell index (decimals OK), "angstrom" = direct Å
-    "2": 5,              # pair cutoff  = 5th-nearest shell
-    "3": 4,              # triplet cutoff
-    "4": 3,              # quadruplet cutoff
-    "wr": 20,
-    "wn": 0.75,
-    "wd": 1,
-    "parallel_runs": 10,
-}
+scraps_ranks = 10
+auto_budget  = 3   # 1=basic, 2=thorough, 3=exhaustive
+max_shellnum = 4
+# True  → multi-basis variable sublattices use per-atom spectators
+# False → standard SUBLATTICE block (fails for MAX b-sites, may work for other structures)
+fix_multibasis_sublattice = False
 
 # ------------------------------------------------------------------
 # 1. Generate compositions
@@ -187,28 +178,35 @@ print(f"Compositions ({len(composition_list)} total): {composition_list}")
 print(f"System sizes: {unique_len_comps}")
 
 # ------------------------------------------------------------------
-# 2. Generate SQS structures
+# 2. Generate SQS structures via SCRAPS
 # ------------------------------------------------------------------
 if run_sqs:
     for specific_phase in phase_list:
         for len_comp in unique_len_comps:
             lattice = specific_phase["lattice"]
-            sqs_gen = BladeSQS(
+            sqs_gen = ScrapsSQSGen(
                 phases_dict=phases[lattice],
                 sqsgen_levels=sqsgen_levels,
                 level=level,
                 len_comp=len_comp,
                 skip_existing_sqs=skip_existing_sqs,
+                sublattice_map=sublattice_map,
                 sqsgen_in=sqsgen_in.get(lattice) if sqsgen_in else None,
                 fixed_compositions=fixed_compositions,
+                scraps_bin=SCRAPS_BIN,
+                scraps_tools=SCRAPS_TOOLS,
+                ranks=scraps_ranks,
+                auto_budget=auto_budget,
+                max_shellnum=max_shellnum,
+                fix_multibasis_sublattice=fix_multibasis_sublattice,
             )
-            params = mcsqs_params | {"super_cell_size": specific_phase["supercell_size"]}
-            sqs_gen.sqs_gen(phase=specific_phase, paths=paths, iter=sqs_iter, params=params)
+            params = {"super_cell_size": specific_phase["supercell_size"]}
+            sqs_gen.sqs_gen(phase=specific_phase, paths=paths, iter=0, params=params)
 
 # ------------------------------------------------------------------
 # 3. Fit TDB databases
 # ------------------------------------------------------------------
-comps_dir = path1 / "Files" / "Comps"
+comps_dir = path1 / "Files" / "Comps_scraps"
 
 if run_tdb:
     gen = BladeTDBGen(
@@ -252,7 +250,7 @@ for comp, comp_filt in zip(composition_list, filt_comp_list):
     comp_dir = comps_dir / comp_name
     if not comp_dir.exists():
         continue
-    phase_name = f"{phase_list[0]['generator_name']}1_{len(comp_filt)}"
+    phase_name = f"{phase_list[0]['lattice']}_{len(comp_filt)}"
     tdb_phases = [phase_name]
     for tdb_file in comp_dir.glob("*.tdb"):
         tdb = Database(str(tdb_file))
