@@ -178,5 +178,4 @@ class BladeCutoff:
             if not shells or abs(r - shells[-1]) > tol:
                 shells.append(r)
 
-        shells_arr = np.array(shells)
-        return shells_arr / shells_arr[0]
+        return np.array(shells)

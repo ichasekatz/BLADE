@@ -1,8 +1,9 @@
 """Example: running the SQS-to-TDB fitting pipeline with BladeTDBGen.
 
 This script shows how to configure and run the CALPHAD database fitting
-step. BladeTDBGen wraps MaterialsFramework's Sqs2tdb workflow across many
-chemical compositions, running one fit per composition in sequence.
+step across multiple phase prototypes. BladeTDBGen wraps MaterialsFramework's
+Sqs2tdb workflow across many chemical compositions, running one fit per
+composition in sequence.
 
 Key difference from the original BLADE: construction is side-effect-free.
 The fitting loop only executes when gen.fit() is called explicitly.
@@ -21,7 +22,7 @@ from blade.tools.blade_compositions import BladeCompositions
 from blade.tools.blade_tdb_gen import BladeTDBGen
 
 # ------------------------------------------------------------------
-# Paths — adjust to your environment
+# Paths
 # ------------------------------------------------------------------
 path0 = Path("/Users/chasekatz/Desktop/School/Research")
 path1 = path0 / "BLADE"
@@ -29,49 +30,139 @@ path2 = path0 / "PhaseForge" / "PhaseForge" / "atat" / "data" / "sqsdb"
 paths = [path0, path1, path2]
 
 # ------------------------------------------------------------------
-# Phase list (must match what was used for SQS generation)
+# Run flags
 # ------------------------------------------------------------------
+level = 5
+skip_existing = True
+
+tdb_params = {
+    "fmax": 1e-4,
+    "verbose": True,
+    "calculator": "cuda",
+    "t_min": 298.15,
+    "t_max": 10000.0,
+    "sro": False,
+    "bv": 1e-3,
+    "phonon": False,
+    "open_calphad": False,
+    "terms": None,
+}
+
+terms_in: dict | None = None
+terms_in = {"HEDB1": "1,0:1,0\n2,0:2,0\n"}
+
+mult_in: dict | None = None
+mult_in = {
+    "FCC1": "a=1",
+    "FCC2": "a=1\tb=1",
+}
+
+# sublattice_map: dict | None = None
+sublattice_map = {"FCC2": {"a": ["Cr", "Hf"], "b": ["Zr", "Ti"]}}
+
+# ------------------------------------------------------------------
+# Elements and composition constraints
+# ------------------------------------------------------------------
+primary_elements = ["Hf", "Cr"]
+secondary_elements: list[str] = []
+
+primary_min = 2
+primary_max = 2
+secondary_min = 0
+secondary_max = 0
+
+# ------------------------------------------------------------------
+# Phase prototypes and run list (must match what was used for SQS generation)
+# ------------------------------------------------------------------
+phases: dict[str, dict] = {
+    "HEDB1": {
+        "a": 1,
+        "b": 1,
+        "c": 1,
+        "alpha": 90,
+        "beta": 90,
+        "gamma": 120,
+        "vectors": "1 0 0\n0 1 0\n0 0 1\n",
+        "coords": (
+            "0.000000 0.000000 0.000000 a\n"
+            "0.333333 0.666667 0.500000 B\n"
+            "0.666667 0.333333 0.500000 B\n"
+        ),
+    },
+    "FCC1": {
+        "a": 1,
+        "b": 1,
+        "c": 1,
+        "alpha": 90,
+        "beta": 90,
+        "gamma": 90,
+        "vectors": "1 0 0\n0 1 0\n0 0 1\n",
+        "coords": (
+            "0.000000 0.000000 0.000000 a\n"
+            "0.000000 0.500000 0.500000 a\n"
+            "0.500000 0.000000 0.500000 a\n"
+            "0.500000 0.500000 0.000000 a\n"
+        ),
+    },
+    "FCC2": {
+        "a": 1,
+        "b": 1,
+        "c": 1,
+        "alpha": 90,
+        "beta": 90,
+        "gamma": 90,
+        "vectors": "1 0 0\n0 1 0\n0 0 1\n",
+        "coords": (
+            "0.000000 0.000000 0.000000 a\n"
+            "0.000000 0.500000 0.500000 a\n"
+            "0.500000 0.000000 0.500000 b\n"
+            "0.500000 0.500000 0.000000 b\n"
+        ),
+    },
+}
+
 phase_list = [
-    {"generator_name": "PHASE", "lattice": "PHASE1", "supercell_size": (4, 3, 2)},
+    {"generator_name": "HEDB", "lattice": "HEDB1", "supercell_size": (4, 3, 2)},
+    # {"generator_name": "FCC",  "lattice": "FCC1",  "supercell_size": (2, 2, 2)},
+    # {"generator_name": "FCC",  "lattice": "FCC2",  "supercell_size": (2, 2, 2)},
 ]
 
-# Fixed-sublattice species (B sublattice in HEDB1)
-sqsgen_levels2 = [
-    {"element": "B", "compositions": "1.0", "letter": "b", "count": "2"},
-]
+liquid = False
 
 # ------------------------------------------------------------------
-# Compositions
+# 1. Generate compositions
 # ------------------------------------------------------------------
 composer = BladeCompositions(
-    primary_elements=["Cr", "Hf"],
-    secondary_elements=[],
-    system_size=2,
-    primary_min=2,
-    primary_max=2,
-    secondary_min=0,
-    secondary_max=0,
-    allow_lower_order=False,
+    primary_elements=primary_elements,
+    secondary_elements=secondary_elements,
+    primary_min=primary_min,
+    primary_max=primary_max,
+    secondary_min=secondary_min,
+    secondary_max=secondary_max,
 )
 composition_list = composer.generate_compositions()
 print(f"Fitting TDBs for {len(composition_list)} composition(s): {composition_list}")
 
 # ------------------------------------------------------------------
-# Configure and run the fitting pipeline
+# 2. Fit TDB databases
 # ------------------------------------------------------------------
-# Step 1: construct the object — no computation happens here
+comps_dir = path1 / "Files" / "Comps"
+
 gen = BladeTDBGen(
     phases=phase_list,
-    liquid=False,
+    phases_dict=phases,
+    liquid=liquid,
     paths=paths,
     composition_list=composition_list,
-    level=5,
-    sqsgen_levels2=sqsgen_levels2,
-    skip_existing=True,   # skip compositions that already have a .tdb file
+    level=level,
+    skip_existing=skip_existing,
+    output_dir=comps_dir,
+    terms_in=terms_in,
+    mult_in=mult_in,
+    sublattice_map=sublattice_map,
+    tdb_params=tdb_params,
 )
-
-# Step 2: run the fitting loop explicitly
 gen.fit()
 
 print("\nTDB generation complete.")
-print(f"Output TDB files are located in: {path1}")
+print(f"Output TDB files are located in: {comps_dir}")

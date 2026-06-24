@@ -103,13 +103,17 @@ class BladeVisualizer:
             images (list[str | Path]): Paths to image files to combine.
             save (str | Path): Output path for the combined image.
         """
+        import math
         imgs = [Image.open(p) for p in images]
-        widths, heights = zip(*(img.size for img in imgs))
-        combined = Image.new("RGB", (sum(widths), max(heights)), "white")
-        x_offset = 0
-        for img in imgs:
-            combined.paste(img, (x_offset, 0))
-            x_offset += img.width
+        n = len(imgs)
+        ncols = math.ceil(math.sqrt(n))
+        nrows = math.ceil(n / ncols)
+        cell_w = max(img.width for img in imgs)
+        cell_h = max(img.height for img in imgs)
+        combined = Image.new("RGB", (ncols * cell_w, nrows * cell_h), "white")
+        for idx, img in enumerate(imgs):
+            row, col = divmod(idx, ncols)
+            combined.paste(img, (col * cell_w, row * cell_h))
         combined.save(save)
 
     def plot_gibbs_energy(

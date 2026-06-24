@@ -28,7 +28,7 @@ viz = BladeVisualizer()
 # ------------------------------------------------------------------
 # Paths — adjust to your environment
 # ------------------------------------------------------------------
-path1 = Path("/Users/chasekatz/Desktop/School/Research/BLADE")
+path1 = Path("/Users/chasekatz/Desktop/School/Research/BLADE/Files/Comps/")
 
 # ------------------------------------------------------------------
 # Example 1: combine CONTCAR structures for one composition + phase
@@ -38,7 +38,7 @@ print("Example 1: Combined CONTCAR structures")
 print("=" * 60)
 
 comp_name = "CrHf"
-phase_name = "PHASE1_2"
+phase_name = "HEDB1_2"
 comp_dir = path1 / comp_name
 phase_dir = comp_dir / phase_name
 
@@ -59,8 +59,9 @@ print("Example 2: Gibbs energy vs composition")
 print("=" * 60)
 
 # fixed_species: elements held at constant total mole fraction
-# e.g. {"Al": 1/3} for (Cr,Hf)B2 where boron is 2/3 of all atoms
+# e.g. {"B": 2/3} for (Cr,Hf)B2 where boron is 2/3 of all atoms
 fixed_species = {"B": 2 / 3}
+# fixed_species = {}
 
 tdb_files = sorted((path1 / comp_name).glob("*.tdb"))
 if tdb_files:

@@ -26,6 +26,10 @@ from __future__ import annotations
 
 import math
 import re
+import shutil
+from fractions import Fraction
+from itertools import combinations, combinations_with_replacement, product
+from math import gcd
 import subprocess
 import threading
 import time
@@ -56,13 +60,23 @@ class BladeSQS:
         phases_dict (dict): Phase prototype with keys ``"a"``, ``"b"``,
             ``"c"``, ``"alpha"``, ``"beta"``, ``"gamma"``, ``"vectors"``,
             and ``"coords"``.
-        sqsgen_levels (list[dict]): Composition levels for ``sqsgen.in``.
+        sqsgen_levels (list[dict]): Composition level seeds for ``sqsgen.in``.
             Each entry must have ``"level"``, ``"letter"``, and
-            ``"compositions"`` keys.
+            ``"compositions"`` keys.  Each seed composition is automatically
+            expanded to all canonical (sorted-descending) compositions that
+            share its denominator — e.g., ``[0.75, 0.25]`` also generates
+            ``[0.5, 0.5]`` for a binary system.  Pure endmembers are not
+            expanded.
         level (int): Highest sqsgen level to include (inclusive).
         len_comp (int): Number of elements in the target system.
         skip_existing_sqs (bool): Skip directories that already contain a
             ``bestcorr.out`` file.
+        sqsgen_in (str | None): Optional verbatim ``sqsgen.in`` content.
+            When set, ``_build_sqsgen_text`` is bypassed entirely.
+        sublattice_map (dict[str, list[str]] | None): Per-sublattice active
+            species lists.  When provided, compositions for constrained
+            sublattices are zero-padded to ``len_comp`` so that ternary (or
+            higher-order) sqsdb entries correctly fix inactive species at 0.
     """
 
     def __init__(
@@ -72,6 +86,8 @@ class BladeSQS:
         level: int,
         len_comp: int,
         skip_existing_sqs: bool = False,
+        sublattice_map: dict[str, list[str]] | None = None,
+        sqsgen_in: str | None = None,
     ) -> None:
         """Initialize BladeSQS.
 
@@ -98,6 +114,17 @@ class BladeSQS:
                 generation for directories that already exist, and skip
                 ``mcsqs`` runs for directories that already have a
                 ``bestcorr.out`` file. Defaults to ``False``.
+            sqsgen_in (str | None, optional): Verbatim ``sqsgen.in`` content.
+                When provided, bypasses ``_build_sqsgen_text`` entirely and
+                writes this string directly to ``sqsgen.in``.  Useful for
+                multi-sublattice phases that require hand-crafted composition
+                lines.  Defaults to ``None``.
+            sublattice_map (dict[str, list[str]] | None, optional): Maps
+                sublattice letters to their active element lists.  When set,
+                ``_build_sqsgen_text`` pads each constrained sublattice's
+                compositions with trailing zeros up to ``len_comp``, producing
+                sqsdb entries like ``a=0.5,0.5,0.0`` for a binary-on-sublattice
+                phase in a ternary system.  Defaults to ``None``.
         """
         self.phases_dict = phases_dict
         self.a = phases_dict["a"]
@@ -112,6 +139,8 @@ class BladeSQS:
         self.level = level
         self.len_comp = len_comp
         self.skip_existing_sqs = skip_existing_sqs
+        self.sublattice_map = sublattice_map
+        self.sqsgen_in = sqsgen_in
 
         self.sqsgen_text: str = ""
         self.rndstr: str = ""
@@ -137,7 +166,7 @@ class BladeSQS:
         )
         print(rndstr_header)
 
-        sqsgen = self._build_sqsgen_text()
+        sqsgen = self.sqsgen_in if self.sqsgen_in is not None else self._build_sqsgen_text()
         rndstr = rndstr_header.strip() + "\n" + self.unit_cell.strip()
         print(rndstr)
 
@@ -279,7 +308,11 @@ class BladeSQS:
                 - ``"2"``, ``"3"``, ``"4"`` (int): neighbor-shell indices
                 - ``"wr"``, ``"wn"``, ``"wd"`` (float): mcsqs weights
         """
-        dir_name = Path(paths[1]) / "SQS" / f"{phase['lattice']}_{self.len_comp}"
+        dir_name = Path(paths[1]) / "Files" / "SQS" / f"{phase['lattice']}_{self.len_comp}"
+
+        if not self.skip_existing_sqs and dir_name.exists():
+            print(f"Removing existing SQS directory: {dir_name}")
+            shutil.rmtree(dir_name)
 
         if self.skip_existing_sqs and dir_name.exists():
             print(
@@ -307,7 +340,7 @@ class BladeSQS:
             if result.stderr:
                 print("Error:", result.stderr)
 
-        parent_dir = Path(paths[1]) / "SQS" / f"{phase['lattice']}_{self.len_comp}"
+        parent_dir = Path(paths[1]) / "Files" / "SQS" / f"{phase['lattice']}_{self.len_comp}"
 
         cutoff = BladeCutoff()
         lattice = cutoff.lattice_from_params(
@@ -359,7 +392,7 @@ class BladeSQS:
             sqsgen_levels2 (list[dict]): Fixed-sublattice definitions. Each
                 entry must have ``"letter"`` and ``"compositions"`` keys.
         """
-        folder = Path(paths[1]) / "SQS" / f"{specific_phase['lattice']}_{self.len_comp}"
+        folder = Path(paths[1]) / "Files" / "SQS" / f"{specific_phase['lattice']}_{self.len_comp}"
 
         for level_def in sqsgen_levels2:
             letter = level_def["letter"]
@@ -389,12 +422,40 @@ class BladeSQS:
     # ------------------------------------------------------------------
 
     def _build_sqsgen_text(self) -> str:
-        """Format the ``sqsgen.in`` content from the level definitions.
+        def _trim_comp(vals: list[float]) -> list[float]:
+            vals = list(vals)
+            vals = vals + [0.0] * max(0, self.len_comp - len(vals))
+            while len(vals) > 1 and vals[-1] == 0.0:
+                vals.pop()
+            return vals
 
-        Returns:
-            str: Multi-line string suitable for writing to ``sqsgen.in``.
-        """
+        def _fmt_comp(vals: list[float]) -> str:
+            return ",".join(map(str, vals))
+
+        def _is_pure_one(vals: list[float]) -> bool:
+            return vals == [1.0]
+
+        def _lcm(a: int, b: int) -> int:
+            return a * b // gcd(a, b)
+
+        def _composition_denominator(vals: list[float]) -> int:
+            denom = 1
+            for f in vals:
+                frac = Fraction(float(f)).limit_denominator(100)
+                denom = _lcm(denom, frac.denominator)
+            return denom
+
+        var_letters: set[str] = set()
+
+        for line in self.unit_cell.strip().splitlines():
+            parts = line.strip().split()
+            if len(parts) >= 4:
+                label = parts[3]
+                if label.islower() and len(label) == 1:
+                    var_letters.add(label)
+
         sqsgen = ""
+
         if self.level >= 1 and self.len_comp == 1:
             indices = [0]
         elif self.level >= 3 and self.len_comp == 2:
@@ -402,16 +463,129 @@ class BladeSQS:
         else:
             indices = list(range(self.level + 1))
 
+        best_level_for_comp: dict[tuple[float, ...], int] = {}
+
         for i in indices:
             level_def = self.sqsgen_levels[i]
             level_num = level_def["level"]
-            letters = level_def["letter"]
+
             for comp in level_def["compositions"]:
-                comp_text = ",".join(map(str, comp))
-                line = f"level={level_num}"
-                for letter in letters:
-                    line += f"\t\t{letter}={comp_text}"
+                non_zero = [float(f) for f in comp if float(f) > 0.0]
+
+                if non_zero == [1.0]:
+                    vals = _trim_comp(list(comp))
+                    key = tuple(vals)
+
+                    if key not in best_level_for_comp or level_num < best_level_for_comp[key]:
+                        best_level_for_comp[key] = level_num
+
+                    continue
+
+                target_denom = _composition_denominator(non_zero)
+
+                for parts in combinations_with_replacement(
+                    range(target_denom, -1, -1),
+                    self.len_comp,
+                ):
+                    if sum(parts) != target_denom:
+                        continue
+
+                    if sum(1 for k in parts if k > 0) <= 1:
+                        continue
+
+                    vals = _trim_comp([k / target_denom for k in parts])
+
+                    if _composition_denominator(vals) != target_denom:
+                        continue
+
+                    key = tuple(vals)
+
+                    if key not in best_level_for_comp or level_num < best_level_for_comp[key]:
+                        best_level_for_comp[key] = level_num
+
+        comp_entries: list[tuple[int, list[float]]] = [
+            (level_num, list(comp))
+            for comp, level_num in best_level_for_comp.items()
+        ]
+
+        comp_entries = sorted(comp_entries, key=lambda x: (x[0], x[1]))
+
+        all_letters: list[str] = []
+
+        for i in indices:
+            level_def = self.sqsgen_levels[i]
+            for letter in level_def["letter"]:
+                if letter in var_letters and letter not in all_letters:
+                    all_letters.append(letter)
+
+        if not all_letters:
+            return ""
+
+        if len(all_letters) == 1:
+            letter = all_letters[0]
+
+            for level_num, vals in comp_entries:
+                if level_num > self.level:
+                    continue
+
+                line = f"level={level_num}\t\t{letter}={_fmt_comp(vals)}"
                 sqsgen += line + "\n"
+
+            return sqsgen
+
+        endmember_line = "level=0"
+        for letter in all_letters:
+            endmember_line += f"\t\t{letter}=1.0"
+        sqsgen += endmember_line + "\n"
+
+        non_endmember_entries = [
+            (level_num, vals)
+            for level_num, vals in comp_entries
+            if level_num > 0 and not _is_pure_one(vals)
+        ]
+
+        written: set[str] = set()
+
+        for level_num, vals in non_endmember_entries:
+            if level_num > self.level:
+                continue
+
+            for active_letter in all_letters:
+                line = f"level={level_num}"
+
+                for letter in all_letters:
+                    if letter == active_letter:
+                        line += f"\t\t{letter}={_fmt_comp(vals)}"
+                    else:
+                        line += f"\t\t{letter}=1.0"
+
+                if line not in written:
+                    sqsgen += line + "\n"
+                    written.add(line)
+
+        for k in range(2, len(all_letters) + 1):
+            for active_letters in combinations(all_letters, k):
+                for combo in product(non_endmember_entries, repeat=k):
+                    combo_levels = [entry[0] for entry in combo]
+                    combo_vals = [entry[1] for entry in combo]
+
+                    combined_level = max(combo_levels)
+
+                    if combined_level > self.level:
+                        continue
+
+                    line = f"level={combined_level}"
+
+                    for letter in all_letters:
+                        if letter in active_letters:
+                            idx = active_letters.index(letter)
+                            line += f"\t\t{letter}={_fmt_comp(combo_vals[idx])}"
+                        else:
+                            line += f"\t\t{letter}=1.0"
+
+                    if line not in written:
+                        sqsgen += line + "\n"
+                        written.add(line)
 
         return sqsgen
 
@@ -439,14 +613,18 @@ class BladeSQS:
             return
 
         folder_name = sqsdir.name
-        comp_str = folder_name.split("=")[-1]
-        fractions = [float(x) for x in comp_str.split(",")]
-
-        if fractions == [1.0, 0.0]:
+        sublattice_fracs = re.findall(r'_([a-z])=([\d.,]+)', folder_name)
+        all_fracs = [
+            float(x)
+            for _, comp_str in sublattice_fracs
+            for x in comp_str.split(",")
+        ]
+        non_zero = [f for f in all_fracs if f > 0.0]
+        if non_zero and all(f == 1.0 for f in non_zero):
             print(f"Skipping pure-species directory: {sqsdir}")
             return
 
-        print(f"Running corrdump in {fractions}")
+        print(f"Running corrdump in {folder_name}")
         try:
             subprocess.run(
                 [
@@ -467,7 +645,7 @@ class BladeSQS:
             print(f"corrdump failed in {sqsdir}, skipping.")
             return
 
-        print(f"Running mcsqs with {n_atoms} atoms in {fractions}")
+        print(f"Running mcsqs with {n_atoms} atoms in {folder_name}")
         n_parallel = params["parallel_runs"]
         stopsqs_path = sqsdir / "stopsqs"
         if stopsqs_path.exists():

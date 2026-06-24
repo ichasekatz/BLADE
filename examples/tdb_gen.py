@@ -1,37 +1,13 @@
 """Full BLADE workflow: compositions → SQS → TDB → phase diagrams → visualization.
 
-This is the main driver script. It mirrors the original BLADE/BLADE/examples/tdb_gen.py
-but uses the refactored BLADE API:
+This is the main driver script showing an example of HEDBs but uses the refactored BLADE API:
 
   - BladeTDBGen stores config on construction; call gen.fit() to run
   - BladeVisualizer (not BLADEVisualizer)
   - All classes imported from blade.*
-
-Run on HPC:
-    pkill -f "BLADE/examples/tdb_gen.py"
-    rm tdb_gen.log
-    nohup python -u BLADE/examples/tdb_gen.py > tdb_gen.log 2>&1 &
-    tail -f tdb_gen.log
-
-Mount HPC over SSHFS (optional):
-    diskutil unmount force ~/HPC 2>/dev/null
-    rm -rf ~/HPC && mkdir -p ~/HPC
-    sshfs ichasekatz@10.125.153.116:/home/ichasekatz ~/HPC \\
-      -o reconnect,ServerAliveInterval=15,ServerAliveCountMax=3
 """
 
-import os
 from collections import Counter
-
-os.environ["OMP_NUM_THREADS"] = "8"
-os.environ["MKL_NUM_THREADS"] = "8"
-os.environ["OPENBLAS_NUM_THREADS"] = "8"
-os.environ["NUMEXPR_NUM_THREADS"] = "8"
-
-import torch
-
-torch.set_num_threads(8)
-torch.set_num_interop_threads(2)
 
 from pathlib import Path
 
@@ -56,35 +32,93 @@ paths = [path0, path1, path2]
 level = 5
 sqs_iter = 1_000_000
 run_sqs = True
-skip_existing_sqs = True
+skip_existing_sqs = False
 
 run_tdb = True
 skip_existing_tdb = False
+
+# ------------------------------------------------------------------
+# MLIP calculator — change mlip to swap potentials (see MaterialsFramework registry)
+# ------------------------------------------------------------------
+mlip        = "grace"                            # e.g. "grace", "mace", "uma", "chgnet", "orb"
+mlip_kwargs = {"steps": 1000, "device": "cpu"} # kwargs forwarded to the calculator constructor
+
+tdb_params = {
+    "fmax": 1e-4,
+    "verbose": True,
+    "calculator": mlip,
+    "calculator_kwargs": mlip_kwargs,
+    "t_min": 298.15,
+    "t_max": 10000.0,
+    "sro": False,
+    "bv": 1e-3,
+    "phonon": False,
+    "open_calphad": False,
+    "terms": None,
+}
+
+# Optional per-phase model overrides — set to None to use ATAT defaults.
+# Keys are lattice base names (e.g. "CARBIDE1", "FCC1", "BCC1").
+
+terms_in: dict | None = None
+terms_in = {"HEDB1": 
+    "1,0:1,0\n"
+    "2,2:1,0\n"
+    }
+
+mult_in: dict | None = None
+# mult_in = {"HEDB1": "a=1\tb=2"}
+
+sublattice_map: dict | None = None
+# sublattice_map = {"HEDB1": {"a": ["Cr", "Hf"]}}
+
+sqsgen_in: dict | None = None
+# sqsgen_in = {"HEDB1": "level=0\ta=1\tb=1
+# level=1\ta=0.5,0.5\tb=1"}
+
+fixed_compositions: dict | None = None
+# fixed_compositions: dict | None = {
+#     "a": [0.5, 0.5]}
 
 run_movie = False
 
 # ------------------------------------------------------------------
 # Elements and composition constraints
 # ------------------------------------------------------------------
-transition_metals = ["Zr", "Hf", "Ta", "Cr", "Ti", "V", "Nb", "Mo", "W"]
-rare_earths: list[str] = []
-# transition_metals = ["Ti", "Cr", "W"]
-transition_metals = ["Hf", "Cr"]
-# transition_metals = ["Ni", "Re"]
+primary_elements = ["Zr", "Hf", "Ta", "Cr", "Ti", "V", "Nb", "Mo", "W"]
+secondary_elements: list[str] = []
+primary_elements = ["Cr", "Hf"]
 
-system_size = 2
-tm_element_range = [2, 2]
-re_element_range = [0, 0]
-allow_lower_order = False
+primary_min = 2
+primary_max = 2
+secondary_min = 0
+secondary_max = 0
+
+# ------------------------------------------------------------------
+# AlB2-type diboride lattice constants (Å, from DFT literature)
+# Used to auto-compute a, b, c from the chosen primary elements.
+# ------------------------------------------------------------------
+_DIBORIDE_A = {
+    "Cr": 2.969, "Hf": 3.141, "Mo": 3.053, "Nb": 3.086,
+    "Ta": 3.098, "Ti": 3.028, "V":  2.998, "W":  3.020, "Zr": 3.169,
+}
+_DIBORIDE_C = {
+    "Cr": 3.066, "Hf": 3.470, "Mo": 3.169, "Nb": 3.269,
+    "Ta": 3.227, "Ti": 3.228, "V":  3.057, "W":  3.137, "Zr": 3.530,
+}
+_active_d = [el for el in primary_elements if el in _DIBORIDE_A]
+_avg_a = sum(_DIBORIDE_A[el] for el in _active_d) / len(_active_d)
+_avg_c = sum(_DIBORIDE_C[el] for el in _active_d) / len(_active_d)
+print(f"Diboride lattice estimate: a={_avg_a:.4f} Å  c={_avg_c:.4f} Å  (avg of {_active_d})")
 
 # ------------------------------------------------------------------
 # Phase prototypes
 # ------------------------------------------------------------------
 phases: dict[str, dict] = {
     "HEDB1": {
-        "a": 1,
-        "b": 1,
-        "c": 1,
+        "a": _avg_a,
+        "b": _avg_a,
+        "c": _avg_c,
         "alpha": 90,
         "beta": 90,
         "gamma": 120,
@@ -99,34 +133,11 @@ phases: dict[str, dict] = {
 
 phase_list = [
     # supercell_size controls n_atoms = unit_cell_sites × product(supercell_size)
-    # (4,3,2) → 72 atoms   (4,4,3) → 144   (6,6,2) → 216   (8,6,2) → 288
-    {"generator_name": "HEDB", "lattice": "HEDB1", "supercell_size": (4, 3, 2)},
+    # (2,2,2) → 64 atoms   (4,4,2) → 128   (4,4,4) → 256
+    {"generator_name": "HEDB", "lattice": "HEDB1",  "supercell_size": (4, 3, 2)},
 ]
 
 liquid = False
-
-# ------------------------------------------------------------------
-# mcsqs run parameters
-# ------------------------------------------------------------------
-mcsqs_params = {
-    "use_time": True,
-    "time": 30,          # seconds per sqsdb directory
-    "2": 5,              # pair cutoff  = 5th-nearest shell
-    "3": 4,              # triplet cutoff
-    "4": 3,              # quadruplet cutoff
-    "wr": 20,
-    "wn": 0.75,
-    "wd": 1,
-    "parallel_runs": 10,
-}
-
-# ------------------------------------------------------------------
-# Fixed-sublattice species (B sublattice in HEDB1)
-# ------------------------------------------------------------------
-sqsgen_levels2 = [
-    {"element": "B", "compositions": "1.0", "letter": "b", "count": "2"},
-    # {"element": "O", "compositions": "1.0", "letter": "c", "count": "1"},
-]
 
 # ------------------------------------------------------------------
 # SQS composition levels
@@ -142,17 +153,31 @@ sqsgen_levels = [
 ]
 
 # ------------------------------------------------------------------
+# mcsqs run parameters
+# ------------------------------------------------------------------
+mcsqs_params = {
+    "use_time": True,
+    "time": 30,          # seconds per sqsdb directory
+    "cutoff_mode": "nn", # "nn" = NN shell index (decimals OK), "angstrom" = direct Å
+    "2": 5,              # pair cutoff  = 5th-nearest shell
+    "3": 4,              # triplet cutoff
+    "4": 3,              # quadruplet cutoff
+    "wr": 20,
+    "wn": 0.75,
+    "wd": 1,
+    "parallel_runs": 10,
+}
+
+# ------------------------------------------------------------------
 # 1. Generate compositions
 # ------------------------------------------------------------------
 composer = BladeCompositions(
-    primary_elements=transition_metals,
-    secondary_elements=rare_earths,
-    system_size=system_size,
-    primary_min=tm_element_range[0],
-    primary_max=tm_element_range[1],
-    secondary_min=re_element_range[0],
-    secondary_max=re_element_range[1],
-    allow_lower_order=allow_lower_order,
+    primary_elements=primary_elements,
+    secondary_elements=secondary_elements,
+    primary_min=primary_min,
+    primary_max=primary_max,
+    secondary_min=secondary_min,
+    secondary_max=secondary_max,
 )
 
 composition_list = composer.generate_compositions()
@@ -167,54 +192,64 @@ print(f"System sizes: {unique_len_comps}")
 if run_sqs:
     for specific_phase in phase_list:
         for len_comp in unique_len_comps:
+            lattice = specific_phase["lattice"]
             sqs_gen = BladeSQS(
-                phases_dict=phases[specific_phase["lattice"]],
+                phases_dict=phases[lattice],
                 sqsgen_levels=sqsgen_levels,
                 level=level,
                 len_comp=len_comp,
                 skip_existing_sqs=skip_existing_sqs,
+                sqsgen_in=sqsgen_in.get(lattice) if sqsgen_in else None,
+                fixed_compositions=fixed_compositions,
             )
             params = mcsqs_params | {"super_cell_size": specific_phase["supercell_size"]}
             sqs_gen.sqs_gen(phase=specific_phase, paths=paths, iter=sqs_iter, params=params)
-            # sqs_gen.rename_files(specific_phase, paths, sqsgen_levels2)
 
 # ------------------------------------------------------------------
 # 3. Fit TDB databases
 # ------------------------------------------------------------------
+comps_dir = path1 / "Files" / "Comps"
+
 if run_tdb:
     gen = BladeTDBGen(
         phases=phase_list,
+        phases_dict=phases,
         liquid=liquid,
         paths=paths,
         composition_list=composition_list,
         level=level,
-        sqsgen_levels2=sqsgen_levels2,
         skip_existing=skip_existing_tdb,
+        output_dir=comps_dir,
+        terms_in=terms_in,
+        mult_in=mult_in,
+        sublattice_map=sublattice_map,
+        tdb_params=tdb_params,
+        fixed_compositions=fixed_compositions,
     )
     gen.fit()  # explicit call — no side effects on construction
 
 # ------------------------------------------------------------------
 # 4. Plot Gibbs energy and phase diagrams
 # ------------------------------------------------------------------
-remove_elements = {item["element"] for item in sqsgen_levels2}
+# Derive fixed-sublattice elements from phase coords.
+# Lowercase single-letter labels are variable sublattice sites;
+# uppercase labels are fixed element symbols (e.g. "B" in diborides).
+_coords = phases[phase_list[0]["lattice"]]["coords"]
+_labels = [ln.strip().split()[-1] for ln in _coords.strip().splitlines() if ln.strip()]
+_fixed = [l for l in _labels if not (len(l) == 1 and l.islower())]
+remove_elements = set(_fixed)
+fixed_species = {el: count / len(_labels) for el, count in Counter(_fixed).items()}
+
 filt_comp_list = [
     [el for el in comp if el not in remove_elements]
     for comp in composition_list
 ]
 
-# Compute total mole fractions from phase prototype coords.
-# Lowercase single-letter labels (a, b, c) are variable sublattice sites;
-# everything else is a fixed element symbol.
-_coords = phases[phase_list[0]["lattice"]]["coords"]
-_labels = [ln.strip().split()[-1] for ln in _coords.strip().splitlines() if ln.strip()]
-_fixed = [l for l in _labels if not (len(l) == 1 and l.islower())]
-fixed_species = {el: count / len(_labels) for el, count in Counter(_fixed).items()}
-
 viz = BladeVisualizer()
 
 for comp, comp_filt in zip(composition_list, filt_comp_list):
     comp_name = "".join(comp_filt)
-    comp_dir = path1 / comp_name
+    comp_dir = comps_dir / comp_name
     if not comp_dir.exists():
         continue
     phase_name = f"{phase_list[0]['generator_name']}1_{len(comp_filt)}"
@@ -253,18 +288,18 @@ for comp, comp_filt in zip(composition_list, filt_comp_list):
 # Combine phase diagram PNGs
 pngs = []
 for comp_filt in filt_comp_list:
-    comp_dir = path1 / "".join(comp_filt)
+    comp_dir = comps_dir / "".join(comp_filt)
     pngs.extend(comp_dir.glob("*_Phase_Diagram.png"))
 
 if pngs:
-    out_pd = path1 / "Combined_Phase_Diagrams.png"
+    out_pd = comps_dir / "Combined_Phase_Diagrams.png"
     viz.phase_diagram(pngs, save=out_pd)
     print(f"Combined phase diagrams → {out_pd}")
 
 # Combine CONTCAR structures for each phase in every composition
 for comp_filt in filt_comp_list:
     comp_name = "".join(comp_filt)
-    comp_dir = path1 / comp_name
+    comp_dir = comps_dir / comp_name
     if not comp_dir.exists():
         continue
     for phase_dir in sorted(p for p in comp_dir.iterdir() if p.is_dir()):
@@ -279,7 +314,7 @@ for comp_filt in filt_comp_list:
 if run_movie:
     viz.make_combined_relaxation_movie(
         composition_list=filt_comp_list,
-        path1=path1,
+        path1=comps_dir,
         traj_name="relaxation_live.xyz",
         fps=10,
     )
