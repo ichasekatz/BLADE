@@ -218,12 +218,12 @@ def _write_bestsqs(
 
     lines: list[str] = []
     for v in prim_cell:
-        lines.append(f"  {v[0]:.10f}  {v[1]:.10f}  {v[2]:.10f}")
+        lines.append(f"{v[0]:.10f} {v[1]:.10f} {v[2]:.10f}")
     for v in sup_prim:
-        lines.append(f"  {v[0]:.10f}  {v[1]:.10f}  {v[2]:.10f}")
+        lines.append(f"{v[0]:.10f} {v[1]:.10f} {v[2]:.10f}")
     for pos, sym in zip(pos_prim, syms):
         label = placeholder_to_atat.get(sym, sym)
-        lines.append(f"  {pos[0]:.10f}  {pos[1]:.10f}  {pos[2]:.10f}  {label}")
+        lines.append(f"{pos[0]:.10f} {pos[1]:.10f} {pos[2]:.10f} {label}")
 
     output_path.write_text("\n".join(lines) + "\n")
 
@@ -417,9 +417,9 @@ class ScrapsSQSGen:
 
         lines: list[str] = []
         for v in prim_cell:
-            lines.append(f"  {v[0]:.10f}  {v[1]:.10f}  {v[2]:.10f}")
+            lines.append(f"{v[0]:.10f} {v[1]:.10f} {v[2]:.10f}")
         for v in sup_prim:
-            lines.append(f"  {v[0]:.10f}  {v[1]:.10f}  {v[2]:.10f}")
+            lines.append(f"{v[0]:.10f} {v[1]:.10f} {v[2]:.10f}")
 
         for i in range(n0):
             for j in range(n1):
@@ -433,7 +433,7 @@ class ScrapsSQSGen:
                             atat_label = f"{lbl}_A"
                         else:
                             atat_label = lbl  # fixed element (e.g., B)
-                        lines.append(f"  {px:.10f}  {py:.10f}  {pz:.10f}  {atat_label}")
+                        lines.append(f"{px:.10f} {py:.10f} {pz:.10f} {atat_label}")
 
         (sqsdir / "bestsqs.out").write_text("\n".join(lines) + "\n")
         print(f"  Endmember bestsqs.out written: {sqsdir.name}")
