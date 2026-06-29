@@ -1,10 +1,8 @@
-"""Full BLADE workflow: compositions → SQS → TDB → phase diagrams → visualization.
+"""BLADE workflow for MAX system using SCRAPS instead of mcsqs for SQS generation.
 
-This is the main driver script showing an example of HEDBs but uses the refactored BLADE API:
-
-  - BladeTDBGen stores config on construction; call gen.fit() to run
-  - BladeVisualizer (not BLADEVisualizer)
-  - All classes imported from blade.*
+Mirrors tdb_gen_max.py exactly, replacing BladeSQS with ScrapsSQSGen.
+Output goes to Files/Comps_scraps/ so mcsqs and SCRAPS results can be
+compared side-by-side without overwriting each other.
 """
 
 from collections import Counter
@@ -14,7 +12,7 @@ from pathlib import Path
 from pycalphad import Database
 
 from blade.tools.blade_compositions import BladeCompositions
-from blade.tools.blade_sqsgen import BladeSQS
+from blade.tools.blade_scraps_gen import ScrapsSQSGen
 from blade.tools.blade_tdb_gen import BladeTDBGen
 from blade.analysis.blade_visual import BladeVisualizer
 
@@ -26,11 +24,14 @@ path1 = path0 / "BLADE"
 path2 = path0 / "PhaseForge" / "PhaseForge" / "atat" / "data" / "sqsdb"
 paths = [path0, path1, path2]
 
+SCRAPS_REPO  = path0 / "SCRAPS" / "scraps-perpair"
+SCRAPS_BIN   = SCRAPS_REPO / "SCRAPs" / "scraps"
+SCRAPS_TOOLS = SCRAPS_REPO / "tools"
+
 # ------------------------------------------------------------------
 # Run flags
 # ------------------------------------------------------------------
-level = 5
-sqs_iter = 1_000_000
+level = 2
 run_sqs = True
 skip_existing_sqs = False
 
@@ -58,64 +59,82 @@ tdb_params = {
 }
 
 # Optional per-phase model overrides — set to None to use ATAT defaults.
-# Keys are lattice base names (e.g. "CARBIDE1", "FCC1", "BCC1").
+# Keys are lattice base names (e.g. "MAX1").
 
 terms_in: dict | None = None
-terms_in = {"HEDB1": 
-    "1,0:1,0\n"
-    "2,2:1,0\n"
+terms_in = {"MAX2":
+    "1,0:1,0:1,0\n"
+    "2,0:1,0:1,0\n"
+    "1,0:2,0:1,0\n"
+    "2,0:2,0:1,0\n"
     }
 
 mult_in: dict | None = None
-# mult_in = {"HEDB1": "a=1\tb=2"}
+mult_in = {"MAX2": "a=2\tb=1\tc=1"}
 
 sublattice_map: dict | None = None
-# sublattice_map = {"HEDB1": {"a": ["Cr", "Hf"]}}
+sublattice_map = {
+    "MAX2": {
+        "a": ["Zr", "Hf", "Ti", "Nb", "V"],
+        "b": ["Al", "Sn"],
+        "Constant": ["a", "b"],   # use exact order from fixed_compositions, no permutations
+    }
+}
 
 sqsgen_in: dict | None = None
-# sqsgen_in = {"HEDB1": "level=0\ta=1\tb=1
-# level=1\ta=0.5,0.5\tb=1"}
-
-fixed_compositions: dict | None = None
 # fixed_compositions: dict | None = {
-#     "a": [0.5, 0.5]}
+#     "b": [0.5, 0.5]}
+
+# Fix b sublattice at 0.7 Al + 0.3 Sn for every SQS composition.
+# Keys match sublattice labels; values are fractional compositions in the
+# same order as the element list in sublattice_map["MAX1"]["b"].
+fixed_compositions: dict | None = None
+fixed_compositions: dict | None = {
+    "a": [0.2, 0.2, 0.2, 0.25, 0.15],
+    "b": [0.40, 0.60],
+}
+
+# fixed_compositions: dict | None = {
+#     "a": [0.2, 0.15, 0.15, 0.4, 0.1],   # Zr=0.2, Hf=0.15, Ti=0.15, Nb=0.4, V=0.1
+#     "b": [0.3, 0.7],                      # Sn=0.3, Al=0.7
+# }
 
 run_movie = False
 
 # ------------------------------------------------------------------
 # Elements and composition constraints
 # ------------------------------------------------------------------
-primary_elements = ["Zr", "Hf", "Ta", "Cr", "Ti", "V", "Nb", "Mo", "W"]
+primary_elements = ["Zr", "Hf", "Ti", "Nb", "V"]   # must match sublattice_map a-site
 secondary_elements: list[str] = []
-primary_elements = ["Cr", "Hf"]
 
-primary_min = 2
-primary_max = 2
+primary_min = 5   # quinary — all 5 a-site elements in one composition
+primary_max = 5
 secondary_min = 0
 secondary_max = 0
 
 # ------------------------------------------------------------------
-# AlB2-type diboride lattice constants (Å, from DFT literature)
+# 211 MAX-phase (M2AX) lattice constants (Å, from DFT literature)
 # Used to auto-compute a, b, c from the chosen primary elements.
 # ------------------------------------------------------------------
-_DIBORIDE_A = {
-    "Cr": 2.969, "Hf": 3.141, "Mo": 3.053, "Nb": 3.086,
-    "Ta": 3.098, "Ti": 3.028, "V":  2.998, "W":  3.020, "Zr": 3.169,
+_MAX_A = {
+    "Cr": 2.86, "Hf": 3.28, "Mo": 2.96, "Nb": 3.10,
+    "Ta": 3.08, "Ti": 3.04, "V":  2.91, "W":  2.91, "Zr": 3.32,
 }
-_DIBORIDE_C = {
-    "Cr": 3.066, "Hf": 3.470, "Mo": 3.169, "Nb": 3.269,
-    "Ta": 3.227, "Ti": 3.228, "V":  3.057, "W":  3.137, "Zr": 3.530,
+
+_MAX_C = {
+    "Cr": 12.80, "Hf": 14.36, "Mo": 13.20, "Nb": 13.80,
+    "Ta": 14.10, "Ti": 13.60, "V":  13.20, "W":  13.80, "Zr": 14.57,
 }
-_active_d = [el for el in primary_elements if el in _DIBORIDE_A]
-_avg_a = sum(_DIBORIDE_A[el] for el in _active_d) / len(_active_d)
-_avg_c = sum(_DIBORIDE_C[el] for el in _active_d) / len(_active_d)
-print(f"Diboride lattice estimate: a={_avg_a:.4f} Å  c={_avg_c:.4f} Å  (avg of {_active_d})")
+_active_m = [el for el in primary_elements if el in _MAX_A]
+_avg_a = sum(_MAX_A[el] for el in _active_m) / len(_active_m)
+_avg_c = sum(_MAX_C[el] for el in _active_m) / len(_active_m)
+print(f"MAX lattice estimate: a={_avg_a:.4f} Å  c={_avg_c:.4f} Å  (avg of {_active_m})")
 
 # ------------------------------------------------------------------
 # Phase prototypes
 # ------------------------------------------------------------------
 phases: dict[str, dict] = {
-    "HEDB1": {
+    "MAX2": {
         "a": _avg_a,
         "b": _avg_a,
         "c": _avg_c,
@@ -124,17 +143,20 @@ phases: dict[str, dict] = {
         "gamma": 120,
         "vectors": "1 0 0\n0 1 0\n0 0 1\n",
         "coords": (
-            "0.000000 0.000000 0.000000 a\n"
-            "0.333333 0.666667 0.500000 B\n"
-            "0.666667 0.333333 0.500000 B\n"
+            "0.333333 0.666667 0.083333 a\n"
+            "0.666667 0.333333 0.916667 a\n"
+            "0.666667 0.333333 0.583333 a\n"
+            "0.333333 0.666667 0.416667 a\n"
+            "0.333333 0.666667 0.750000 b\n"
+            "0.666667 0.333333 0.250000 b\n"
+            "0.000000 0.000000 0.000000 C\n"
+            "0.000000 0.000000 0.500000 C\n"
         ),
     },
 }
 
 phase_list = [
-    # supercell_size controls n_atoms = unit_cell_sites × product(supercell_size)
-    # (2,2,2) → 64 atoms   (4,4,2) → 128   (4,4,4) → 256
-    {"generator_name": "HEDB", "lattice": "HEDB1",  "supercell_size": (4, 3, 2)},
+    {"generator_name": "MAX", "lattice": "MAX2", "supercell_size": (5, 5, 2)},
 ]
 
 liquid = False
@@ -143,30 +165,24 @@ liquid = False
 # SQS composition levels
 # ------------------------------------------------------------------
 sqsgen_levels = [
-    {"level": 0, "compositions": [[1.0, 0.0]],                            "letter": ["a"]},
-    {"level": 1, "compositions": [[0.5, 0.5]],                             "letter": ["a"]},
-    {"level": 2, "compositions": [[0.75, 0.25]],                           "letter": ["a"]},
-    {"level": 3, "compositions": [[0.33333, 0.33333, 0.33333]],            "letter": ["a"]},
-    {"level": 4, "compositions": [[0.5, 0.25, 0.25]],                      "letter": ["a"]},
-    {"level": 5, "compositions": [[0.875, 0.125], [0.625, 0.375]],         "letter": ["a"]},
-    {"level": 6, "compositions": [[0.75, 0.125, 0.125]],                   "letter": ["a"]},
+    {"level": 0, "compositions": [[1.0, 0.0]],                            "letter": ["a", "b"]},
+    {"level": 1, "compositions": [[0.5, 0.5]],                             "letter": ["a", "b"]},
+    {"level": 2, "compositions": [[0.75, 0.25]],                           "letter": ["a", "b"]},
+    {"level": 3, "compositions": [[0.33333, 0.33333, 0.33333]],            "letter": ["a", "b"]},
+    {"level": 4, "compositions": [[0.5, 0.25, 0.25]],                      "letter": ["a", "b"]},
+    {"level": 5, "compositions": [[0.875, 0.125], [0.625, 0.375]],         "letter": ["a", "b"]},
+    {"level": 6, "compositions": [[0.75, 0.125, 0.125]],                   "letter": ["a", "b"]},
 ]
 
 # ------------------------------------------------------------------
-# mcsqs run parameters
+# SCRAPS parameters
 # ------------------------------------------------------------------
-mcsqs_params = {
-    "use_time": True,
-    "time": 30,          # seconds per sqsdb directory
-    "cutoff_mode": "nn", # "nn" = NN shell index (decimals OK), "angstrom" = direct Å
-    "2": 5,              # pair cutoff  = 5th-nearest shell
-    "3": 4,              # triplet cutoff
-    "4": 3,              # quadruplet cutoff
-    "wr": 20,
-    "wn": 0.75,
-    "wd": 1,
-    "parallel_runs": 10,
-}
+scraps_ranks = 10
+auto_budget  = 3   # 1=basic, 2=thorough, 3=exhaustive
+max_shellnum = 2
+# True  → multi-basis variable sublattices use per-atom spectators (fixes MAX 2d Wyckoff issue)
+# False → standard SUBLATTICE block (fails for MAX b-sites, may work for other structures)
+fix_multibasis_sublattice = True
 
 # ------------------------------------------------------------------
 # 1. Generate compositions
@@ -187,28 +203,35 @@ print(f"Compositions ({len(composition_list)} total): {composition_list}")
 print(f"System sizes: {unique_len_comps}")
 
 # ------------------------------------------------------------------
-# 2. Generate SQS structures
+# 2. Generate SQS structures via SCRAPS
 # ------------------------------------------------------------------
 if run_sqs:
     for specific_phase in phase_list:
         for len_comp in unique_len_comps:
             lattice = specific_phase["lattice"]
-            sqs_gen = BladeSQS(
+            sqs_gen = ScrapsSQSGen(
                 phases_dict=phases[lattice],
                 sqsgen_levels=sqsgen_levels,
                 level=level,
                 len_comp=len_comp,
                 skip_existing_sqs=skip_existing_sqs,
+                sublattice_map=sublattice_map,
                 sqsgen_in=sqsgen_in.get(lattice) if sqsgen_in else None,
                 fixed_compositions=fixed_compositions,
+                scraps_bin=SCRAPS_BIN,
+                scraps_tools=SCRAPS_TOOLS,
+                ranks=scraps_ranks,
+                auto_budget=auto_budget,
+                max_shellnum=max_shellnum,
+                fix_multibasis_sublattice=fix_multibasis_sublattice,
             )
-            params = mcsqs_params | {"super_cell_size": specific_phase["supercell_size"]}
-            sqs_gen.sqs_gen(phase=specific_phase, paths=paths, iter=sqs_iter, params=params)
+            params = {"super_cell_size": specific_phase["supercell_size"]}
+            sqs_gen.sqs_gen(phase=specific_phase, paths=paths, iter=0, params=params)
 
 # ------------------------------------------------------------------
 # 3. Fit TDB databases
 # ------------------------------------------------------------------
-comps_dir = path1 / "Files" / "Comps"
+comps_dir = path1 / "Files" / "Comps_scraps"
 
 if run_tdb:
     gen = BladeTDBGen(
@@ -252,7 +275,7 @@ for comp, comp_filt in zip(composition_list, filt_comp_list):
     comp_dir = comps_dir / comp_name
     if not comp_dir.exists():
         continue
-    phase_name = f"{phase_list[0]['generator_name']}1_{len(comp_filt)}"
+    phase_name = f"{phase_list[0]['lattice']}_{len(comp_filt)}"
     tdb_phases = [phase_name]
     for tdb_file in comp_dir.glob("*.tdb"):
         tdb = Database(str(tdb_file))

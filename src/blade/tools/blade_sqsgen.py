@@ -13,7 +13,7 @@ Example::
     from blade.tools.blade_sqsgen import BladeSQS
 
     sqs = BladeSQS(
-        phases_dict=phases["PHASE1"],
+        phases_dict=phases["HEDB1"],
         sqsgen_levels=sqsgen_levels,
         level=5,
         len_comp=3,
@@ -88,6 +88,7 @@ class BladeSQS:
         skip_existing_sqs: bool = False,
         sublattice_map: dict[str, list[str]] | None = None,
         sqsgen_in: str | None = None,
+        fixed_compositions: dict[str, list[float]] | None = None,
     ) -> None:
         """Initialize BladeSQS.
 
@@ -141,6 +142,16 @@ class BladeSQS:
         self.skip_existing_sqs = skip_existing_sqs
         self.sublattice_map = sublattice_map
         self.sqsgen_in = sqsgen_in
+        # Merge any sublattices marked "Constant" in sublattice_map into fixed_compositions
+        # so they are excluded from cross-product permutation in sqsgen.in.
+        merged_fixed = dict(fixed_compositions or {})
+        if sublattice_map:
+            for phase_map in sublattice_map.values():
+                constant_letters = phase_map.get("Constant", [])
+                for letter in constant_letters:
+                    if letter not in merged_fixed:
+                        merged_fixed[letter] = []   # placeholder; caller must also set fixed_compositions
+        self.fixed_compositions = merged_fixed
 
         self.sqsgen_text: str = ""
         self.rndstr: str = ""
@@ -351,17 +362,31 @@ class BladeSQS:
 
         print("Neighbor shells:")
         for i, s in enumerate(shells[:10], 1):
-            print(f"  {i}NN = {s:.6f}")
+            print(f"  {i}NN = {s:.6f} Å")
+        print(f"Bond length (1NN): {shells[0]:.6f} Å")
 
-        cutoff_dict = {
-            "-2": shells[params["2"] - 1],
-            "-3": shells[params["3"] - 1],
-            "-4": shells[params["4"] - 1],
+        cutoff_mode = params.get("cutoff_mode", "nn")
+
+        def _resolve_cutoff(n: float) -> float:
+            if cutoff_mode == "angstrom":
+                return float(n)
+            lo = int(n) - 1
+            frac = n - int(n)
+            if frac == 0:
+                return float(shells[lo])
+            return float(shells[lo] + frac * (shells[lo + 1] - shells[lo]))
+
+        cutoff_dict: dict[str, float] = {
+            "-2": _resolve_cutoff(params["2"]),
         }
+        if params.get("3", 0):
+            cutoff_dict["-3"] = _resolve_cutoff(params["3"])
+        if params.get("4", 0):
+            cutoff_dict["-4"] = _resolve_cutoff(params["4"])
         print(
-            f"Derived cutoffs: {cutoff_dict['-2']:.5f} (pairs), "
-            f"{cutoff_dict['-3']:.5f} (triplets), "
-            f"{cutoff_dict['-4']:.5f} (quadruplets)"
+            f"Derived cutoffs: {cutoff_dict['-2']:.5f} (pairs)"
+            + (f", {cutoff_dict['-3']:.5f} (triplets)" if "-3" in cutoff_dict else "")
+            + (f", {cutoff_dict['-4']:.5f} (quadruplets)" if "-4" in cutoff_dict else "")
         )
 
         n_atoms = (
@@ -481,27 +506,11 @@ class BladeSQS:
 
                     continue
 
-                target_denom = _composition_denominator(non_zero)
+                vals = _trim_comp([float(f) for f in comp])
+                key = tuple(vals)
 
-                for parts in combinations_with_replacement(
-                    range(target_denom, -1, -1),
-                    self.len_comp,
-                ):
-                    if sum(parts) != target_denom:
-                        continue
-
-                    if sum(1 for k in parts if k > 0) <= 1:
-                        continue
-
-                    vals = _trim_comp([k / target_denom for k in parts])
-
-                    if _composition_denominator(vals) != target_denom:
-                        continue
-
-                    key = tuple(vals)
-
-                    if key not in best_level_for_comp or level_num < best_level_for_comp[key]:
-                        best_level_for_comp[key] = level_num
+                if key not in best_level_for_comp or level_num < best_level_for_comp[key]:
+                    best_level_for_comp[key] = level_num
 
         comp_entries: list[tuple[int, list[float]]] = [
             (level_num, list(comp))
@@ -515,10 +524,21 @@ class BladeSQS:
         for i in indices:
             level_def = self.sqsgen_levels[i]
             for letter in level_def["letter"]:
+                # Skip letters with a fixed composition — they are appended separately
+                if letter in self.fixed_compositions:
+                    continue
                 if letter in var_letters and letter not in all_letters:
                     all_letters.append(letter)
 
         if not all_letters:
+            # All variable sublattices are fixed — emit a single level=0 line
+            # so sqs2tdb -mk can create the sqsdb directory.
+            if self.fixed_compositions:
+                fixed_suffix = "".join(
+                    f"\t\t{letter}={_fmt_comp(comp)}"
+                    for letter, comp in self.fixed_compositions.items()
+                )
+                return f"level=0{fixed_suffix}\n"
             return ""
 
         if len(all_letters) == 1:
@@ -529,6 +549,11 @@ class BladeSQS:
                     continue
 
                 line = f"level={level_num}\t\t{letter}={_fmt_comp(vals)}"
+                if self.fixed_compositions:
+                    line += "".join(
+                        f"\t\t{fl}={_fmt_comp(fc)}"
+                        for fl, fc in self.fixed_compositions.items()
+                    )
                 sqsgen += line + "\n"
 
             return sqsgen
@@ -587,6 +612,17 @@ class BladeSQS:
                         sqsgen += line + "\n"
                         written.add(line)
 
+        # Append fixed-composition sublattices to every generated line
+        if self.fixed_compositions:
+            fixed_suffix = "".join(
+                f"\t\t{letter}={_fmt_comp(comp)}"
+                for letter, comp in self.fixed_compositions.items()
+            )
+            sqsgen = "\n".join(
+                line + fixed_suffix if line.strip() else line
+                for line in sqsgen.splitlines()
+            ) + "\n"
+
         return sqsgen
 
     def _run_mcsqs_in_dir(
@@ -635,8 +671,8 @@ class BladeSQS:
                     "-nop",
                     "-clus",
                     f"-2={cutoff_dict['-2']}",
-                    f"-3={cutoff_dict['-3']}",
-                    f"-4={cutoff_dict['-4']}",
+                    *([f"-3={cutoff_dict['-3']}"] if "-3" in cutoff_dict else []),
+                    *([f"-4={cutoff_dict['-4']}"] if "-4" in cutoff_dict else []),
                 ],
                 cwd=sqsdir,
                 check=True,
@@ -714,8 +750,8 @@ class BladeSQS:
             f"-n={n_atoms}",
             "-l=rndstr.in",
             f"-2={cutoff_dict['-2']:.5f}",
-            f"-3={cutoff_dict['-3']:.5f}",
-            f"-4={cutoff_dict['-4']:.5f}",
+            *([f"-3={cutoff_dict['-3']:.5f}"] if "-3" in cutoff_dict else []),
+            *([f"-4={cutoff_dict['-4']:.5f}"] if "-4" in cutoff_dict else []),
             f"-wr={params['wr']}",
             f"-wn={params['wn']}",
             f"-wd={params['wd']}",

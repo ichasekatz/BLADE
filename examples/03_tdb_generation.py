@@ -33,7 +33,7 @@ paths = [path0, path1, path2]
 # Run flags
 # ------------------------------------------------------------------
 level = 5
-skip_existing = True
+skip_existing = False
 
 tdb_params = {
     "fmax": 1e-4,
@@ -49,7 +49,7 @@ tdb_params = {
 }
 
 terms_in: dict | None = None
-terms_in = {"HEDB1": "1,0:1,0\n2,0:2,0\n"}
+terms_in = {"HEDB1": "1,0:1,0\n2,2:1,0\n"}
 
 mult_in: dict | None = None
 mult_in = {
@@ -72,13 +72,38 @@ secondary_min = 0
 secondary_max = 0
 
 # ------------------------------------------------------------------
+# AlB2-type diboride lattice constants (Å, from DFT literature)
+# ------------------------------------------------------------------
+_DIBORIDE_A = {
+    "Cr": 2.969, "Hf": 3.141, "Mo": 3.053, "Nb": 3.086,
+    "Ta": 3.098, "Ti": 3.028, "V":  2.998, "W":  3.020, "Zr": 3.169,
+}
+_DIBORIDE_C = {
+    "Cr": 3.066, "Hf": 3.470, "Mo": 3.169, "Nb": 3.269,
+    "Ta": 3.227, "Ti": 3.228, "V":  3.057, "W":  3.137, "Zr": 3.530,
+}
+_active_d = [el for el in primary_elements if el in _DIBORIDE_A]
+_avg_a_diboride = sum(_DIBORIDE_A[el] for el in _active_d) / len(_active_d)
+_avg_c_diboride = sum(_DIBORIDE_C[el] for el in _active_d) / len(_active_d)
+print(f"Diboride lattice estimate: a={_avg_a_diboride:.4f} Å  c={_avg_c_diboride:.4f} Å  (avg of {_active_d})")
+
+# FCC lattice constants (Å, conventional cubic cell)
+_FCC_A = {
+    "Cr": 3.52, "Hf": 4.11, "Mo": 3.96, "Nb": 4.30,
+    "Ta": 4.29, "Ti": 4.10, "V":  3.80, "W":  4.01, "Zr": 4.15,
+}
+_active_f = [el for el in primary_elements if el in _FCC_A]
+_avg_a_fcc = sum(_FCC_A[el] for el in _active_f) / len(_active_f)
+print(f"FCC lattice estimate:      a={_avg_a_fcc:.4f} Å  (avg of {_active_f})")
+
+# ------------------------------------------------------------------
 # Phase prototypes and run list (must match what was used for SQS generation)
 # ------------------------------------------------------------------
 phases: dict[str, dict] = {
     "HEDB1": {
-        "a": 1,
-        "b": 1,
-        "c": 1,
+        "a": _avg_a_diboride,
+        "b": _avg_a_diboride,
+        "c": _avg_c_diboride,
         "alpha": 90,
         "beta": 90,
         "gamma": 120,
@@ -90,9 +115,9 @@ phases: dict[str, dict] = {
         ),
     },
     "FCC1": {
-        "a": 1,
-        "b": 1,
-        "c": 1,
+        "a": _avg_a_fcc,
+        "b": _avg_a_fcc,
+        "c": _avg_a_fcc,
         "alpha": 90,
         "beta": 90,
         "gamma": 90,
@@ -105,9 +130,9 @@ phases: dict[str, dict] = {
         ),
     },
     "FCC2": {
-        "a": 1,
-        "b": 1,
-        "c": 1,
+        "a": _avg_a_fcc,
+        "b": _avg_a_fcc,
+        "c": _avg_a_fcc,
         "alpha": 90,
         "beta": 90,
         "gamma": 90,
@@ -123,8 +148,8 @@ phases: dict[str, dict] = {
 
 phase_list = [
     {"generator_name": "HEDB", "lattice": "HEDB1", "supercell_size": (4, 3, 2)},
-    # {"generator_name": "FCC",  "lattice": "FCC1",  "supercell_size": (2, 2, 2)},
-    # {"generator_name": "FCC",  "lattice": "FCC2",  "supercell_size": (2, 2, 2)},
+    {"generator_name": "FCC",  "lattice": "FCC1",  "supercell_size": (2, 2, 2)},
+    {"generator_name": "FCC",  "lattice": "FCC2",  "supercell_size": (2, 2, 2)},
 ]
 
 liquid = False

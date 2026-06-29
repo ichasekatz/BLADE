@@ -47,13 +47,38 @@ secondary_min = 0
 secondary_max = 0
 
 # ------------------------------------------------------------------
+# AlB2-type diboride lattice constants (Å, from DFT literature)
+# ------------------------------------------------------------------
+_DIBORIDE_A = {
+    "Cr": 2.969, "Hf": 3.141, "Mo": 3.053, "Nb": 3.086,
+    "Ta": 3.098, "Ti": 3.028, "V":  2.998, "W":  3.020, "Zr": 3.169,
+}
+_DIBORIDE_C = {
+    "Cr": 3.066, "Hf": 3.470, "Mo": 3.169, "Nb": 3.269,
+    "Ta": 3.227, "Ti": 3.228, "V":  3.057, "W":  3.137, "Zr": 3.530,
+}
+_active_d = [el for el in primary_elements if el in _DIBORIDE_A]
+_avg_a_diboride = sum(_DIBORIDE_A[el] for el in _active_d) / len(_active_d)
+_avg_c_diboride = sum(_DIBORIDE_C[el] for el in _active_d) / len(_active_d)
+print(f"Diboride lattice estimate: a={_avg_a_diboride:.4f} Å  c={_avg_c_diboride:.4f} Å  (avg of {_active_d})")
+
+# FCC lattice constants (Å, conventional cubic cell)
+_FCC_A = {
+    "Cr": 3.52, "Hf": 4.11, "Mo": 3.96, "Nb": 4.30,
+    "Ta": 4.29, "Ti": 4.10, "V":  3.80, "W":  4.01, "Zr": 4.15,
+}
+_active_f = [el for el in primary_elements if el in _FCC_A]
+_avg_a_fcc = sum(_FCC_A[el] for el in _active_f) / len(_active_f)
+print(f"FCC lattice estimate:      a={_avg_a_fcc:.4f} Å  (avg of {_active_f})")
+
+# ------------------------------------------------------------------
 # Phase prototypes
 # ------------------------------------------------------------------
 phases: dict[str, dict] = {
-    "PHASE1": {
-        "a": 1,
-        "b": 1,
-        "c": 1,
+    "HEDB1": {
+        "a": _avg_a_diboride,
+        "b": _avg_a_diboride,
+        "c": _avg_c_diboride,
         "alpha": 90,
         "beta": 90,
         "gamma": 120,
@@ -65,9 +90,9 @@ phases: dict[str, dict] = {
         ),
     },
     "FCC1": {
-        "a": 1,
-        "b": 1,
-        "c": 1,
+        "a": _avg_a_fcc,
+        "b": _avg_a_fcc,
+        "c": _avg_a_fcc,
         "alpha": 90,
         "beta": 90,
         "gamma": 90,
@@ -80,9 +105,9 @@ phases: dict[str, dict] = {
         ),
     },
     "FCC2": {
-        "a": 1,
-        "b": 1,
-        "c": 1,
+        "a": _avg_a_fcc,
+        "b": _avg_a_fcc,
+        "c": _avg_a_fcc,
         "alpha": 90,
         "beta": 90,
         "gamma": 90,
@@ -99,7 +124,7 @@ phases: dict[str, dict] = {
 phase_list = [
     # supercell_size controls n_atoms = unit_cell_sites × product(supercell_size)
     # (4,3,2) → 72 atoms   (4,4,3) → 144   (6,6,2) → 216   (8,6,2) → 288
-    {"generator_name": "PHASE", "lattice": "PHASE1", "supercell_size": (4, 3, 2)},
+    {"generator_name": "HEDB", "lattice": "HEDB1", "supercell_size": (4, 3, 2)},
     {"generator_name": "FCC",  "lattice": "FCC1",  "supercell_size": (2, 2, 2)},
     {"generator_name": "FCC",  "lattice": "FCC2",  "supercell_size": (2, 2, 2)},
 ]
@@ -110,6 +135,7 @@ phase_list = [
 mcsqs_params = {
     "use_time": True,
     "time": 30,          # seconds per sqsdb directory
+    "cutoff_mode": "nn", # "nn" = NN shell index (decimals OK), "angstrom" = direct Å
     "2": 5,              # pair cutoff  = 5th-nearest shell
     "3": 4,              # triplet cutoff
     "4": 3,              # quadruplet cutoff
@@ -175,7 +201,7 @@ print("Preview: rndstr.skel and sqsgen.in for len_comp=2, level=5")
 print("=" * 60)
 
 preview = BladeSQS(
-    phases_dict=phases["PHASE1"],
+    phases_dict=phases["HEDB1"],
     sqsgen_levels=sqsgen_levels,
     level=level,
     len_comp=2,
