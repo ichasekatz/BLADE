@@ -55,6 +55,7 @@ tdb_params = {
     "bv": 1e-3,
     "phonon": False,
     "open_calphad": False,
+    "track_trajectory": True,   # set False to skip relaxation_live.xyz
     "terms": None,
 }
 
