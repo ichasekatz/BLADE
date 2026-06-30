@@ -243,7 +243,7 @@ class BladeTDBGen:
             os.chdir(comp_dir)
             _has_constant = bool(self.composition_elements) or (
                 self.sublattice_map and any(
-                    "Constant" in phase_map
+                    bool(phase_map.get("Constant"))  # only True if Constant list is non-empty
                     for phase_map in self.sublattice_map.values()
                 )
             )
@@ -492,6 +492,7 @@ class BladeTDBGen:
         sqs = Sqs2tdb(
             fmax=p.get("fmax", 0.005),
             verbose=p.get("verbose", True),
+            track_trajectory=p.get("track_trajectory", True),
             calculator=calc,
         )
         # Strip BLADE-internal keys ("Constant") before passing to MaterialsFramework
