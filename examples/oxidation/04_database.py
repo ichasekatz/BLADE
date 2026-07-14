@@ -1,4 +1,4 @@
-"""Oxide database build for MAX phase systems.
+"""Oxide database built for phase systems.
 
 Reads blade_generated_data.xlsx (from 01_compositions.py) and Materials Project
 reference data to build energy tables, per-parent Excel sheets, and system energy summaries.
@@ -23,7 +23,8 @@ path1 = path0 / "BLADE"
 files_dir = path1 / "Files"
 
 mlip_sources = [
-    ("MP+GRACE", "MaterialsProject_Comps_GRACE"),
+    ("MP+ORB", "MaterialsProject_Comps_ORB"),
+    # ("MP+GRACE", "MaterialsProject_Comps_GRACE"),
 ]
 
 fallback_refs = {
@@ -36,15 +37,15 @@ db = OxideDatabase(
     files_dir=files_dir,
     mlip_sources=mlip_sources,
     fallback_refs=fallback_refs,
-    poscar_folder="MaterialsProject_Comps",
+    poscar_folder="MaterialsProject_Comps_POSCARs",
     fixed_elements=frozenset({"B"}),
 )
 
 # Scan BLADE CONTCARs → blade_generated_data.xlsx (run before db.run())
 db.scan_blade_data(
-    blade_comp_dir=files_dir / "Comps2",
-    mlip_ref_label="MP+GRACE",
-    mlip_ref_folder=files_dir / "MaterialsProject_Comps_GRACE",
+    blade_comp_dir=files_dir / "Comps",
+    mlip_ref_label="MP+ORB",
+    mlip_ref_folder=files_dir / "MaterialsProject_Comps_ORB",
     oxygen_element="O",
 )
 
@@ -57,6 +58,6 @@ db.collect_structures(
         # files_dir / "Comps_scraps",
         # files_dir / "Comps_MAX",
     ],
-    mlip_ref_folder=files_dir / "MaterialsProject_Comps_GRACE",
+    mlip_ref_folder=files_dir / "MaterialsProject_Comps_ORB",
     oxygen_element="O",
 )

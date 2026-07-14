@@ -1,49 +1,43 @@
-"""BLADE — high-throughput materials discovery and thermodynamic database generation.
+"""BLADE — Batch Lattice Analysis and Discovery Engine.
 
-Supports any crystal structure with fixed and variable sublattice sites.
-
-Classes are lazily imported on first access to avoid loading heavy dependencies
-(torch, materialsframework, pymatgen) at import time.
+High-level lazy imports for the most commonly used classes.
 
 Example::
 
-    from blade import BladeCompositions, BladeSQS, BladeTDBGen
-    from blade import BladeVisualizer, BLADEVolume
+    from blade.tools import BladeCompositions, BladeSQS, BladeTDBGen
+    from blade.analysis import BladeVisualizer, BLADEData
+    from blade.oxidation import OxideCompositions, OxideDatabase
 """
 
 from __future__ import annotations
 
 import importlib
 
-__version__ = "0.2.0"
+__version__ = "1.6"
 __author__ = "Chase Katz"
 
-_CLASS_MAP: dict[str, tuple[str, str]] = {
+_MAP: dict[str, tuple[str, str]] = {
+    # tools
     "BladeCompositions": ("blade.tools.blade_compositions", "BladeCompositions"),
-    "BladeSQS": ("blade.tools.blade_sqsgen", "BladeSQS"),
-    "BladeTDBGen": ("blade.tools.blade_tdb_gen", "BladeTDBGen"),
-    "BladeCutoff": ("blade.tools.blade_cutoff", "BladeCutoff"),
-    "BladeVisualizer": ("blade.analysis.blade_visual", "BladeVisualizer"),
-    "BLADEVolume": ("blade.analysis.blade_volume", "BLADEVolume"),
+    "BladeSQS":          ("blade.tools.blade_sqsgen",       "BladeSQS"),
+    "BladeTDBGen":       ("blade.tools.blade_tdb_gen",      "BladeTDBGen"),
+    "BladeCutoff":       ("blade.tools.blade_cutoff",       "BladeCutoff"),
+    "ScrapsSQSGen":      ("blade.tools.blade_scraps_gen",   "ScrapsSQSGen"),
+    # analysis
+    "BladeVisualizer":   ("blade.analysis.blade_visual",    "BladeVisualizer"),
+    "BLADEData":         ("blade.analysis.blade_data",      "BLADEData"),
+    "BLADEVolume":       ("blade.analysis.blade_data",      "BLADEVolume"),
+    # oxidation
+    "OxideCompositions": ("blade.oxidation.compositions",   "OxideCompositions"),
+    "OxideDatabase":     ("blade.oxidation.database",       "OxideDatabase"),
 }
 
-__all__ = list(_CLASS_MAP)
+__all__ = list(_MAP)
 
 
 def __getattr__(name: str) -> type:
-    """Lazily import and return a class by name.
-
-    Args:
-        name (str): The class name to look up.
-
-    Returns:
-        type: The requested class.
-
-    Raises:
-        AttributeError: If ``name`` is not a known BLADE class.
-    """
-    if name in _CLASS_MAP:
-        module_path, class_name = _CLASS_MAP[name]
+    if name in _MAP:
+        module_path, class_name = _MAP[name]
         module = importlib.import_module(module_path)
         return getattr(module, class_name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

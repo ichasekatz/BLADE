@@ -28,7 +28,7 @@ path1 = path0 / "BLADE"
 files_dir = path1 / "Files"
 files_dir.mkdir(parents=True, exist_ok=True)
 
-mp_comps_dir = files_dir / "MaterialsProject_Comps"
+mp_comps_dir = files_dir / "MaterialsProject_Comps_POSCARs"
 
 
 # ==============================================================================
@@ -38,11 +38,27 @@ mp_comps_dir = files_dir / "MaterialsProject_Comps"
 from mp_api.client import MPRester
 from pymatgen.io.vasp import Poscar
 
-API_KEY = "YOUR_API_KEY_HERE"
+API_KEY = "YOUR_API_KEY_HERE"  # <-- replace with your Materials Project API key
 composition_xlsx = files_dir / "composition_list.xlsx"
 
 # Set True to download only thermodynamically stable phases (energy_above_hull == 0)
 stable_only = True
+
+# Skip MP download for formulas already in BLADE database (BLADE's relaxed
+# structures take precedence over MP DFT structures for those compositions)
+skip_blade_formulas = True
+blade_xlsx = files_dir / "blade_generated_data.xlsx"
+_blade_formulas: set[str] = set()
+if skip_blade_formulas and blade_xlsx.exists():
+    import pandas as _pd
+    from pymatgen.core import Composition as _Comp
+    _bdf = _pd.read_excel(blade_xlsx)
+    for f in _bdf.get("formula", _pd.Series(dtype=str)).dropna():
+        try:
+            _blade_formulas.add(_Comp(str(f)).reduced_formula)
+        except Exception:
+            pass
+    print(f"Loaded {len(_blade_formulas)} BLADE formulas to skip")
 
 df_comps = pd.read_excel(composition_xlsx)
 systems = []
@@ -84,12 +100,25 @@ with MPRester(API_KEY) as mpr:
 
         chemsys_dir = mp_comps_dir / chemsys
         chemsys_dir.mkdir(parents=True, exist_ok=True)
+        n_saved = 0
 
         for doc in docs:
+            # Skip if this formula is already in the BLADE database
+            if skip_blade_formulas and _blade_formulas:
+                try:
+                    from pymatgen.core import Composition as _C
+                    reduced = _C(doc.formula_pretty).reduced_formula
+                except Exception:
+                    reduced = doc.formula_pretty
+                if reduced in _blade_formulas:
+                    print(f"  Skipping {doc.formula_pretty} — already in BLADE database")
+                    continue
+
             mat_dir = chemsys_dir / f"{doc.material_id}_{doc.formula_pretty}"
             mat_dir.mkdir(parents=True, exist_ok=True)
             poscar_path = mat_dir / "POSCAR"
             Poscar(doc.structure).write_file(poscar_path)
+            n_saved += 1
 
             sym = doc.symmetry
             summary_rows.append({
@@ -112,6 +141,10 @@ with MPRester(API_KEY) as mpr:
                 "spacegroup_symbol": getattr(sym, "symbol", None),
                 "poscar_path": str(poscar_path),
             })
+
+        if n_saved == 0 and chemsys_dir.exists() and not any(chemsys_dir.iterdir()):
+            chemsys_dir.rmdir()
+            print(f"  No structures found — removed empty dir: {chemsys}")
 
 pd.DataFrame(summary_rows).to_excel(mp_comps_dir / "materials_project_summary.xlsx", index=False)
 print(f"Saved POSCARs under: {mp_comps_dir}")

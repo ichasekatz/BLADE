@@ -31,7 +31,7 @@ SCRAPS_TOOLS = SCRAPS_REPO / "tools"
 # ------------------------------------------------------------------
 # Run flags
 # ------------------------------------------------------------------
-level = 5
+level = 6
 run_sqs = True
 skip_existing_sqs = False
 
@@ -41,7 +41,7 @@ skip_existing_tdb = False
 # ------------------------------------------------------------------
 # MLIP calculator — change mlip to swap potentials (see MaterialsFramework registry)
 # ------------------------------------------------------------------
-mlip        = "grace"                           # e.g. "grace", "mace", "uma", "chgnet", "orb"
+mlip        = "orb"                           # e.g. "grace", "mace", "uma", "chgnet", "orb"
 mlip_kwargs = {"steps": 1000, "device": "cpu"} # kwargs forwarded to the calculator constructor
 
 tdb_params = {

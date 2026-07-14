@@ -4,9 +4,9 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://opensource.org/license/gpl-3-0)
 [![Python](https://img.shields.io/badge/python-3.10%2B-brightgreen.svg)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-1.5.0-orange.svg)](pyproject.toml)
+[![Version](https://img.shields.io/badge/version-1.6.0-orange.svg)](pyproject.toml)
 
-**Batch Lattice Analysis and Discovery Engine — automated CALPHAD thermodynamic database generation for multicomponent materials systems.**
+**Batch Lattice Analysis and Discovery Engine — automated CALPHAD thermodynamic database generation and oxidation screening for multicomponent materials systems.**
 
 [Report a Bug](https://github.com/ichasekatz/BLADE/issues/new?labels=bug) · [Request a Feature](https://github.com/ichasekatz/BLADE/issues/new?labels=enhancement)
 
@@ -16,35 +16,9 @@
 
 ## Overview
 
-BLADE automates the full CALPHAD workflow from start to finish: given an element pool and a crystal structure prototype, it enumerates every valid N-component system, generates SQS supercells, relaxes them with an ML interatomic potential, fits CALPHAD parameters, and produces `.tdb` files — without manual intervention at any step.
+BLADE automates the full CALPHAD workflow: given an element pool and a crystal structure prototype, it enumerates every valid N-component system, generates SQS supercells, relaxes them with an ML interatomic potential, fits CALPHAD parameters, and produces `.tdb` files — without manual intervention at any step. An integrated oxidation screening module extends the pipeline to map phase stability as a function of composition and oxygen chemical potential.
 
-Inspired by [MaterialsFramework](https://github.com/dogusariturk/MaterialsFramework)'s modular design, BLADE builds on top of it as a computational backend. **BLADE requires the [ichasekatz fork of MaterialsFramework](https://github.com/ichasekatz/MaterialsFramework)** — install it before installing BLADE.
-
-- **Composition generation** — enumerate binary, ternary, or N-component systems from primary and secondary element pools with configurable count bounds
-- **SQS generation (mcsqs)** — drive ATAT `mcsqs` in parallel across all compositions; supports per-sublattice element assignment and fixed-composition constraints for multi-sublattice structures
-- **SQS generation (SCRAPS)** — generate SQS structures using the SCRAPS algorithm as an alternative to `mcsqs`, with support for multi-basis variable sublattices
-- **TDB fitting** — relax structures with any MLIP supported by MaterialsFramework, fit CALPHAD parameters, write `.tdb` files
-- **Fit customization** — override ATAT-generated `terms.in`, `mult.in`, and sublattice occupancy maps per phase; filter permutation directories by element assignment per composition level
-- **Visualization** — plot Gibbs energy and pseudo-binary phase diagrams, combine structure images, render relaxation movies
-- **Volume analysis** — scan POSCAR files and extract lattice parameters and per-atom volumes into a DataFrame
-
----
-
-## BLADE Capabilities
-
-| Capability | BLADE |
-|---|---|
-| Structure relaxation | Batched across every composition and SQS level |
-| Composition enumeration | `BladeCompositions` traverses the full N-component search space |
-| SQS generation (mcsqs) | `BladeSQS` runs parallel `mcsqs`; exact compositions from `sqsgen_levels` |
-| SQS generation (SCRAPS) | `ScrapsSQSGen` runs SCRAPS; handles multi-basis sublattices |
-| Multi-sublattice customization | `sublattice_map` assigns elements per sublattice; `composition_elements` controls permutations per composition level |
-| Fixed-composition constraints | `fixed_compositions` pins sublattice fractions, bypassing mcsqs permutation generation |
-| CALPHAD database output | `BladeTDBGen` processes all systems and phases in one call |
-| TDB fit accuracy | Per-phase `terms_in`/`mult_in` override ATAT cluster expansion files |
-| Fixed sublattice sites | Auto-derived from uppercase element labels in `coords` |
-| Phase diagrams | Gibbs energy, Gibbs energy of mixing, and pseudo-binary phase diagrams via pycalphad |
-| Visualization | `BladeVisualizer` plots thermodynamic quantities and combines structures and relaxation movies |
+BLADE builds on [MaterialsFramework](https://github.com/ichasekatz/MaterialsFramework) as a computational backend. **The [ichasekatz fork](https://github.com/ichasekatz/MaterialsFramework) is required** — install it before BLADE.
 
 ---
 
@@ -65,13 +39,21 @@ Inspired by [MaterialsFramework](https://github.com/dogusariturk/MaterialsFramew
 | Class | Description |
 |---|---|
 | `BladeVisualizer` | Plot Gibbs energy, mixing energy, and phase diagrams; combine CONTCARs and relaxation movies |
-| `BLADEVolume` | Extract volumes and lattice parameters from POSCAR files |
+| `BLADEData` | Extract volumes, lattice parameters, and energies from POSCAR/energy files |
+
+### Oxidation (`blade.oxidation`)
+
+| Class | Description |
+|---|---|
+| `OxideCompositions` | Enumerate oxide-relevant compositions from the primary element pool |
+| `OxideDatabase` | Download and relax MP reference structures; build unified energy database; run grand potential minimization |
 
 All classes are available via lazy top-level import:
 
 ```python
 from blade import BladeCompositions, BladeSQS, ScrapsSQSGen, BladeTDBGen
-from blade import BladeVisualizer, BLADEVolume
+from blade import BladeVisualizer, BLADEData
+from blade.oxidation import OxideCompositions, OxideDatabase
 ```
 
 ---
@@ -90,7 +72,6 @@ Install dependencies with [pixi](https://pixi.sh) and pip:
 ```bash
 pixi add git python==3.12 cmake pip psutil pandarallel orb-models pytorch tcsh pymatgen sqsgenerator
 pip install matplotlib pillow imageio pycalphad torch ase pynanoflann
-pip install tensorflow tensorpotential
 ```
 
 Install the required MaterialsFramework fork:
@@ -122,7 +103,6 @@ composer = BladeCompositions(
     primary_min=2, primary_max=3,
     secondary_min=0, secondary_max=0,
 )
-
 composition_list = composer.generate_compositions()
 unique_len_comps  = composer.get_systems()
 ```
@@ -150,7 +130,7 @@ sqs_gen.sqs_gen(phase=phase, paths=paths, iter=1_000_000, params=params)
 | `"2"` | Pair cutoff — nearest-neighbor shell index (resolved to Å by `BladeCutoff`) |
 | `"3"` | Triplet cutoff shell index (`0` to disable) |
 | `"4"` | Quadruplet cutoff shell index (`0` to disable) |
-| `"cutoff_mode"` | `"nn"` (default, NN shell index) or `"angstrom"` (direct Å value) |
+| `"cutoff_mode"` | `"nn"` (NN shell index) or `"angstrom"` (direct Å value) |
 | `"time"` | Seconds per sqsdb directory |
 | `"use_time"` | `True` to use time-based stopping criterion |
 | `"parallel_runs"` | Number of simultaneous `mcsqs` processes |
@@ -166,9 +146,7 @@ sqsgen_levels = [
 ]
 ```
 
-Each `"letter"` entry names the variable sublattice sites for that level. Fixed sites (uppercase in `coords`) are excluded automatically. Compositions listed are used exactly — no expansion to other fractions at the same denominator.
-
-### 2a. Generate SQS structures with SCRAPS
+### 2a. Generate SQS with SCRAPS
 
 ```python
 from blade.tools.blade_scraps_gen import ScrapsSQSGen
@@ -178,14 +156,11 @@ sqs_gen = ScrapsSQSGen(
     sqsgen_levels=sqsgen_levels,
     level=2,
     len_comp=5,
-    sublattice_map=sublattice_map,
-    fixed_compositions=fixed_compositions,
     scraps_bin=SCRAPS_BIN,
     scraps_tools=SCRAPS_TOOLS,
     ranks=10,
     auto_budget=3,
     max_shellnum=2,
-    fix_multibasis_sublattice=True,
 )
 sqs_gen.sqs_gen(phase=specific_phase, paths=paths, iter=0, params=params)
 ```
@@ -205,7 +180,6 @@ gen = BladeTDBGen(
     skip_existing=False,
     terms_in={"PHASE1": "1,0:1,0\n2,2:1,0\n"},
     sublattice_map={"PHASE1": {"a": ["Cr", "Hf"], "b": ["Al"]}},
-    fixed_compositions={"a": [0.5, 0.5]},
     tdb_params={
         "fmax": 1e-4,
         "calculator": "grace",
@@ -214,14 +188,57 @@ gen = BladeTDBGen(
         "t_max": 10000.0,
         "sro": False,
         "bv": 1e-3,
-        "phonon": False,
-        "open_calphad": False,
     },
 )
 gen.fit()
 ```
 
-### 4. Visualize results
+### 4. Oxidation screening
+
+The oxidation workflow is driven by sequential scripts in `examples/oxidation/`. Each script reads output from the previous step.
+
+```bash
+# Step 1 — enumerate oxide-relevant compositions and scan BLADE CONTCARs
+python examples/oxidation/01_compositions.py
+
+# Step 2 — download MP reference structures
+python examples/oxidation/02_poscars.py
+
+# Step 3 — relax MP structures with MLIP
+python examples/oxidation/03_energy.py
+
+# Step 4 — build unified energy database and run grand potential minimization
+python examples/oxidation/04_database.py
+
+# Step 5 — generate oxidation onset maps and phase assemblage plots
+python examples/oxidation/05_oxidation_calc.py
+```
+
+The core classes used internally:
+
+```python
+from blade.oxidation.compositions import OxideCompositions
+from blade.oxidation.database import OxideDatabase
+
+# OxideCompositions enumerates all oxide-relevant compositions
+comp = OxideCompositions(
+    files_dir=files_dir,
+    primary_elements=["Cr", "Hf", "Ta", "Ti", "Mo", "W", "Nb", "V", "Zr"],
+    fixed_elements=frozenset({"B"}),
+    primary_min=0, primary_max=3,
+    include_fixed=True,
+    include_added_oxygen=True,
+    include_fixed_oxygen=True,
+)
+comp.run()
+
+# OxideDatabase compiles energies, builds the database, and runs screening
+db = OxideDatabase(files_dir=files_dir, ...)
+db.scan_blade_data(blade_comp_dir=files_dir / "Comps")
+db.run()
+```
+
+### 5. Visualize results
 
 ```python
 from blade.analysis.blade_visual import BladeVisualizer
@@ -229,17 +246,22 @@ from blade.analysis.blade_visual import BladeVisualizer
 viz = BladeVisualizer()
 viz.plot_gibbs_energy(
     tdb=tdb, metals=["Cr", "Hf"], phase="PHASE1_2",
-    fixed_species={"Al": 1/3},
+    fixed_species={"B": 2/3},
     temperatures=[300, 1000, 2000, 3000, 4000],
     output_path="CrHf/CrHf_Gibbs_Energy.png",
 )
+viz.plot_gibbs_mixing(
+    tdb=tdb, metals=["Cr", "Hf"], phase="PHASE1_2",
+    fixed_species={"B": 2/3},
+    temperatures=[300, 1000, 2000, 3000, 4000],
+    output_path="CrHf/CrHf_Gibbs_Mixing.png",
+)
 viz.plot_binary_phase_diagram(
     tdb=tdb, metals=["Cr", "Hf"], phases=["PHASE1_2"],
-    fixed_species={"Al": 1/3},
+    fixed_species={"B": 2/3},
     temperature_range=(300, 4500, 50),
     output_path="CrHf/CrHf_Phase_Diagram.png",
 )
-viz.phase_diagram(pngs, save="Combined_Phase_Diagrams.png")
 ```
 
 ---
@@ -261,34 +283,53 @@ phases = {
 }
 ```
 
-**Label convention in `coords`:**
-- Lowercase letter (`a`, `b`, `c`) — variable sublattice; mixed occupancy; driven by `sqsgen_levels`
-- Uppercase element symbol (`C`, `Al`, `N`) — fixed element; never substituted
-
-`BladeTDBGen` auto-derives fixed-sublattice definitions from the uppercase labels in `coords`.
+- Lowercase letter (`a`, `b`) — variable sublattice; mixed occupancy
+- Uppercase symbol (`C`, `Al`) — fixed element; never substituted
 
 ---
 
 ## Example Scripts
 
-### Step-by-step (`examples/structure/`)
+### Step-by-step (`examples/structures/`)
 
 | Script | Description |
 |---|---|
-| [`01_compositions.py`](examples/structure/01_compositions.py) | Enumerate compositions |
-| [`02_sqs_generation.py`](examples/structure/02_sqs_generation.py) | Generate SQS structures with ATAT `mcsqs` |
-| [`03_tdb_generation.py`](examples/structure/03_tdb_generation.py) | Relax structures and fit TDB databases |
-| [`04_visualization.py`](examples/structure/04_visualization.py) | Plot Gibbs energy and phase diagrams |
-| [`05_volume_analysis.py`](examples/structure/05_volume_analysis.py) | Extract per-atom volumes from POSCAR files |
+| [`01_compositions.py`](examples/structures/01_compositions.py) | Enumerate compositions |
+| [`02_sqs_generation.py`](examples/structures/02_sqs_generation.py) | Generate SQS structures with ATAT `mcsqs` |
+| [`03_tdb_generation.py`](examples/structures/03_tdb_generation.py) | Relax structures and fit TDB databases |
+| [`04_visualization.py`](examples/structures/04_visualization.py) | Plot Gibbs energy and phase diagrams |
+| [`05_data_analysis.py`](examples/structures/05_data_analysis.py) | Extract volumes, lattice parameters, and energies from POSCAR files |
 
-### HPC driver scripts (`examples/structure/`)
+### Oxidation screening (`examples/oxidation/`)
+
+| Script | Description |
+|---|---|
+| [`01_compositions.py`](examples/oxidation/01_compositions.py) | Enumerate oxide-relevant compositions |
+| [`02_poscars.py`](examples/oxidation/02_poscars.py) | Download Materials Project structures |
+| [`03_energy.py`](examples/oxidation/03_energy.py) | Relax MP structures with MLIP |
+| [`04_database.py`](examples/oxidation/04_database.py) | Build unified energy database |
+| [`05_oxidation_calc.py`](examples/oxidation/05_oxidation_calc.py) | Grand potential minimization and phase maps |
+| [`06_visualization.py`](examples/oxidation/06_visualization.py) | Plot oxidation onset and phase assemblage maps |
+
+### Extra utilities (`examples/extra/`)
+
+| Script | Description |
+|---|---|
+| [`plot_phase.py`](examples/extra/plot_phase.py) | N-component phase maps with G_mix convex hull and shaded miscibility gaps; animated GIF per system |
+| [`compile_phase_grid.py`](examples/extra/compile_phase_grid.py) | Compile per-system GIFs into a synchronized grid video (MP4) grouped by system size |
+| [`refit_tdb.py`](examples/extra/refit_tdb.py) | Refit existing TDB from relaxed structures with updated `terms.in` / `mult.in` — skips relaxation |
+| [`compare_energy.py`](examples/extra/compare_energy.py) | Compare energy per atom between any two folders of relaxed structures; parity and residual plots |
+| [`tdb_gen_alloy.py`](examples/extra/tdb_gen_alloy.py) | HPC driver for pure metallic alloy systems (no fixed sublattice) |
+| [`tdb_gen_hedb_quaternary.py`](examples/extra/tdb_gen_hedb_quaternary.py) | HPC driver for quaternary diboride systems |
+
+### HPC driver scripts (`examples/structures/`)
 
 | Script | System | SQS method |
 |---|---|---|
-| [`tdb_gen_hedb.py`](examples/structure/tdb_gen_hedb.py) | Hexagonal two-sublattice phase | mcsqs |
-| [`tdb_gen_hedb_scraps.py`](examples/structure/tdb_gen_hedb_scraps.py) | Hexagonal two-sublattice phase | SCRAPS |
-| [`tdb_gen_max.py`](examples/structure/tdb_gen_max.py) | 211 MAX phase | mcsqs |
-| [`tdb_gen_max_scraps.py`](examples/structure/tdb_gen_max_scraps.py) | 211 MAX phase | SCRAPS |
+| [`tdb_gen_hedb.py`](examples/structures/tdb_gen_hedb.py) | Hexagonal two-sublattice (diboride) | mcsqs |
+| [`tdb_gen_hedb_scraps.py`](examples/structures/tdb_gen_hedb_scraps.py) | Hexagonal two-sublattice (diboride) | SCRAPS |
+| [`tdb_gen_max.py`](examples/structures/tdb_gen_max.py) | 211 MAX phase | mcsqs |
+| [`tdb_gen_max_scraps.py`](examples/structures/tdb_gen_max_scraps.py) | 211 MAX phase | SCRAPS |
 
 ---
 

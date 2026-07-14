@@ -3,7 +3,7 @@
 This is the main driver script showing an example of HEDBs but uses the refactored BLADE API:
 
   - BladeTDBGen stores config on construction; call gen.fit() to run
-  - BladeVisualizer (not BLADEVisualizer)
+  - BladeVisualizer handles all plotting and visualization
   - All classes imported from blade.*
 """
 
@@ -29,7 +29,7 @@ paths = [path0, path1, path2]
 # ------------------------------------------------------------------
 # Run flags
 # ------------------------------------------------------------------
-level = 5
+level = 6
 sqs_iter = 1_000_000
 run_sqs = True
 skip_existing_sqs = False
@@ -40,7 +40,7 @@ skip_existing_tdb = False
 # ------------------------------------------------------------------
 # MLIP calculator — change mlip to swap potentials (see MaterialsFramework registry)
 # ------------------------------------------------------------------
-mlip        = "grace"                            # e.g. "grace", "mace", "uma", "chgnet", "orb"
+mlip        = "orb"                            # e.g. "grace", "mace", "uma", "chgnet", "orb"
 mlip_kwargs = {"steps": 1000, "device": "cpu"} # kwargs forwarded to the calculator constructor
 
 tdb_params = {
@@ -88,7 +88,6 @@ run_movie = False
 # ------------------------------------------------------------------
 primary_elements = ["Zr", "Hf", "Ta", "Cr", "Ti", "V", "Nb", "Mo", "W"]
 secondary_elements: list[str] = []
-primary_elements = ["Cr", "Hf"]
 
 primary_min = 2
 primary_max = 2

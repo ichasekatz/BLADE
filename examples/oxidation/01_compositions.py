@@ -38,7 +38,7 @@ comp = OxideCompositions(
 
     # Primary element count per composition
     primary_min=0,
-    primary_max=2,
+    primary_max=3,
     # Secondary element count per composition
     secondary_min=0,
     secondary_max=0,

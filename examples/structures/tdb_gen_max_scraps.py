@@ -41,7 +41,7 @@ skip_existing_tdb = False
 # ------------------------------------------------------------------
 # MLIP calculator — change mlip to swap potentials (see MaterialsFramework registry)
 # ------------------------------------------------------------------
-mlip        = "grace"                            # e.g. "grace", "mace", "uma", "chgnet", "orb"
+mlip        = "orb"                            # e.g. "grace", "mace", "uma", "chgnet", "orb"
 mlip_kwargs = {"steps": 1000, "device": "cpu"} # kwargs forwarded to the calculator constructor
 
 tdb_params = {
@@ -65,9 +65,8 @@ tdb_params = {
 terms_in: dict | None = None
 terms_in = {"MAX2":
     "1,0:1,0:1,0\n"
-    "2,0:1,0:1,0\n"
-    "1,0:2,0:1,0\n"
-    "2,0:2,0:1,0\n"
+    "2,2:2,2:1,0\n"
+    "3,0:2,0:1,0\n"
     }
 
 mult_in: dict | None = None
