@@ -12,8 +12,10 @@ Output: BLADE/Files/MaterialsProject_Comps/**/**/energy  (one per structure)
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
+
+from materialsframework.calculators.registry import get_calculator
+from materialsframework.tools.sqs2tdb import Sqs2tdb
 
 # ------------------------------------------------------------------
 # Paths
@@ -30,6 +32,7 @@ mp_comps_dir = files_dir / "MaterialsProject_Comps_ORB"
 # ==============================================================================
 # Calculate MLIP energies for MP structures using GRACECalculator
 # ==============================================================================
+
 
 def count_atoms_from_poscar(poscar_path: Path) -> int:
     lines = poscar_path.read_text().splitlines()
@@ -62,19 +65,17 @@ def write_energy_per_atom(subdir: Path) -> None:
     energy_per_atom = energy / n_atoms
     energy_per_atom_path.write_text(f"{energy_per_atom:.16f}\n")
 
+
 # ------------------------------------------------------------------
 # MLIP calculator — change mlip to swap potentials (see MaterialsFramework registry)
 # ------------------------------------------------------------------
-mlip        = "orb"                             # e.g. "grace", "mace", "uma", "chgnet", "orb"
+mlip = "orb"  # e.g. "grace", "mace", "uma", "chgnet", "orb"
 mlip_kwargs = {"steps": 1000, "device": "cpu"}  # kwargs forwarded to the calculator constructor
 
 skip_existing_mp_energies = True
 
-from materialsframework.calculators.registry import get_calculator
-from materialsframework.tools.sqs2tdb import Sqs2tdb
-
 calc = get_calculator(mlip, **mlip_kwargs)
-track_trajectory = False   # set False to skip relaxation_live.xyz
+track_trajectory = False  # set False to skip relaxation_live.xyz
 sqs = Sqs2tdb(fmax=1e-3, verbose=True, track_trajectory=track_trajectory, calculator=calc)
 
 poscar_paths = sorted(mp_comps_dir.rglob("POSCAR"))

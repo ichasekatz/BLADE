@@ -104,6 +104,7 @@ class BladeVisualizer:
             save (str | Path): Output path for the combined image.
         """
         import math
+
         imgs = [Image.open(p) for p in images]
         n = len(imgs)
         ncols = math.ceil(math.sqrt(n))
@@ -140,7 +141,8 @@ class BladeVisualizer:
             temperatures (list[int]): Temperatures in K to evaluate.
             output_path (str | Path): Path to save the PNG.
         """
-        from pycalphad import equilibrium, variables as v
+        from pycalphad import equilibrium
+        from pycalphad import variables as v
 
         if len(metals) != 2:
             print(f"Skipping Gibbs-energy plot: expected two metals, got {metals}")
@@ -168,8 +170,7 @@ class BladeVisualizer:
             ax.plot(x_metal_site, gm, linewidth=2, label=f"{temperature} K")
 
         ax.set_xlabel(
-            rf"Metal-site fraction $x_{{{metal_2}}}$ in "
-            rf"$({metal_1}_{{1-x}}{metal_2}_x)$",
+            rf"Metal-site fraction $x_{{{metal_2}}}$ in " rf"$({metal_1}_{{1-x}}{metal_2}_x)$",
             fontsize=15,
         )
         ax.set_ylabel("Molar Gibbs Energy (J/mol-atom)", fontsize=15)
@@ -214,7 +215,8 @@ class BladeVisualizer:
             temperatures (list[int]): Temperatures in K to evaluate.
             output_path (str | Path): Path to save the PNG.
         """
-        from pycalphad import equilibrium, variables as v
+        from pycalphad import equilibrium
+        from pycalphad import variables as v
 
         if len(metals) != 2:
             print(f"Skipping Gibbs-mixing plot: expected two metals, got {metals}")
@@ -250,8 +252,7 @@ class BladeVisualizer:
 
         ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
         ax.set_xlabel(
-            rf"Metal-site fraction $x_{{{metal_2}}}$ in "
-            rf"$({metal_1}_{{1-x}}{metal_2}_x)$",
+            rf"Metal-site fraction $x_{{{metal_2}}}$ in " rf"$({metal_1}_{{1-x}}{metal_2}_x)$",
             fontsize=15,
         )
         ax.set_ylabel(r"$\Delta G_{\rm mix}$ (J/mol-atom)", fontsize=15)
@@ -297,7 +298,8 @@ class BladeVisualizer:
                 T_step)`` in K, e.g. ``(300, 4500, 50)``.
             output_path (str | Path): Path to save the PNG.
         """
-        from pycalphad import binplot, variables as v
+        from pycalphad import binplot
+        from pycalphad import variables as v
 
         if len(metals) != 2:
             print(f"Skipping phase diagram: expected two metals, got {metals}")
@@ -318,7 +320,23 @@ class BladeVisualizer:
         }
 
         fig, ax = plt.subplots(figsize=(10, 7))
-        binplot(tdb, components, phases, conditions, plot_kwargs={"ax": ax})
+        try:
+            binplot(tdb, components, phases, conditions, plot_kwargs={"ax": ax})
+        except ValueError as exc:
+            if "need at least one array to concatenate" not in str(exc):
+                plt.close(fig)
+                raise
+            # pycalphad raises when a valid calculation contains no tielines.
+            ax.clear()
+            ax.set_xlim(0, metal_site_fraction)
+            ax.set_ylim(temperature_range[0], temperature_range[1])
+            ax.text(
+                metal_site_fraction / 2,
+                (temperature_range[0] + temperature_range[1]) / 2,
+                "No two-phase boundaries found",
+                ha="center",
+                va="center",
+            )
 
         n_ticks = 5
         tick_vals = [i * metal_site_fraction / (n_ticks - 1) for i in range(n_ticks)]
@@ -326,8 +344,7 @@ class BladeVisualizer:
         ax.set_xticks(tick_vals)
         ax.set_xticklabels(tick_labels, fontsize=14)
         ax.set_xlabel(
-            rf"Metal-site fraction $x_{{{metal_2}}}$ in "
-            rf"$({metal_1}_{{1-x}}{metal_2}_x)$",
+            rf"Metal-site fraction $x_{{{metal_2}}}$ in " rf"$({metal_1}_{{1-x}}{metal_2}_x)$",
             fontsize=15,
         )
         ax.set_ylabel("Temperature (K)", fontsize=15)
@@ -362,10 +379,7 @@ class BladeVisualizer:
             lines = [ln.strip() for ln in f if ln.strip()]
 
         scale = float(lines[1])
-        cell = (
-            np.array([[float(x) for x in lines[i].split()] for i in range(2, 5)], dtype=float)
-            * scale
-        )
+        cell = np.array([[float(x) for x in lines[i].split()] for i in range(2, 5)], dtype=float) * scale
 
         i = 5
         toks = lines[i].split()
@@ -520,8 +534,7 @@ class BladeVisualizer:
                 if frames:
                     h, w = frames[0].shape[:2]
                     frames = [
-                        np.array(Image.fromarray(f).resize((w, h), Image.LANCZOS))
-                        if f.shape[:2] != (h, w) else f
+                        np.array(Image.fromarray(f).resize((w, h), Image.LANCZOS)) if f.shape[:2] != (h, w) else f
                         for f in frames
                     ]
                 imageio.mimsave(out_gif, frames, fps=fps)
@@ -531,11 +544,16 @@ class BladeVisualizer:
                     out_mp4 = comp_dir / f"Combined_relaxation_{comp_name}_{phase_dir.name}.mp4"
                     subprocess.run(
                         [
-                            "ffmpeg", "-y",
-                            "-i", str(out_gif),
-                            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-                            "-movflags", "faststart",
-                            "-pix_fmt", "yuv420p",
+                            "ffmpeg",
+                            "-y",
+                            "-i",
+                            str(out_gif),
+                            "-vf",
+                            "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                            "-movflags",
+                            "faststart",
+                            "-pix_fmt",
+                            "yuv420p",
                             str(out_mp4),
                         ],
                         check=True,

@@ -108,11 +108,13 @@ class BladeCutoff:
         cy = c * (np.cos(alpha_r) - np.cos(beta_r) * np.cos(gamma_r)) / np.sin(gamma_r)
         cz = np.sqrt(c**2 - cx**2 - cy**2)
 
-        return np.array([
-            [ax, 0.0, 0.0],
-            [bx, by, 0.0],
-            [cx, cy, cz],
-        ])
+        return np.array(
+            [
+                [ax, 0.0, 0.0],
+                [bx, by, 0.0],
+                [cx, cy, cz],
+            ]
+        )
 
     def read_coords(self, coord_string: str) -> np.ndarray:
         """Parse an ATAT fractional coordinate string into an array.
@@ -165,7 +167,7 @@ class BladeCutoff:
         dists: list[float] = []
 
         for i in range(n):
-            df = frac_sc[i + 1:] - frac_sc[i]
+            df = frac_sc[i + 1 :] - frac_sc[i]
             df = _min_image(df, rep)
             cart = df @ lattice
             r = np.linalg.norm(cart, axis=1)

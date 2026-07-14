@@ -49,3 +49,23 @@ stopsqs
 # IDE
 .vscode/
 .idea/
+
+# BLADE data directories
+Files/
+Files2/
+Files3/
+Files4/
+
+# pixi environment
+.pixi/
+pixi.lock
+pixi.toml
+
+# Scratch/copy files
+* copy.py
+* copy *.py
+CLAUDE.md
+backups/
+tests/
+uv.lock
+.python-version

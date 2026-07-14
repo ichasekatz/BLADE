@@ -48,9 +48,7 @@ class BLADEData:
 
         return sqs_level, a_fracs
 
-    def poscar_lattice_and_counts(
-        self, poscar_path: Path
-    ) -> tuple[np.ndarray, int, dict[str, int]]:
+    def poscar_lattice_and_counts(self, poscar_path: Path) -> tuple[np.ndarray, int, dict[str, int]]:
         """Parse a POSCAR and return its lattice matrix and atom counts.
 
         Handles both VASP 4 (counts on line 6) and VASP 5 (elements on line 6,
@@ -60,10 +58,7 @@ class BLADEData:
             lines = [ln.strip() for ln in f if ln.strip()]
 
         scale = float(lines[1])
-        lattice = (
-            np.array([[float(x) for x in lines[i].split()] for i in range(2, 5)], dtype=float)
-            * scale
-        )
+        lattice = np.array([[float(x) for x in lines[i].split()] for i in range(2, 5)], dtype=float) * scale
 
         i = 5
         toks = lines[i].split()
@@ -95,9 +90,7 @@ class BLADEData:
         except Exception:
             return None
 
-    def cellpar_from_lattice(
-        self, lattice: np.ndarray
-    ) -> tuple[float, float, float, float, float, float]:
+    def cellpar_from_lattice(self, lattice: np.ndarray) -> tuple[float, float, float, float, float, float]:
         """Return ``(a, b, c, alpha, beta, gamma)`` from a 3×3 lattice matrix."""
         a_vec, b_vec, c_vec = lattice
 
@@ -154,25 +147,27 @@ class BLADEData:
                 energy = self.read_energy(poscar_path)
                 epa = energy / natoms if (energy is not None and natoms) else None
 
-                rows.append({
-                    "composition_folder": comp_name,
-                    "phase_folder": phase_name,
-                    "sqs_level": sqs_level,
-                    "sqs_a_fracs_json": json.dumps(a_fracs, sort_keys=True),
-                    "poscar_path": str(poscar_path),
-                    "volume_A3": vol,
-                    "natoms": natoms,
-                    "volume_per_atom_A3": vpa,
-                    "a_A": a,
-                    "b_A": b,
-                    "c_A": c,
-                    "alpha_deg": alpha,
-                    "beta_deg": beta,
-                    "gamma_deg": gamma,
-                    "poscar_counts_json": json.dumps(counts_map, sort_keys=True),
-                    "energy_eV": energy,
-                    "energy_per_atom_eV": epa,
-                })
+                rows.append(
+                    {
+                        "composition_folder": comp_name,
+                        "phase_folder": phase_name,
+                        "sqs_level": sqs_level,
+                        "sqs_a_fracs_json": json.dumps(a_fracs, sort_keys=True),
+                        "poscar_path": str(poscar_path),
+                        "volume_A3": vol,
+                        "natoms": natoms,
+                        "volume_per_atom_A3": vpa,
+                        "a_A": a,
+                        "b_A": b,
+                        "c_A": c,
+                        "alpha_deg": alpha,
+                        "beta_deg": beta,
+                        "gamma_deg": gamma,
+                        "poscar_counts_json": json.dumps(counts_map, sort_keys=True),
+                        "energy_eV": energy,
+                        "energy_per_atom_eV": epa,
+                    }
+                )
 
         self.data = pd.DataFrame(rows)
         return self.data

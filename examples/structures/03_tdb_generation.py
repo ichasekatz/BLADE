@@ -31,8 +31,8 @@ paths = [path0, path1, path2]
 # ------------------------------------------------------------------
 # MLIP calculator — change mlip to swap potentials (see MaterialsFramework registry)
 # ------------------------------------------------------------------
-mlip        = "orb"                            # e.g. "grace", "mace", "uma", "chgnet", "orb"
-mlip_kwargs = {"steps": 1000, "device": "cpu"} # kwargs forwarded to the calculator constructor
+mlip = "orb"  # e.g. "grace", "mace", "uma", "chgnet", "orb"
+mlip_kwargs = {"steps": 1000, "device": "cpu"}  # kwargs forwarded to the calculator constructor
 
 # ------------------------------------------------------------------
 # Run flags
@@ -51,16 +51,12 @@ tdb_params = {
     "bv": 1e-3,
     "phonon": False,
     "open_calphad": False,
-    "track_trajectory": True,   # set False to skip relaxation_live.xyz
+    "track_trajectory": True,  # set False to skip relaxation_live.xyz
     "terms": None,
 }
 
 terms_in: dict | None = None
-terms_in = {
-    "ALLOY1": "1,0:1,0\n2,2:1,0\n",
-    "ALLOY2": "1,0:1,0\n2,2:2,2\n",
-    "ALLOY3": "1,0:1,0\n2,2:1,0\n"
-}
+terms_in = {"ALLOY1": "1,0:1,0\n2,2:1,0\n", "ALLOY2": "1,0:1,0\n2,2:2,2\n", "ALLOY3": "1,0:1,0\n2,2:1,0\n"}
 
 mult_in: dict | None = None
 mult_in = {
@@ -86,8 +82,15 @@ secondary_max = 0
 # FCC lattice constants (Å, conventional cubic cell)
 # ------------------------------------------------------------------
 _FCC_A = {
-    "Cr": 3.52, "Hf": 4.11, "Mo": 3.96, "Nb": 4.30,
-    "Ta": 4.29, "Ti": 4.10, "V":  3.80, "W":  4.01, "Zr": 4.15,
+    "Cr": 3.52,
+    "Hf": 4.11,
+    "Mo": 3.96,
+    "Nb": 4.30,
+    "Ta": 4.29,
+    "Ti": 4.10,
+    "V": 3.80,
+    "W": 4.01,
+    "Zr": 4.15,
 }
 _active_f = [el for el in primary_elements if el in _FCC_A]
 _avg_a_fcc = sum(_FCC_A[el] for el in _active_f) / len(_active_f)

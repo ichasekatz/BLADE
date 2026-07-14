@@ -13,23 +13,26 @@ from __future__ import annotations
 
 import importlib
 
-__version__ = "1.6"
+__version__ = "1.7"
 __author__ = "Chase Katz"
 
 _MAP: dict[str, tuple[str, str]] = {
     # tools
     "BladeCompositions": ("blade.tools.blade_compositions", "BladeCompositions"),
-    "BladeSQS":          ("blade.tools.blade_sqsgen",       "BladeSQS"),
-    "BladeTDBGen":       ("blade.tools.blade_tdb_gen",      "BladeTDBGen"),
-    "BladeCutoff":       ("blade.tools.blade_cutoff",       "BladeCutoff"),
-    "ScrapsSQSGen":      ("blade.tools.blade_scraps_gen",   "ScrapsSQSGen"),
+    "BladeSQS": ("blade.tools.blade_sqsgen", "BladeSQS"),
+    "BladeTDBGen": ("blade.tools.blade_tdb_gen", "BladeTDBGen"),
+    "BladeCutoff": ("blade.tools.blade_cutoff", "BladeCutoff"),
+    "ScrapsSQSGen": ("blade.tools.blade_scraps_gen", "ScrapsSQSGen"),
     # analysis
-    "BladeVisualizer":   ("blade.analysis.blade_visual",    "BladeVisualizer"),
-    "BLADEData":         ("blade.analysis.blade_data",      "BLADEData"),
-    "BLADEVolume":       ("blade.analysis.blade_data",      "BLADEVolume"),
+    "BladeVisualizer": ("blade.analysis.blade_visual", "BladeVisualizer"),
+    "BLADEData": ("blade.analysis.blade_data", "BLADEData"),
+    "BLADEVolume": ("blade.analysis.blade_data", "BLADEVolume"),
     # oxidation
-    "OxideCompositions": ("blade.oxidation.compositions",   "OxideCompositions"),
-    "OxideDatabase":     ("blade.oxidation.database",       "OxideDatabase"),
+    "OxideCompositions": ("blade.oxidation.compositions", "OxideCompositions"),
+    "OxideDatabase": ("blade.oxidation.database", "OxideDatabase"),
+    "OxidationConfig": ("blade.oxidation.oxidation_calculations", "OxidationConfig"),
+    "OxidationCalculator": ("blade.oxidation.oxidation_calculations", "OxidationCalculator"),
+    "OxidationVisualizer": ("blade.oxidation.oxidation_visualization", "OxidationVisualizer"),
 }
 
 __all__ = list(_MAP)

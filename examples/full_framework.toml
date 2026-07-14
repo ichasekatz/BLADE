@@ -1,0 +1,307 @@
+[stages]
+sqs_generation = true
+tdb_fitting = true
+phase_diagrams = true
+oxide_database = true
+oxidation_graphs = true
+
+[paths]
+blade_root = "/Users/chasekatz/Desktop/School/Research/BLADE"
+files_dir = "/Users/chasekatz/Desktop/School/Research/BLADE/Files"
+sqsdb_dir = "/Users/chasekatz/Desktop/School/Research/PhaseForge/PhaseForge/atat/data/sqsdb"
+# Required only when tdb.sqs_method = "scraps".
+scraps_repo = "/Users/chasekatz/Desktop/School/Research/SCRAPS/scraps-perpair"
+
+[tdb]
+sqs_method = "mcsqs" # "mcsqs" or "scraps"
+prototype_driver = "standard"
+level = 6
+skip_existing_sqs = true
+skip_existing_tdb = true
+refit_existing_tdb = false
+skip_existing_plots = true
+generate_gibbs_energy = true
+generate_gibbs_mixing = true
+generate_phase_diagram = true
+generate_combined_phase_diagram = true
+generate_contcar_plots = true
+run_movie = false
+mlip = "orb"
+#primary_elements = ["Zr", "Hf", "Ta", "Cr", "Ti", "V", "Nb", "Mo", "W"]
+primary_elements = ["Cr", "Hf", "Mo"]
+secondary_elements = []
+primary_min = 2
+primary_max = 3
+secondary_min = 0
+secondary_max = 0
+liquid = false
+comps_folder = "Comps"
+
+[tdb_mlip_kwargs]
+steps = 1000
+device = "cpu"
+
+[tdb_fit]
+fmax = 0.001
+verbose = true
+t_min = 298.15
+t_max = 10000.0
+sro = false
+bv = 0.001
+phonon = false
+open_calphad = false
+track_trajectory = false # generates .xyz files for structure relaxations
+
+[tdb_sqs]
+time = 30
+cutoff_mode = "nn"
+pair_cutoff = 5
+triplet_cutoff = 4
+quadruplet_cutoff = 3
+wr = 20
+wn = 0.75
+wd = 1
+parallel_runs = 10
+
+[tdb_scraps]
+ranks = 10
+auto_budget = 3
+max_shellnum = 4
+fix_multibasis_sublattice = false
+
+[[tdb_sqs_levels]]
+level = 0
+compositions = [[1.0, 0.0]]
+letter = ["a"]
+
+[[tdb_sqs_levels]]
+level = 1
+compositions = [[0.5, 0.5]]
+letter = ["a"]
+
+[[tdb_sqs_levels]]
+level = 2
+compositions = [[0.75, 0.25]]
+letter = ["a"]
+
+[[tdb_sqs_levels]]
+level = 3
+compositions = [[0.33333, 0.33333, 0.33333]]
+letter = ["a"]
+
+[[tdb_sqs_levels]]
+level = 4
+compositions = [[0.5, 0.25, 0.25]]
+letter = ["a"]
+
+[[tdb_sqs_levels]]
+level = 5
+compositions = [[0.875, 0.125], [0.625, 0.375]]
+letter = ["a"]
+
+[[tdb_sqs_levels]]
+level = 6
+compositions = [[0.75, 0.125, 0.125]]
+letter = ["a"]
+
+[phase]
+key = "HEDB1"
+generator_name = "HEDB"
+a = 3.0624
+b = 3.0624
+c = 3.2392
+alpha = 90
+beta = 90
+gamma = 120
+supercell_size = [4, 3, 2]
+use_average_lattice = true
+# Optional override. If omitted, all elements in primary_elements and
+# secondary_elements are averaged using their matching a, b, and c axes.
+# average_elements = { elements = ["Cr", "Hf"], a = "a", b = "a", c = "a" }
+vectors = """1 0 0
+0 1 0
+0 0 1
+"""
+coords = """0.000000 0.000000 0.000000 a
+0.333333 0.666667 0.500000 B
+0.666667 0.333333 0.500000 B
+"""
+
+# Optional per-phase ATAT/model files. Omit a phase key to keep its generated
+# default. TOML multiline strings preserve the complete input file.
+[tdb_inputs.terms_in]
+HEDB1 = """1,0:1,0
+2,2:1,0
+"""
+# A full generated phase key overrides the base key for that system size:
+HEDB1_2 = """1,0:1,0
+2,2:1,0
+"""
+HEDB1_3 = """1,0:1,0
+2,2:1,0
+3,0:1,0
+"""
+
+# [tdb_inputs.mult_in]
+# HEDB1 = "a=1\tb=2"
+
+# [tdb_inputs.sqsgen_in]
+# HEDB1 = """level=0\ta=1\tb=1
+# level=1\ta=0.5,0.5\tb=1
+# """
+
+# Direct map form for assigning allowed elements to each phase/site.
+# [tdb_inputs.sublattice_map.HEDB1]
+# a = ["Cr", "Hf", "Mo", "V"]
+
+# Direct fixed-composition form. Element order comes from sublattice_map.
+# [tdb_inputs.fixed_compositions]
+# a = [0.5, 0.5]
+
+# Site form combines the map, constant flag, and ordered composition. If
+# composition is omitted for a constant site, equal fractions are used.
+# [tdb_inputs.sites.HEDB1.a]
+# elements = ["Cr", "Hf"]
+# constant = true
+# composition = [0.75, 0.25]
+
+# System names are order independent: CrHf and HfCr address the same system.
+# This example keeps only the ordered Cr=0.75, Hf=0.25 assignment for CrHf.
+# The composition is automatically added to the selected SQS level.
+# [tdb_system_overrides.CrHf.sites.HEDB1.a]
+# elements = ["Cr", "Hf"]
+# constant = true
+# composition = [0.75, 0.25]
+
+# The direct dictionary form is also supported for a system override.
+# [tdb_system_overrides.CrHf.sublattice_map.HEDB1]
+# a = ["Cr", "Hf"]
+# [tdb_system_overrides.CrHf.fixed_compositions]
+# a = [0.75, 0.25]
+
+[phase_plots]
+comps_folder = "Comps"
+output_folder = "Phase_Diagrams"
+# Optional exact override. If omitted, systems are derived from the TDB element
+# pools and primary/secondary min/max settings.
+# systems = ["CrHfMo"]
+t_start = 200
+t_end = 2000
+t_step = 200
+skip_missing_calculations = false
+make_gif = true
+gif_t_step = 10
+gif_fps = 20
+fixed_elements = ["B"]
+metal_fraction = 0.3333333333333333
+n_grid = 40
+two_phase_threshold = 5.0
+pressure = 101325.0
+
+[phase_grid]
+phase_diagrams_folder = "Phase_Diagrams"
+panel_width = 150
+panel_height = 130
+fps = 20
+background_rgb = [255, 255, 255]
+header_height = 40
+colorbar_width = 60
+t_start = 200
+t_end = 2000
+t_step = 10
+
+[database]
+primary_elements = ["Zr", "Hf", "Ta", "Cr", "Ti", "V", "Nb", "Mo", "W"]
+# primary_elements = ["Hf", "Cr", "Mo"]
+secondary_elements = []
+fixed_elements = ["B"]
+oxygen_element = "O"
+primary_min = 0
+primary_max = 3
+secondary_min = 0
+secondary_max = 0
+stable_only = true
+skip_blade_formulas = true
+skip_existing_poscars = true
+skip_existing_energies = true
+mlip = "orb"
+mlip_label = "MP+ORB"
+mlip_folder = "MaterialsProject_Comps_ORB"
+poscar_folder = "MaterialsProject_Comps_POSCARs"
+blade_comp_folders = ["Comps"]
+run_compositions = true
+run_download = true
+run_energies = true
+run_database = true
+api_key_env = "MP_API_KEY"
+
+[database_mlip_kwargs]
+steps = 1000
+device = "cpu"
+
+[database_fallback_refs]
+C = -9.200
+Cr = -9.632
+Hf = -9.956
+Mo = -10.850
+Nb = -10.094
+O = -4.949
+Ta = -11.853
+Ti = -7.897
+V = -9.080
+W = -12.960
+Zr = -8.547
+B = -6.680
+
+[oxidation]
+mode = "batch"
+phase_element = "B"
+phase_element_stoichiometry = 2.0
+mixed_phase_subdir = "blade"
+fixed_phases_subdir = "ORB"
+region_label_mode = "phases"
+region_label_fontsize = 7
+slice_axis_priority = ["Cr", "Hf", "Mo", "Nb", "Ta", "Ti", "V", "W", "Zr"]
+
+[oxidation_batch]
+elements = ["Cr", "Hf", "Mo", "Nb", "Ta", "Ti", "V", "W", "Zr"]
+# With both true, every calculation finishes before any oxidation plot starts.
+run_calculations = true
+run_plots = true
+run_scan = true
+run_muO_x_map = false
+run_onset = true
+run_3d_onset = true
+run_animations = true
+run_composition_slices = true
+run_composition_slice_muT = true
+# Composition resolution used only by the per-composition muO-T maps.
+slice_muT_comp_step = 0.1
+skip_if_tables_exist = true
+skip_if_analysis_exists = true
+temperature_range = [250, 2000, 250]
+mu_o_range = [-10.0, -4.0, 0.1]
+scan_x = 0.5
+scan_T = [700, 1270, 2000, 2500]
+scan_mu_o_range = [-10.0, -4.0, 0.05]
+map_x_range = [0.0, 1.0, 0.01]
+slice_remainder_ratios = [0.0, 0.25, 0.3333333333333333, 0.5, 0.6666666666666666, 0.75, 1.0]
+onset_comp_step_binary = 0.02
+onset_comp_step_ternary = 0.025
+onset_comp_step_nary = 0.1
+onset_threshold = 1e-8
+
+[oxidation_single]
+system = "CrHfMoB"
+metals = ["Cr", "Hf", "Mo"]
+composition = [0.3333333333333333, 0.3333333333333333, 0.3333333333333333]
+temperature_range = [250, 2000, 10]
+mu_o_range = [-12.0, -4.0, 0.1]
+scan_temperatures = [700, 1000, 1273, 1300]
+x_range = [0.0, 1.0, 0.01]
+skip_if_exists = true
+run_calculations = true
+run_plots = true
+include_0p01_to_0p05_components = true
+rk_order = 3
+y_step = 0.01

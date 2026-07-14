@@ -10,14 +10,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
-from pymatgen.core import Composition, Structure
+from pymatgen.core import Composition
 
 from blade.tools.blade_compositions import BladeCompositions
-
 
 # ---------------------------------------------------------------------------
 # Module-level helper
 # ---------------------------------------------------------------------------
+
 
 def calculate_dH(formula: str, energy_per_atom: float, refs: dict) -> float:
     comp = Composition(formula)
@@ -34,8 +34,9 @@ def calculate_dH(formula: str, energy_per_atom: float, refs: dict) -> float:
 # Class
 # ---------------------------------------------------------------------------
 
+
 class OxideCompositions:
-    """Enumerate oxide/boride compositions and scan BLADE relaxation data.
+    """Enumerate environment-relevant compositions and scan relaxation data.
 
     Parameters
     ----------
@@ -43,7 +44,7 @@ class OxideCompositions:
         Root output directory; ``composition_list.xlsx`` and
         ``blade_generated_data.xlsx`` are written here.
     primary_elements:
-        Transition metals occupying the variable sublattice.
+        Elements occupying the primary variable sublattice.
     secondary_elements:
         Fixed/mixed species (typically ``["B", "O"]``).
     mlip_ref_label:
@@ -58,17 +59,16 @@ class OxideCompositions:
     primary_max:
         Maximum number of primary elements per composition.
     include_no_oxygen:
-        Include compositions with no O and no B (pure metals).
+        Include compositions with neither oxygen nor fixed structural species.
     include_fixed_oxygen:
-        Include compositions containing both B and O.
+        Include compositions containing oxygen and fixed structural species.
     include_added_oxygen:
-        Include compositions containing O but not B (pure oxides).
+        Include compositions containing oxygen but no fixed structural species.
     include_fixed:
         Include compositions containing the fixed structural element(s) but not O.
     fixed_elements:
-        Set of elements treated as fixed structural species (e.g. ``{"B"}`` for
-        diborides, ``{"C"}`` for MAX phases).  Defaults to ``frozenset({"B"})``
-        so existing diboride workflows are unchanged.
+        Elements treated as fixed structural species. The empty default makes
+        no assumption about chemistry or crystal prototype.
     """
 
     def __init__(
@@ -84,7 +84,7 @@ class OxideCompositions:
         include_fixed_oxygen: bool = True,
         include_added_oxygen: bool = True,
         include_fixed: bool = False,
-        fixed_elements: frozenset[str] = frozenset({"B"}),
+        fixed_elements: frozenset[str] = frozenset(),
         oxygen_element: str = "O",
     ) -> None:
         self.files_dir = files_dir
@@ -205,9 +205,7 @@ class OxideCompositions:
 
         comp_df = pd.DataFrame(rows)
         comp_df = comp_df.drop_duplicates()
-        comp_df = comp_df.sort_values(
-            ["metal_composition", "both_composition", "composition"]
-        ).reset_index(drop=True)
+        comp_df = comp_df.sort_values(["metal_composition", "both_composition", "composition"]).reset_index(drop=True)
 
         comp_df.to_excel(self.files_dir / "composition_list.xlsx", index=False)
         print(f"Saved {(self.files_dir / 'composition_list.xlsx').resolve()}")

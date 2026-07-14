@@ -15,7 +15,10 @@ __author__ = "Chase Katz"
 
 _OXIDATION_MAP: dict[str, tuple[str, str]] = {
     "OxideCompositions": ("blade.oxidation.compositions", "OxideCompositions"),
-    "OxideDatabase":     ("blade.oxidation.database",     "OxideDatabase"),
+    "OxideDatabase": ("blade.oxidation.database", "OxideDatabase"),
+    "OxidationConfig": ("blade.oxidation.oxidation_calculations", "OxidationConfig"),
+    "OxidationCalculator": ("blade.oxidation.oxidation_calculations", "OxidationCalculator"),
+    "OxidationVisualizer": ("blade.oxidation.oxidation_visualization", "OxidationVisualizer"),
 }
 
 __all__ = list(_OXIDATION_MAP)

@@ -15,10 +15,10 @@ __author__ = "Chase Katz"
 
 _TOOLS_MAP: dict[str, tuple[str, str]] = {
     "BladeCompositions": ("blade.tools.blade_compositions", "BladeCompositions"),
-    "BladeSQS":          ("blade.tools.blade_sqsgen",       "BladeSQS"),
-    "BladeTDBGen":       ("blade.tools.blade_tdb_gen",      "BladeTDBGen"),
-    "BladeCutoff":       ("blade.tools.blade_cutoff",       "BladeCutoff"),
-    "ScrapsSQSGen":      ("blade.tools.blade_scraps_gen",   "ScrapsSQSGen"),
+    "BladeSQS": ("blade.tools.blade_sqsgen", "BladeSQS"),
+    "BladeTDBGen": ("blade.tools.blade_tdb_gen", "BladeTDBGen"),
+    "BladeCutoff": ("blade.tools.blade_cutoff", "BladeCutoff"),
+    "ScrapsSQSGen": ("blade.tools.blade_scraps_gen", "ScrapsSQSGen"),
 }
 
 __all__ = list(_TOOLS_MAP)

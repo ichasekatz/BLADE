@@ -105,21 +105,15 @@ class BladeCompositions:
                     if j == 0:
                         compositions += [[""]]
                     else:
-                        combined_comps += [
-                            list(c) for c in itertools.combinations(self.secondary_elements, j)
-                        ]
+                        combined_comps += [list(c) for c in itertools.combinations(self.secondary_elements, j)]
             else:
-                primary_combos += [
-                    list(c) for c in itertools.combinations(self.primary_elements, i)
-                ]
+                primary_combos += [list(c) for c in itertools.combinations(self.primary_elements, i)]
 
         for j in secondary_counts:
             if j == 0:
                 combined_comps += primary_combos
             else:
-                secondary_combos += [
-                    list(c) for c in itertools.combinations(self.secondary_elements, j)
-                ]
+                secondary_combos += [list(c) for c in itertools.combinations(self.secondary_elements, j)]
 
         for p_comp in primary_combos:
             for s_comp in secondary_combos:

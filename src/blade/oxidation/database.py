@@ -15,12 +15,14 @@ import re
 from pathlib import Path
 
 import pandas as pd
-from pymatgen.core import Composition, Element as _PMGElement, Structure
-
+from pymatgen.core import Composition
+from pymatgen.core import Element as _PMGElement
+from pymatgen.core import Structure
 
 # ==============================================================================
 # Module-level helpers (no self needed)
 # ==============================================================================
+
 
 def normalize_formula(formula: str) -> str:
     try:
@@ -116,6 +118,7 @@ def _row_els(formula: str) -> frozenset:
 # OxideDatabase class
 # ==============================================================================
 
+
 class OxideDatabase:
     """Orchestrate all sections of the oxide database build pipeline."""
 
@@ -127,7 +130,7 @@ class OxideDatabase:
         include_mlip: bool = True,
         include_mp: bool = True,
         poscar_folder: str = "MaterialsProject_Comps_POSCARs",
-        fixed_elements: frozenset[str] = frozenset({"B"}),
+        fixed_elements: frozenset[str] = frozenset(),
     ):
         self.files_dir = files_dir
         self.mlip_sources = mlip_sources
@@ -143,9 +146,7 @@ class OxideDatabase:
 
         # Build {label: Path} for each MLIP source that actually exists on disk
         self.mlip_dirs: dict[str, Path] = {
-            label: files_dir / folder
-            for label, folder in mlip_sources
-            if (files_dir / folder).exists()
+            label: files_dir / folder for label, folder in mlip_sources if (files_dir / folder).exists()
         }
 
         # Which MLIP source to use for BLADE/fixed-element refs
@@ -186,7 +187,8 @@ class OxideDatabase:
         BLADE Comps directory. Moved from OxideCompositions so all database
         steps are co-located with the database script.
         """
-        from pymatgen.core import Composition as _Comp, Structure as _St
+        from pymatgen.core import Composition as _Comp
+        from pymatgen.core import Structure as _St
 
         non_primary = set(secondary_elements or []) | self.fixed_elements | {oxygen_element}
         element_refs = self._scan_blade_element_refs(mlip_ref_label, mlip_ref_folder)
@@ -210,7 +212,7 @@ class OxideDatabase:
             formula = structure.composition.reduced_formula
 
             _metals_in = sorted(el for el in comp_dict if el not in non_primary)
-            _fixed_in  = sorted(el for el in comp_dict if el in non_primary)
+            _fixed_in = sorted(el for el in comp_dict if el in non_primary)
             if len(_metals_in) == 1:
                 parent_system = "".join(_metals_in + _fixed_in)
             else:
@@ -222,10 +224,15 @@ class OxideDatabase:
                 parent_system = "".join(_all_metals + _fixed_in)
 
             row: dict = {
-                "formula": formula, "parent_system": parent_system,
-                "energy": None, "dH": None, "entry_id": sqs_folder.name,
+                "formula": formula,
+                "parent_system": parent_system,
+                "energy": None,
+                "dH": None,
+                "entry_id": sqs_folder.name,
                 "file_path": str(contcar_path.resolve()),
-                "is_stable": None, "source": "BLADE", "volume": structure.volume,
+                "is_stable": None,
+                "source": "BLADE",
+                "volume": structure.volume,
             }
             for el, amount in comp_dict.items():
                 row[el] = amount
@@ -237,6 +244,7 @@ class OxideDatabase:
                     row["energy"] = epa
                     try:
                         from blade.oxidation.compositions import calculate_dH
+
                         row["dH"] = calculate_dH(formula, epa, element_refs)
                     except Exception:
                         row["dH"] = None
@@ -251,7 +259,8 @@ class OxideDatabase:
                 blade_df[el] = 0
         blade_df[element_cols] = blade_df[element_cols].fillna(0)
         ordered_cols = (
-            ["formula", "parent_system"] + element_cols
+            ["formula", "parent_system"]
+            + element_cols
             + ["energy", "dH", "entry_id", "file_path", "is_stable", "source", "volume"]
         )
         blade_df = blade_df[ordered_cols]
@@ -267,6 +276,7 @@ class OxideDatabase:
         element_refs: dict[str, float] = {}
         if mlip_ref_folder and Path(mlip_ref_folder).exists():
             from pymatgen.core import Structure as _St
+
             for _contcar in Path(mlip_ref_folder).rglob("CONTCAR"):
                 _ef = _contcar.parent / "energy"
                 if not _ef.exists():
@@ -306,9 +316,11 @@ class OxideDatabase:
         Call after run().
         """
         import shutil
-        from pymatgen.core import Composition as _Comp, Structure as _St
 
-        system_dH_dir    = self.files_dir / "system_energy_dH"
+        from pymatgen.core import Composition as _Comp
+        from pymatgen.core import Structure as _St
+
+        system_dH_dir = self.files_dir / "system_energy_dH"
         parent_excel_dir = self.files_dir / "parent_formula_excel_files"
         out = Path(output_dir) if output_dir else self.files_dir / "system_structures"
         if isinstance(blade_comp_dirs, (str, Path)):
@@ -347,8 +359,10 @@ class OxideDatabase:
         if _summary.exists():
             _df = pd.read_excel(_summary)
             _df["energy_above_hull"] = pd.to_numeric(_df["energy_above_hull"], errors="coerce")
-            _df["is_stable"] = _df["is_stable"].apply(lambda v: str(v).strip().lower() in {"true","1","yes"})
-            stable_ids = set(_df[_df["is_stable"] | (_df["energy_above_hull"]==0)]["material_id"].astype(str).str.strip())
+            _df["is_stable"] = _df["is_stable"].apply(lambda v: str(v).strip().lower() in {"true", "1", "yes"})
+            stable_ids = set(
+                _df[_df["is_stable"] | (_df["energy_above_hull"] == 0)]["material_id"].astype(str).str.strip()
+            )
         print(f"Stable MP entries: {len(stable_ids)}")
 
         # MLIP structure index
@@ -361,13 +375,16 @@ class OxideDatabase:
             try:
                 s = _St.from_file(str(contcar))
                 f = s.composition.reduced_formula
-                epa = (_read_energy(contcar.parent/"energy") or 0) / len(s)
+                epa = (_read_energy(contcar.parent / "energy") or 0) / len(s)
             except Exception:
                 continue
             if f not in mlip_index or epa < mlip_index[f]["epa"]:
-                mlip_index[f] = {"entry_id": entry_id, "contcar": contcar,
-                                  "energy": contcar.parent/"energy" if (contcar.parent/"energy").exists() else None,
-                                  "epa": epa}
+                mlip_index[f] = {
+                    "entry_id": entry_id,
+                    "contcar": contcar,
+                    "energy": contcar.parent / "energy" if (contcar.parent / "energy").exists() else None,
+                    "epa": epa,
+                }
 
         # POSCAR fallback
         poscar_base = self.files_dir / "MaterialsProject_Comps"
@@ -393,12 +410,14 @@ class OxideDatabase:
                     f = _St.from_file(str(contcar)).composition.reduced_formula
                 except Exception:
                     continue
-                blade_index.setdefault(f, []).append({
-                    "entry_id": contcar.parent.name,
-                    "contcar": contcar,
-                    "energy": contcar.parent/"energy" if (contcar.parent/"energy").exists() else None,
-                    "comp_dir": contcar.parent.parent.parent.name,
-                })
+                blade_index.setdefault(f, []).append(
+                    {
+                        "entry_id": contcar.parent.name,
+                        "contcar": contcar,
+                        "energy": contcar.parent / "energy" if (contcar.parent / "energy").exists() else None,
+                        "comp_dir": contcar.parent.parent.parent.name,
+                    }
+                )
 
         print(f"MLIP index: {len(mlip_index)} formulas | BLADE index: {len(blade_index)} formulas")
 
@@ -419,12 +438,12 @@ class OxideDatabase:
                 f = _normalize(str(raw))
                 hit = mlip_index.get(f)
                 if hit:
-                    _copy(hit["contcar"], hit["energy"], sys_out/grace_label/f"{f}_{hit['entry_id']}")
+                    _copy(hit["contcar"], hit["energy"], sys_out / grace_label / f"{f}_{hit['entry_id']}")
                     n_mlip += 1
                 else:
                     fb = poscar_index.get(f)
                     if fb:
-                        _copy(fb["poscar"], None, sys_out/"mp"/f"{f}_{fb['entry_id']}")
+                        _copy(fb["poscar"], None, sys_out / "mp" / f"{f}_{fb['entry_id']}")
                         n_mp += 1
                     else:
                         n_miss += 1
@@ -443,7 +462,7 @@ class OxideDatabase:
                     if comp_els and not comp_els.issubset(sys_els):
                         continue
                     seen.add(hit["contcar"])
-                    _copy(hit["contcar"], hit["energy"], sys_out/"blade"/f"{f}_{hit['entry_id']}")
+                    _copy(hit["contcar"], hit["energy"], sys_out / "blade" / f"{f}_{hit['entry_id']}")
                     n_blade += 1
 
             # TDB files — search all comp dirs
@@ -453,13 +472,13 @@ class OxideDatabase:
                     if not comp_dir.is_dir() or not _els(comp_dir.name).issubset(sys_els):
                         continue
                     for tdb in comp_dir.glob("*.tdb"):
-                        (sys_out/"tdb").mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(tdb, sys_out/"tdb"/tdb.name)
+                        (sys_out / "tdb").mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(tdb, sys_out / "tdb" / tdb.name)
                         n_tdb += 1
 
             # System energy Excel
             if xlsx.exists():
-                shutil.copy2(xlsx, sys_out/f"{system}_system_energy.xlsx")
+                shutil.copy2(xlsx, sys_out / f"{system}_system_energy.xlsx")
 
             # Parent formula Excels
             n_parent = 0
@@ -472,12 +491,14 @@ class OxideDatabase:
                             continue
                         if not (_els(pxlsx.stem) - {oxygen_element}).issubset(sys_els):
                             continue
-                        dest = sys_out/"parent_excel"/src.name
+                        dest = sys_out / "parent_excel" / src.name
                         dest.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(pxlsx, dest/pxlsx.name)
+                        shutil.copy2(pxlsx, dest / pxlsx.name)
                         n_parent += 1
 
-            print(f"  {grace_label}: {n_mlip} | mp: {n_mp} | blade: {n_blade} | tdb: {n_tdb} | parent_excel: {n_parent} | missing: {n_miss}")
+            print(
+                f"  {grace_label}: {n_mlip} | mp: {n_mp} | blade: {n_blade} | tdb: {n_tdb} | parent_excel: {n_parent} | missing: {n_miss}"
+            )
 
         print(f"\nDone. Output: {out.resolve()}")
 
@@ -505,7 +526,9 @@ class OxideDatabase:
                     _smdf[
                         _smdf["is_stable"].apply(lambda v: str(v).strip().lower() in {"true", "1", "yes"})
                         | (pd.to_numeric(_smdf.get("energy_above_hull", pd.Series(dtype=float)), errors="coerce") == 0)
-                    ]["material_id"].astype(str).str.strip()
+                    ]["material_id"]
+                    .astype(str)
+                    .str.strip()
                 )
             except Exception:
                 pass
@@ -519,8 +542,7 @@ class OxideDatabase:
                     fb = self.fallback_refs.get(el)
                     if fb is not None and abs(val - fb) > abs(fb) * 5:
                         print(
-                            f"  WARNING: {el} scanned ref {val:.3f} looks bad "
-                            f"(fallback={fb:.3f}), using fallback"
+                            f"  WARNING: {el} scanned ref {val:.3f} looks bad " f"(fallback={fb:.3f}), using fallback"
                         )
                         scanned[el] = fb
                     elif fb is None and (abs(val) > 1000 or val > 0):
@@ -533,8 +555,7 @@ class OxideDatabase:
         self.element_refs = self._all_element_refs.get(self._mlip_ref_label, self.fallback_refs)
 
     @staticmethod
-    def _scan_element_refs_folder(folder: Path,
-                                   stable_ids: set[str] | None = None) -> dict[str, float]:
+    def _scan_element_refs_folder(folder: Path, stable_ids: set[str] | None = None) -> dict[str, float]:
         best: dict[str, float] = {}
         if not folder.exists():
             return best
@@ -576,10 +597,11 @@ class OxideDatabase:
             self.mp_summary_df = pd.read_excel(mp_summary_xlsx)
 
         # Build CONTCAR index for MLIP sources (needed even when include_mp=False)
-        mlip_contcar_idx: dict[str, dict[str, Path]] = {
-            label: self._build_contcar_index(path)
-            for label, path in self.mlip_dirs.items()
-        } if self.include_mlip else {}
+        mlip_contcar_idx: dict[str, dict[str, Path]] = (
+            {label: self._build_contcar_index(path) for label, path in self.mlip_dirs.items()}
+            if self.include_mlip
+            else {}
+        )
 
         # Pre-build POSCAR index for MP DFT file paths
         _mp_poscar_dir = self.files_dir / self.poscar_folder
@@ -604,7 +626,9 @@ class OxideDatabase:
 
                 # MP DFT row — only when include_mp=True
                 if self.include_mp:
-                    poscar_path = str(_idx_base_poscar[material_id].resolve()) if material_id in _idx_base_poscar else ""
+                    poscar_path = (
+                        str(_idx_base_poscar[material_id].resolve()) if material_id in _idx_base_poscar else ""
+                    )
                     vol = ""
                     if poscar_path:
                         try:
@@ -633,9 +657,7 @@ class OxideDatabase:
                 if self.include_mlip:
                     for label, idx in mlip_contcar_idx.items():
                         if material_id in idx:
-                            r = self._mlip_row_from_contcar(
-                                idx[material_id], material_id, mp_row, label, all_elements
-                            )
+                            r = self._mlip_row_from_contcar(idx[material_id], material_id, mp_row, label, all_elements)
                             if r:
                                 rows.append(r)
 
@@ -667,32 +689,27 @@ class OxideDatabase:
         # Deduplicate BLADE rows by formula — keep lowest-energy SQS per formula
         blade_df["energy"] = pd.to_numeric(blade_df["energy"], errors="coerce")
         blade_df = (
-            blade_df
-            .sort_values("energy", na_position="last")
+            blade_df.sort_values("energy", na_position="last")
             .drop_duplicates(subset=["formula"], keep="first")
             .reset_index(drop=True)
         )
 
         ordered_cols = (
-            ["formula"]
-            + all_element_cols
-            + ["energy", "dH", "entry_id", "file_path", "is_stable", "source", "volume"]
+            ["formula"] + all_element_cols + ["energy", "dH", "entry_id", "file_path", "is_stable", "source", "volume"]
         )
         ordered_cols = [c for c in ordered_cols if c in blade_df.columns or c in mp_df.columns]
 
         combined_df = pd.concat(
-            [blade_df[[c for c in ordered_cols if c in blade_df.columns]],
-             mp_df[[c for c in ordered_cols if c in mp_df.columns]]],
+            [
+                blade_df[[c for c in ordered_cols if c in blade_df.columns]],
+                mp_df[[c for c in ordered_cols if c in mp_df.columns]],
+            ],
             ignore_index=True,
         )
-        combined_df = (
-            combined_df
-            .sort_values(
-                ["source", "formula"],
-                key=lambda s: s.str.lower() if s.dtype == object else s,
-            )
-            .reset_index(drop=True)
-        )
+        combined_df = combined_df.sort_values(
+            ["source", "formula"],
+            key=lambda s: s.str.lower() if s.dtype == object else s,
+        ).reset_index(drop=True)
         combined_df.to_excel(all_energy_data_xlsx, index=False)
         print(f"Saved combined file: {all_energy_data_xlsx.resolve()}")
         print(f"BLADE rows: {len(blade_df)}  |  MP rows: {len(mp_df)}  |  Total: {len(combined_df)}")
@@ -767,8 +784,17 @@ class OxideDatabase:
         mp_summary = pd.read_excel(self.mp_comps_dir / "materials_project_summary.xlsx")
 
         _meta_cols = {
-            "formula", "phase_label", "energy", "dH", "entry_id", "file_path",
-            "is_stable", "source", "volume", "parent_formula", "parent_entry_id",
+            "formula",
+            "phase_label",
+            "energy",
+            "dH",
+            "entry_id",
+            "file_path",
+            "is_stable",
+            "source",
+            "volume",
+            "parent_formula",
+            "parent_entry_id",
         }
         blade_element_cols = sorted(
             [c for c in blade_df.columns if c not in _meta_cols and _is_element_col(c)],
@@ -798,9 +824,7 @@ class OxideDatabase:
         # Index MP summary by normalized formula
         mp_summary["formula_norm"] = mp_summary["formula"].astype(str).apply(normalize_formula)
         mp_oxides = mp_summary[mp_summary["formula"].apply(is_oxide_formula)].copy()
-        mp_oxides["energy_above_hull"] = pd.to_numeric(
-            mp_oxides.get("energy_above_hull", None), errors="coerce"
-        )
+        mp_oxides["energy_above_hull"] = pd.to_numeric(mp_oxides.get("energy_above_hull", None), errors="coerce")
         mp_oxides["formation_energy_per_atom"] = pd.to_numeric(
             mp_oxides.get("formation_energy_per_atom", None), errors="coerce"
         )
@@ -808,24 +832,23 @@ class OxideDatabase:
         # Best-per-formula for MP DFT
         sort_col = "energy_above_hull" if "energy_above_hull" in mp_oxides.columns else "formation_energy_per_atom"
         mp_best = (
-            mp_oxides.sort_values(sort_col)
-            .drop_duplicates("formula_norm", keep="first")
-            .set_index("formula_norm")
+            mp_oxides.sort_values(sort_col).drop_duplicates("formula_norm", keep="first").set_index("formula_norm")
         )
 
         # Stable material_id set for MLIP lookup filtering
         stable_mp_ids: set[str] = set(
             self.mp_summary_df[
-                self.mp_summary_df["is_stable"].apply(
-                    lambda v: str(v).strip().lower() in {"true", "1", "yes"}
-                )
+                self.mp_summary_df["is_stable"].apply(lambda v: str(v).strip().lower() in {"true", "1", "yes"})
                 | (
                     pd.to_numeric(
                         self.mp_summary_df.get("energy_above_hull", pd.Series(dtype=float)),
                         errors="coerce",
-                    ) == 0
+                    )
+                    == 0
                 )
-            ]["material_id"].astype(str).str.strip()
+            ]["material_id"]
+            .astype(str)
+            .str.strip()
         )
 
         # Stable-only MLIP lookups — used for dH refs and system_energy_dH
@@ -842,10 +865,7 @@ class OxideDatabase:
         }
 
         # All element cols for output ordering (re-derive from combined)
-        all_element_cols = sorted(
-            el for el in self.combined_df.columns
-            if _is_element_col(el)
-        )
+        all_element_cols = sorted(el for el in self.combined_df.columns if _is_element_col(el))
 
         expanded_rows: list[dict] = []
         missing_rows: list[dict] = []
@@ -860,7 +880,7 @@ class OxideDatabase:
 
             # Compute oxide summary metadata for this parent
             possible = mp_oxides[mp_oxides["formula"].apply(lambda f: oxide_allowed_for_elements(f, allowed))]
-            stable = possible[possible["is_stable"] == True]
+            stable = possible[possible["is_stable"]]
             possible_formulas = sorted(possible["formula"].dropna().unique())
             stable_formulas = sorted(stable["formula"].dropna().unique())
 
@@ -912,11 +932,13 @@ class OxideDatabase:
                 if ba and ba.issubset(allowed):
                     dh_val = pd.to_numeric(br.get("dH"), errors="coerce")
                     stable_val = str(br.get("is_stable", "")).strip().upper() == "TRUE"
-                    non_oxide_rows.append({
-                        "formula": bf,
-                        "dH": dh_val if not pd.isna(dh_val) else None,
-                        "is_stable": stable_val,
-                    })
+                    non_oxide_rows.append(
+                        {
+                            "formula": bf,
+                            "dH": dh_val if not pd.isna(dh_val) else None,
+                            "is_stable": stable_val,
+                        }
+                    )
                     non_oxide_seen.add(bf)
 
             # Add stable MP non-oxide compounds whose elements ⊆ allowed
@@ -934,23 +956,17 @@ class OxideDatabase:
                     continue
                 if not is_true_stable(_mp_r.get("is_stable")):
                     continue
-                non_oxide_rows.append({
-                    "formula": _mf,
-                    "dH": pd.to_numeric(_mp_r.get("formation_energy_per_atom"), errors="coerce"),
-                    "is_stable": True,
-                })
+                non_oxide_rows.append(
+                    {
+                        "formula": _mf,
+                        "dH": pd.to_numeric(_mp_r.get("formation_energy_per_atom"), errors="coerce"),
+                        "is_stable": True,
+                    }
+                )
                 non_oxide_seen.add(_mf)
 
             non_oxide_formulas = [r["formula"] for r in non_oxide_rows]
-            dh_ranked = [r for r in non_oxide_rows if r["dH"] is not None]
-            lowest_dH_non_oxide, lowest_dH_non_oxide_val = None, None
-            if dh_ranked:
-                best_nr = min(dh_ranked, key=lambda r: r["dH"])
-                lowest_dH_non_oxide, lowest_dH_non_oxide_val = best_nr["formula"], best_nr["dH"]
-            # Use dH as proxy for eHull (BLADE does not have hull distance)
-            lowest_ehull_non_oxide, lowest_ehull_non_oxide_val = lowest_dH_non_oxide, lowest_dH_non_oxide_val
-
-            # Non-oxide + non-boride: pure metals / metal alloys only (no B, no O)
+            # Compounds containing neither oxygen nor configured fixed species.
             metal_only = {el for el in allowed if el in metal_elements}
             nnb_rows: list[dict] = []
             nnb_seen: set[str] = set()
@@ -967,11 +983,13 @@ class OxideDatabase:
                 if ba_metals and ba_metals.issubset(metal_only) and not (ba & self.fixed_elements) and "O" not in ba:
                     dh_v = pd.to_numeric(br.get("dH"), errors="coerce")
                     st_v = str(br.get("is_stable", "")).strip().upper() == "TRUE"
-                    nnb_rows.append({
-                        "formula": bf,
-                        "dH": dh_v if not pd.isna(dh_v) else None,
-                        "is_stable": st_v,
-                    })
+                    nnb_rows.append(
+                        {
+                            "formula": bf,
+                            "dH": dh_v if not pd.isna(dh_v) else None,
+                            "is_stable": st_v,
+                        }
+                    )
                     nnb_seen.add(bf)
 
             # Also add stable MP metal-only compounds (no B, no O) from mp_summary
@@ -989,18 +1007,16 @@ class OxideDatabase:
                     continue
                 if not is_true_stable(_mp_r.get("is_stable")):
                     continue
-                nnb_rows.append({"formula": _mf, "dH": pd.to_numeric(_mp_r.get("formation_energy_per_atom"), errors="coerce"), "is_stable": True})
+                nnb_rows.append(
+                    {
+                        "formula": _mf,
+                        "dH": pd.to_numeric(_mp_r.get("formation_energy_per_atom"), errors="coerce"),
+                        "is_stable": True,
+                    }
+                )
                 nnb_seen.add(_mf)
 
             nnb_formulas = [r["formula"] for r in nnb_rows]
-            nnb_stable_formulas = [r["formula"] for r in nnb_rows if r["is_stable"]]
-            nnb_dh_ranked = [r for r in nnb_rows if r["dH"] is not None]
-            lowest_dH_nnb, lowest_dH_nnb_val = None, None
-            lowest_ehull_nnb, lowest_ehull_nnb_val = None, None
-            if nnb_dh_ranked:
-                nnb_best = min(nnb_dh_ranked, key=lambda r: r["dH"])
-                lowest_dH_nnb, lowest_dH_nnb_val = nnb_best["formula"], nnb_best["dH"]
-                lowest_ehull_nnb, lowest_ehull_nnb_val = lowest_dH_nnb, lowest_dH_nnb_val
 
             # BLADE parent row
             br_out = {k: v for k, v in blade_row.to_dict().items() if k not in drop_cols}
@@ -1021,18 +1037,28 @@ class OxideDatabase:
                 fkey = normalize_formula(oxide_formula)
 
                 if include_mp_dft and fkey in mp_best.index:
-                    expanded_rows.append(make_row(
-                        mp_best.loc[fkey].to_dict(), "mp_dft_oxide",
-                        parent_formula, parent_entry_id, "Materials Project",
-                    ))
+                    expanded_rows.append(
+                        make_row(
+                            mp_best.loc[fkey].to_dict(),
+                            "mp_dft_oxide",
+                            parent_formula,
+                            parent_entry_id,
+                            "Materials Project",
+                        )
+                    )
 
                 for lbl, lkp in self.mlip_lookups.items():
                     if fkey in lkp:
                         role = f"mp_{lbl.replace('+', '').replace(' ', '_').lower()}_oxide"
-                        expanded_rows.append(make_row(
-                            lkp[fkey], role,
-                            parent_formula, parent_entry_id, lbl,
-                        ))
+                        expanded_rows.append(
+                            make_row(
+                                lkp[fkey],
+                                role,
+                                parent_formula,
+                                parent_entry_id,
+                                lbl,
+                            )
+                        )
 
                 found_any = (fkey in mp_best.index) or any(fkey in lkp for lkp in self.mlip_lookups.values())
                 if not found_any:
@@ -1057,11 +1083,7 @@ class OxideDatabase:
 
         # Column order: formula → elements → energy → dH → entry_id → file_path → is_stable → source → volume → rest
         el_cols_out = [c for c in all_element_cols if c in expanded_df.columns]
-        front = (
-            ["formula"]
-            + el_cols_out
-            + ["energy", "dH", "entry_id", "file_path", "is_stable", "source", "volume"]
-        )
+        front = ["formula"] + el_cols_out + ["energy", "dH", "entry_id", "file_path", "is_stable", "source", "volume"]
         front = [c for c in front if c in expanded_df.columns]
         rest = [c for c in expanded_df.columns if c not in front]
         expanded_df = expanded_df[front + rest]
@@ -1152,9 +1174,7 @@ class OxideDatabase:
             if "is_stable" in mp_base.columns
             else False
         )
-        mp_base["_is_pure_el"] = mp_base["formula"].apply(
-            lambda f: len(get_formula_elements(str(f))) == 1
-        )
+        mp_base["_is_pure_el"] = mp_base["formula"].apply(lambda f: len(get_formula_elements(str(f))) == 1)
         mp_base = (
             mp_base[mp_base["_is_stable"] | (mp_base["energy_above_hull"] == 0) | mp_base["_is_pure_el"]]
             .sort_values("energy_above_hull", na_position="last")
@@ -1169,9 +1189,7 @@ class OxideDatabase:
         cs_mp.loc[_pure_mask, "formula"] = cs_mp.loc[_pure_mask, "formula"].apply(
             lambda f: next(iter(get_formula_elements(str(f))), f)
         )
-        cs_mp.loc[_pure_mask, "energy_mp"] = cs_mp.loc[_pure_mask, "formula"].apply(
-            lambda f: self.fallback_refs.get(f)
-        )
+        cs_mp.loc[_pure_mask, "energy_mp"] = cs_mp.loc[_pure_mask, "formula"].apply(lambda f: self.fallback_refs.get(f))
         cs_mp.loc[_pure_mask, "dH_mp"] = 0.0
 
         # BLADE lookup: formula → lowest-energy SQS entry
@@ -1189,20 +1207,13 @@ class OxideDatabase:
 
         # Append BLADE-only formulas not in MP rows
         cs_mp_norms = set(cs_mp["formula"].apply(normalize_formula))
-        blade_only = [
-            {"formula": bf, "energy_mp": None, "dH_mp": None}
-            for bf in blade_lkp
-            if bf not in cs_mp_norms
-        ]
+        blade_only = [{"formula": bf, "energy_mp": None, "dH_mp": None} for bf in blade_lkp if bf not in cs_mp_norms]
         if blade_only:
             cs_mp = pd.concat([cs_mp, pd.DataFrame(blade_only)], ignore_index=True)
 
-        cs_mp["energy_blade"] = cs_mp["formula"].apply(
-            lambda f: blade_lkp.get(normalize_formula(f), {}).get("energy")
-        )
+        cs_mp["energy_blade"] = cs_mp["formula"].apply(lambda f: blade_lkp.get(normalize_formula(f), {}).get("energy"))
         cs_mp["dH_blade"] = cs_mp["formula"].apply(
-            lambda f: 0.0 if len(_row_els(f)) == 1
-            else blade_lkp.get(normalize_formula(f), {}).get("dH")
+            lambda f: 0.0 if len(_row_els(f)) == 1 else blade_lkp.get(normalize_formula(f), {}).get("dH")
         )
 
         # Add MLIP columns
@@ -1213,28 +1224,28 @@ class OxideDatabase:
                 lambda f: lkp.get(normalize_formula(f), {}).get("energy")
             )
             cs_mp[f"dH_{col_key}"] = cs_mp["formula"].apply(
-                lambda f: 0.0 if len(_row_els(f)) == 1
-                else lkp.get(normalize_formula(f), {}).get("dH")
+                lambda f: 0.0 if len(_row_els(f)) == 1 else lkp.get(normalize_formula(f), {}).get("dH")
             )
 
         # Keep only stable MP structures (BLADE rows always kept)
         stable_mp_norms = set(
             self.mp_summary_df[
-                self.mp_summary_df["is_stable"].apply(
-                    lambda v: str(v).strip().lower() in {"true", "1", "yes"}
-                )
+                self.mp_summary_df["is_stable"].apply(lambda v: str(v).strip().lower() in {"true", "1", "yes"})
                 | (
                     pd.to_numeric(
                         self.mp_summary_df.get("energy_above_hull", pd.Series(dtype=float)),
                         errors="coerce",
-                    ) == 0
+                    )
+                    == 0
                 )
             ]["formula"].apply(normalize_formula)
         )
         blade_norms = set(blade_lkp.keys())
-        cs_mp = cs_mp[
-            cs_mp["formula"].apply(normalize_formula).isin(stable_mp_norms | blade_norms)
-        ].copy().reset_index(drop=True)
+        cs_mp = (
+            cs_mp[cs_mp["formula"].apply(normalize_formula).isin(stable_mp_norms | blade_norms)]
+            .copy()
+            .reset_index(drop=True)
+        )
 
         cs_mp["_els"] = cs_mp["formula"].apply(_row_els)
 
@@ -1261,18 +1272,16 @@ class OxideDatabase:
                 sys_df = sys_df[
                     sys_df["formula"].apply(lambda f: len(get_formula_elements(str(f))) == 1)
                     | sys_df["is_stable"].apply(
-                        lambda v: True
-                        if (pd.isna(v) or str(v).strip() in ("", "nan", "None"))
-                        else str(v).strip().lower() in {"true", "1", "yes"}
+                        lambda v: (
+                            True
+                            if (pd.isna(v) or str(v).strip() in ("", "nan", "None"))
+                            else str(v).strip().lower() in {"true", "1", "yes"}
+                        )
                     )
                 ].copy()
 
             sys_df["_ord"] = sys_df["formula"].apply(_sys_row_order)
-            sys_df = (
-                sys_df.sort_values(["_ord", "formula"])
-                .drop(columns=["_ord"])
-                .reset_index(drop=True)
-            )
+            sys_df = sys_df.sort_values(["_ord", "formula"]).drop(columns=["_ord"]).reset_index(drop=True)
             if sys_df.empty:
                 continue
             sys_df.to_excel(sys_dir / f"{str(sys).replace('/', '_')}.xlsx", index=False)
@@ -1318,8 +1327,17 @@ class OxideDatabase:
         blade_df = blade_df.drop_duplicates(subset=[formula_col], keep="first").copy()
 
         _meta_cols_s6 = {
-            "formula", "phase_label", "energy", "dH", "entry_id", "file_path",
-            "is_stable", "source", "volume", "parent_formula", "parent_entry_id",
+            "formula",
+            "phase_label",
+            "energy",
+            "dH",
+            "entry_id",
+            "file_path",
+            "is_stable",
+            "source",
+            "volume",
+            "parent_formula",
+            "parent_entry_id",
         }
         all_element_order = sorted(
             {c for c in blade_df.columns if c not in _meta_cols_s6 and _is_element_col(c)} | {"O"},
@@ -1419,15 +1437,17 @@ class OxideDatabase:
             new: dict = {"formula": element}
             for el in all_element_order:
                 new[el] = 1 if el == element else 0
-            new.update({
-                "energy": self.fallback_refs.get(element, ""),
-                "dH": 0,
-                "entry_id": "",
-                "file_path": "",
-                "is_stable": True,
-                "source": "Materials Project",
-                "volume": "",
-            })
+            new.update(
+                {
+                    "energy": self.fallback_refs.get(element, ""),
+                    "dH": 0,
+                    "entry_id": "",
+                    "file_path": "",
+                    "is_stable": True,
+                    "source": "Materials Project",
+                    "volume": "",
+                }
+            )
             return new
 
         def is_metal_only_formula(formula: str, allowed_els: set[str]) -> bool:
@@ -1443,8 +1463,7 @@ class OxideDatabase:
             except Exception:
                 return False
 
-        def _apply_mlip_values(df: pd.DataFrame, src_label: str,
-                               stable_only: bool = True) -> pd.DataFrame:
+        def _apply_mlip_values(df: pd.DataFrame, src_label: str, stable_only: bool = True) -> pd.DataFrame:
             """Replace energy/dH/file_path/source for non-BLADE rows using MLIP lookup.
             Pure element rows always keep dH=0 (they are the reference state)."""
             lkp = (self.mlip_lookups if stable_only else self._mlip_lookups_all).get(src_label, {})
@@ -1477,8 +1496,7 @@ class OxideDatabase:
         def _filter_stable(df: pd.DataFrame) -> pd.DataFrame:
             """Keep only stable MP rows + all BLADE rows."""
             return df[
-                (df["is_stable"].astype(str).str.upper() == "TRUE")
-                | (df["source"].astype(str).str.strip() == "BLADE")
+                (df["is_stable"].astype(str).str.upper() == "TRUE") | (df["source"].astype(str).str.strip() == "BLADE")
             ].copy()
 
         def _row_order(formula: str) -> int:
@@ -1486,7 +1504,7 @@ class OxideDatabase:
             if len(els) == 1:
                 return 0  # pure element
             if (els & self.fixed_elements) and "O" not in els:
-                return 1  # fixed-element compound (boride/carbide/etc.)
+                return 1  # compound containing a configured fixed species
             if "O" in els:
                 return 2  # oxide
             return 3  # metal compound
@@ -1564,7 +1582,7 @@ class OxideDatabase:
             ].iterrows():
                 rows.append(standardize_mp_row(oxide_row))
 
-            # Non-oxide non-boride MP compounds (metal alloys) — stable only
+            # MP compounds containing neither oxygen nor fixed species; stable only.
             metal_allowed = {el for el in allowed if el in metal_elements}
             alloy_mask = mp_df["formula"].apply(lambda f: is_metal_only_formula(f, metal_allowed))
             alloy_df = mp_df[alloy_mask]
@@ -1577,10 +1595,7 @@ class OxideDatabase:
             for el in all_element_order:
                 out[el] = pd.to_numeric(out[el], errors="coerce").fillna(0)
 
-            element_cols_to_keep = [
-                el for el in all_element_order
-                if el in out.columns and out[el].sum() != 0
-            ]
+            element_cols_to_keep = [el for el in all_element_order if el in out.columns and out[el].sum() != 0]
             final_cols = ["formula", *element_cols_to_keep, *base_cols_after_elements]
             for col in final_cols:
                 if col not in out.columns:
@@ -1594,24 +1609,22 @@ class OxideDatabase:
                 except Exception:
                     return 999_999_999
 
-            out["_sort_stable"] = out["is_stable"].apply(
-                lambda v: 0 if is_true_stable(v) else 1)
+            out["_sort_stable"] = out["is_stable"].apply(lambda v: 0 if is_true_stable(v) else 1)
             out["_sort_vol"] = pd.to_numeric(out.get("volume", pd.Series(dtype=float)), errors="coerce")
             out["_sort_eid"] = out["entry_id"].apply(_eid_num)
             out["_sort_e"] = pd.to_numeric(out["energy"], errors="coerce")
             out = (
-                out.sort_values(
-                    ["_sort_stable", "_sort_e", "_sort_vol", "_sort_eid"],
-                    na_position="last"
-                )
+                out.sort_values(["_sort_stable", "_sort_e", "_sort_vol", "_sort_eid"], na_position="last")
                 .drop_duplicates(subset=["formula", "source"], keep="first")
                 .drop(columns=["_sort_stable", "_sort_vol", "_sort_eid", "_sort_e"])
                 .reset_index(drop=True)
             )
             out["is_stable"] = out["is_stable"].apply(
-                lambda x: ""
-                if (pd.isna(x) or str(x).strip() in ("", "nan", "None"))
-                else "TRUE" if is_true_stable(x) else "FALSE"
+                lambda x: (
+                    ""
+                    if (pd.isna(x) or str(x).strip() in ("", "nan", "None"))
+                    else "TRUE" if is_true_stable(x) else "FALSE"
+                )
             )
 
             out["_order"] = out["formula"].apply(_row_order)
@@ -1622,12 +1635,14 @@ class OxideDatabase:
                 & (out["file_path"].astype(str).str.strip() == "")
             ]
             for _, mr in mp_missing.iterrows():
-                missing_mp_contcars.append({
-                    "parent_formula": parent_formula,
-                    "phase_label": mr.get("phase_label", ""),
-                    "formula": mr.get("formula", ""),
-                    "entry_id": mr.get("entry_id", ""),
-                })
+                missing_mp_contcars.append(
+                    {
+                        "parent_formula": parent_formula,
+                        "phase_label": mr.get("phase_label", ""),
+                        "formula": mr.get("formula", ""),
+                        "entry_id": mr.get("entry_id", ""),
+                    }
+                )
 
             fname = f"{clean_file_name(parent_formula)}.xlsx"
             for src_label, src_dir in source_dirs.items():

@@ -16,6 +16,7 @@ Output files (written to BLADE/Files/):
 """
 
 from pathlib import Path
+
 from blade.oxidation.database import OxideDatabase
 
 path0 = Path("/Users/chasekatz/Desktop/School/Research")
@@ -28,9 +29,18 @@ mlip_sources = [
 ]
 
 fallback_refs = {
-    "C":  -9.200, "Cr": -9.632, "Hf": -9.956, "Mo": -10.850,
-    "Nb": -10.094, "O": -4.949, "Ta": -11.853, "Ti":  -7.897,
-    "V":  -9.080,  "W": -12.960, "Zr":  -8.547, "B": -6.68,
+    "C": -9.200,
+    "Cr": -9.632,
+    "Hf": -9.956,
+    "Mo": -10.850,
+    "Nb": -10.094,
+    "O": -4.949,
+    "Ta": -11.853,
+    "Ti": -7.897,
+    "V": -9.080,
+    "W": -12.960,
+    "Zr": -8.547,
+    "B": -6.68,
 }
 
 db = OxideDatabase(
@@ -54,7 +64,7 @@ db.run()
 # Collect CONTCAR + energy + TDB files per system into Files/system_structures/
 db.collect_structures(
     blade_comp_dirs=[
-        files_dir / "Comps",          # add additional Comps folders here
+        files_dir / "Comps",  # add additional Comps folders here
         # files_dir / "Comps_scraps",
         # files_dir / "Comps_MAX",
     ],
