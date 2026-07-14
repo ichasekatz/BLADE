@@ -33,12 +33,12 @@ sqs_iter = 1_000_000
 skip_existing_sqs = False
 
 sqsgen_in: dict | None = None
-# sqsgen_in = {"FCC2": "level=0\ta=1\tb=1\nlevel=1\ta=0.5,0.5\tb=1\n"}
+# sqsgen_in = {"ALLOY3": "level=0\ta=1\tb=1\nlevel=1\ta=0.5,0.5\tb=1\n"}
 
 # ------------------------------------------------------------------
 # Elements and composition constraints
 # ------------------------------------------------------------------
-primary_elements = ["Hf", "Cr"]
+primary_elements = ["Hf", "Cr", "Zr", "Ti"]
 secondary_elements: list[str] = []
 
 primary_min = 2
@@ -47,22 +47,8 @@ secondary_min = 0
 secondary_max = 0
 
 # ------------------------------------------------------------------
-# AlB2-type diboride lattice constants (Å, from DFT literature)
-# ------------------------------------------------------------------
-_DIBORIDE_A = {
-    "Cr": 2.969, "Hf": 3.141, "Mo": 3.053, "Nb": 3.086,
-    "Ta": 3.098, "Ti": 3.028, "V":  2.998, "W":  3.020, "Zr": 3.169,
-}
-_DIBORIDE_C = {
-    "Cr": 3.066, "Hf": 3.470, "Mo": 3.169, "Nb": 3.269,
-    "Ta": 3.227, "Ti": 3.228, "V":  3.057, "W":  3.137, "Zr": 3.530,
-}
-_active_d = [el for el in primary_elements if el in _DIBORIDE_A]
-_avg_a_diboride = sum(_DIBORIDE_A[el] for el in _active_d) / len(_active_d)
-_avg_c_diboride = sum(_DIBORIDE_C[el] for el in _active_d) / len(_active_d)
-print(f"Diboride lattice estimate: a={_avg_a_diboride:.4f} Å  c={_avg_c_diboride:.4f} Å  (avg of {_active_d})")
-
 # FCC lattice constants (Å, conventional cubic cell)
+# ------------------------------------------------------------------
 _FCC_A = {
     "Cr": 3.52, "Hf": 4.11, "Mo": 3.96, "Nb": 4.30,
     "Ta": 4.29, "Ti": 4.10, "V":  3.80, "W":  4.01, "Zr": 4.15,
@@ -75,21 +61,8 @@ print(f"FCC lattice estimate:      a={_avg_a_fcc:.4f} Å  (avg of {_active_f})")
 # Phase prototypes
 # ------------------------------------------------------------------
 phases: dict[str, dict] = {
-    "HEDB1": {
-        "a": _avg_a_diboride,
-        "b": _avg_a_diboride,
-        "c": _avg_c_diboride,
-        "alpha": 90,
-        "beta": 90,
-        "gamma": 120,
-        "vectors": "1 0 0\n0 1 0\n0 0 1\n",
-        "coords": (
-            "0.000000 0.000000 0.000000 a\n"
-            "0.333333 0.666667 0.500000 B\n"
-            "0.666667 0.333333 0.500000 B\n"
-        ),
-    },
-    "FCC1": {
+    # Phase with 4 variable a sites (e.g. Cr, Hf, Zr, Ti)
+    "ALLOY1": {
         "a": _avg_a_fcc,
         "b": _avg_a_fcc,
         "c": _avg_a_fcc,
@@ -104,7 +77,8 @@ phases: dict[str, dict] = {
             "0.500000 0.500000 0.000000 a\n"
         ),
     },
-    "FCC2": {
+    # Phase with 2 variable a sites (e.g. Cr, Hf) and 2 variable b sites (e.g. Zr, Ti)
+    "ALLOY2": {
         "a": _avg_a_fcc,
         "b": _avg_a_fcc,
         "c": _avg_a_fcc,
@@ -119,14 +93,30 @@ phases: dict[str, dict] = {
             "0.500000 0.500000 0.000000 b\n"
         ),
     },
+    # Phase with 2 variable a sites (e.g. Cr, Hf, Zr, Ti) and 2 fixed b sites (e.g. Zr)
+    "ALLOY3": {
+        "a": _avg_a_fcc,
+        "b": _avg_a_fcc,
+        "c": _avg_a_fcc,
+        "alpha": 90,
+        "beta": 90,
+        "gamma": 90,
+        "vectors": "1 0 0\n0 1 0\n0 0 1\n",
+        "coords": (
+            "0.000000 0.000000 0.000000 a\n"
+            "0.000000 0.500000 0.500000 a\n"
+            "0.500000 0.000000 0.500000 Zr\n"
+            "0.500000 0.500000 0.000000 Zr\n"
+        ),
+    },
 }
 
 phase_list = [
     # supercell_size controls n_atoms = unit_cell_sites × product(supercell_size)
     # (4,3,2) → 72 atoms   (4,4,3) → 144   (6,6,2) → 216   (8,6,2) → 288
-    {"generator_name": "HEDB", "lattice": "HEDB1", "supercell_size": (4, 3, 2)},
-    {"generator_name": "FCC",  "lattice": "FCC1",  "supercell_size": (2, 2, 2)},
-    {"generator_name": "FCC",  "lattice": "FCC2",  "supercell_size": (2, 2, 2)},
+    {"generator_name": "ALLOY1", "lattice": "ALLOY1_1", "supercell_size": (2, 2, 2)},
+    {"generator_name": "ALLOY2", "lattice": "ALLOY2_1", "supercell_size": (2, 2, 2)},
+    {"generator_name": "ALLOY3", "lattice": "ALLOY3_1", "supercell_size": (2, 2, 2)},
 ]
 
 # ------------------------------------------------------------------
@@ -197,14 +187,14 @@ for specific_phase in phase_list:
 # ------------------------------------------------------------------
 print()
 print("=" * 60)
-print("Preview: rndstr.skel and sqsgen.in for len_comp=2, level=5")
+print("Preview: rndstr.skel and sqsgen.in for len_comp=2, level=2")
 print("=" * 60)
 
 preview = BladeSQS(
-    phases_dict=phases["HEDB1"],
+    phases_dict=phases["ALLOY1_1"],
     sqsgen_levels=sqsgen_levels,
     level=level,
-    len_comp=2,
+    len_comp=2, 
 )
 sqsgen_text, rndstr_text = preview.sqs_struct()
 print("--- rndstr.skel ---")

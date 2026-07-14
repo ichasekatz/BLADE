@@ -1,19 +1,8 @@
-"""Volume and lattice parameter extraction from POSCAR files.
+"""Structural and energetic data extraction from POSCAR and energy files.
 
-This module provides :class:`BLADEVolume`, which scans a composition
-directory for ``POSCAR`` files, parses lattice parameters and atom counts,
-and returns a :class:`pandas.DataFrame` suitable for downstream analysis.
-SQS level and fractional composition metadata are extracted automatically
-from the directory-name convention used by BLADE (``sqs_lev=N_a_X=...``).
-
-Example::
-
-    from blade.analysis.blade_volume import BLADEVolume
-    from pathlib import Path
-
-    vol = BLADEVolume()
-    df = vol.scan_poscars(Path("CrHfTa"))
-    print(df[["phase_folder", "sqs_level", "volume_per_atom_A3"]].head())
+Provides :class:`BLADEData`, which scans a composition directory for
+``POSCAR`` and ``energy`` files and returns a :class:`pandas.DataFrame`.
+``BLADEVolume`` is a deprecated alias for backward compatibility.
 """
 
 from __future__ import annotations
@@ -33,40 +22,17 @@ if TYPE_CHECKING:
 __author__ = "Chase Katz"
 
 
-class BLADEVolume:
-    """Extract volume and lattice parameters from BLADE POSCAR trees.
-
-    Traverses a per-composition directory that follows the BLADE directory
-    convention (``<phase>/<sqs_lev=N_...>/POSCAR``) and collects lattice
-    geometry, atom counts, and SQS metadata into a single DataFrame.
-
-    Attributes:
-        data (pd.DataFrame | None): Populated after calling
-            :meth:`scan_poscars`.
-    """
+class BLADEData:
+    """Extract structural and energetic data from BLADE POSCAR/energy trees."""
 
     def __init__(self) -> None:
-        """Initialize BLADEVolume."""
         self.data: pd.DataFrame | None = None
 
     def parse_sqs_meta(self, poscar_path: Path) -> tuple[int | None, dict[str, float]]:
         """Extract SQS level and fractional composition from a POSCAR path.
 
-        Walks up the parent directories looking for a folder name matching
-        the pattern ``sqs_lev=<N>`` optionally followed by
-        ``_a_<element>=<fraction>`` tokens.
-
-        Args:
-            poscar_path (Path): Path to a ``POSCAR`` file inside a BLADE
-                directory tree.
-
-        Returns:
-            tuple[int | None, dict[str, float]]: A two-element tuple:
-
-            - ``sqs_level``: Integer SQS level, or ``None`` if not found.
-            - ``a_fracs``: Dict mapping element symbol to its fractional
-              composition on the *a* sublattice (e.g., ``{"Cr": 0.5,
-              "Hf": 0.25, "Ta": 0.25}``).
+        Walks up parent directories looking for a folder matching
+        ``sqs_lev=<N>`` optionally followed by ``_a_<element>=<fraction>`` tokens.
         """
         sqs_level: int | None = None
         a_fracs: dict[str, float] = {}
@@ -85,22 +51,10 @@ class BLADEVolume:
     def poscar_lattice_and_counts(
         self, poscar_path: Path
     ) -> tuple[np.ndarray, int, dict[str, int]]:
-        """Parse a POSCAR file and return its lattice matrix and atom counts.
+        """Parse a POSCAR and return its lattice matrix and atom counts.
 
-        Supports both the old VASP 4 format (counts on line 6, no element
-        line) and the VASP 5 format (element symbols on line 6, counts on
-        line 7).
-
-        Args:
-            poscar_path (Path): Path to the ``POSCAR`` (or ``CONTCAR``) file.
-
-        Returns:
-            tuple[np.ndarray, int, dict[str, int]]: A three-element tuple:
-
-            - ``lattice``: 3×3 lattice matrix in Ångströms, shape ``(3, 3)``.
-            - ``natoms``: Total number of atoms.
-            - ``counts_map``: Dict mapping element symbol to atom count.
-              Empty if the file uses VASP 4 format (no element symbols).
+        Handles both VASP 4 (counts on line 6) and VASP 5 (elements on line 6,
+        counts on line 7) formats. ``counts_map`` is empty for VASP 4 files.
         """
         with open(poscar_path) as f:
             lines = [ln.strip() for ln in f if ln.strip()]
@@ -130,19 +84,21 @@ class BLADEVolume:
         counts_map = {e: int(c) for e, c in zip(elems, counts)} if elems else {}
         return lattice, natoms, counts_map
 
+    def read_energy(self, poscar_path: Path) -> float | None:
+        """Read total energy in eV from an ``energy`` file next to a POSCAR."""
+        energy_path = poscar_path.parent / "energy"
+        if not energy_path.exists():
+            return None
+        try:
+            text = energy_path.read_text().strip()
+            return float(text.split()[0])
+        except Exception:
+            return None
+
     def cellpar_from_lattice(
         self, lattice: np.ndarray
     ) -> tuple[float, float, float, float, float, float]:
-        """Compute lattice parameters from a 3×3 lattice matrix.
-
-        Args:
-            lattice (np.ndarray): 3×3 lattice matrix (rows = lattice vectors).
-
-        Returns:
-            tuple[float, float, float, float, float, float]:
-            ``(a, b, c, alpha, beta, gamma)`` where lengths are in Ångströms
-            and angles are in degrees.
-        """
+        """Return ``(a, b, c, alpha, beta, gamma)`` from a 3×3 lattice matrix."""
         a_vec, b_vec, c_vec = lattice
 
         def _angle(u: np.ndarray, v: np.ndarray) -> float:
@@ -160,29 +116,21 @@ class BLADEVolume:
         )
 
     def scan_poscars(self, comp_dir: Path) -> pd.DataFrame:
-        """Scan a composition directory and collect POSCAR geometry data.
+        """Scan a composition directory and collect structural and energy data.
 
-        Recursively searches ``comp_dir`` for ``POSCAR`` files, parses each
-        one, and returns a DataFrame with one row per POSCAR.
+        Recursively searches ``comp_dir`` for ``POSCAR`` files and reads the
+        corresponding ``energy`` file when present. Returns a DataFrame with
+        one row per POSCAR and columns:
 
-        Args:
-            comp_dir (Path): Root directory for a single composition
-                (e.g., ``Path("CrHfTa")``).
-
-        Returns:
-            pd.DataFrame: DataFrame with columns:
-
-            - ``composition_folder`` (str)
-            - ``phase_folder`` (str)
-            - ``sqs_level`` (int | None)
-            - ``sqs_a_fracs_json`` (str): JSON-encoded fractional compositions.
-            - ``poscar_path`` (str)
-            - ``volume_A3`` (float)
-            - ``natoms`` (int)
-            - ``volume_per_atom_A3`` (float | None)
-            - ``a_A``, ``b_A``, ``c_A`` (float): Lattice lengths in Ångströms.
-            - ``alpha_deg``, ``beta_deg``, ``gamma_deg`` (float): Angles in degrees.
-            - ``poscar_counts_json`` (str): JSON-encoded element counts.
+        - ``composition_folder``, ``phase_folder`` (str)
+        - ``sqs_level`` (int | None)
+        - ``sqs_a_fracs_json`` (str): JSON-encoded sublattice fractions.
+        - ``poscar_path`` (str)
+        - ``volume_A3`` (float), ``natoms`` (int), ``volume_per_atom_A3`` (float | None)
+        - ``a_A``, ``b_A``, ``c_A`` (float): lengths in Å.
+        - ``alpha_deg``, ``beta_deg``, ``gamma_deg`` (float)
+        - ``poscar_counts_json`` (str): JSON-encoded element counts.
+        - ``energy_eV`` (float | None), ``energy_per_atom_eV`` (float | None)
         """
         rows: list[dict] = []
         comp_name = comp_dir.name
@@ -203,6 +151,9 @@ class BLADEVolume:
                 vpa = vol / natoms if natoms else None
                 a, b, c, alpha, beta, gamma = self.cellpar_from_lattice(lattice)
 
+                energy = self.read_energy(poscar_path)
+                epa = energy / natoms if (energy is not None and natoms) else None
+
                 rows.append({
                     "composition_folder": comp_name,
                     "phase_folder": phase_name,
@@ -219,18 +170,15 @@ class BLADEVolume:
                     "beta_deg": beta,
                     "gamma_deg": gamma,
                     "poscar_counts_json": json.dumps(counts_map, sort_keys=True),
+                    "energy_eV": energy,
+                    "energy_per_atom_eV": epa,
                 })
 
         self.data = pd.DataFrame(rows)
         return self.data
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _all_int(tokens: list[str]) -> bool:
-        """Return True if every token in the list is a valid integer string."""
         try:
             [int(t) for t in tokens]
             return True

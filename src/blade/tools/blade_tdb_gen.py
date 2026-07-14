@@ -561,10 +561,19 @@ class BladeTDBGen:
 
                 sqs.dir_filter = _dir_filter
 
+        smap_els = [
+            el for phase_map in (self.sublattice_map or {}).values()
+            for letter, elems in phase_map.items()
+            if letter != "Constant" and isinstance(elems, list)
+            for el in elems
+            if el not in comp
+        ]
+        full_species = list(comp) + list(dict.fromkeys(smap_els))
+
         sqs.fit(
             paths=self.path2,
             sqsgen_levels2=self.sqsgen_levels2,
-            species=comp,
+            species=full_species,
             lattices=phase_list,
             level=self.level,
             t_min=p.get("t_min", 298.15),

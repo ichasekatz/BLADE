@@ -38,7 +38,7 @@ print("Example 1: Combined CONTCAR structures")
 print("=" * 60)
 
 comp_name = "CrHf"
-phase_name = "HEDB1_2"
+phase_name = "ALLOY1_1_2"
 comp_dir = path1 / comp_name
 phase_dir = comp_dir / phase_name
 
@@ -58,9 +58,12 @@ print("=" * 60)
 print("Example 2: Gibbs energy vs composition")
 print("=" * 60)
 
+comp_name = "CrHf"
+phase_name = "ALLOY2_1_2"
+
 # fixed_species: elements held at constant total mole fraction
-# e.g. {"B": 2/3} for (Cr,Hf)B2 where boron is 2/3 of all atoms
-fixed_species = {"B": 2 / 3}
+# e.g. {"Zr": 1/2} for ALLOY3 in 03_tdb_generation.py, where Zr is fixed at 50% and CrHf varies from 0-50%
+fixed_species = {"Zr": 1 / 2}
 # fixed_species = {}
 
 tdb_files = sorted((path1 / comp_name).glob("*.tdb"))
@@ -85,6 +88,9 @@ print("=" * 60)
 print("Example 3: Gibbs energy of mixing")
 print("=" * 60)
 
+comp_name = "CrHf"
+phase_name = "ALLOY1_1_2"
+
 if tdb_files:
     viz.plot_gibbs_mixing(
         tdb=tdb,
@@ -104,6 +110,9 @@ print()
 print("=" * 60)
 print("Example 4: Pseudo-binary phase diagram")
 print("=" * 60)
+
+comp_name = "CrHf"
+phase_name = "ALLOY1_1_2"
 
 if tdb_files:
     viz.plot_binary_phase_diagram(

@@ -1,4 +1,4 @@
-"""BLADE tools subpackage — composition generation, SQS input creation, and TDB fitting.
+"""BLADE tools subpackage — SQS generation, TDB fitting, and composition enumeration.
 
 Classes are lazily imported on first access.
 
@@ -15,26 +15,16 @@ __author__ = "Chase Katz"
 
 _TOOLS_MAP: dict[str, tuple[str, str]] = {
     "BladeCompositions": ("blade.tools.blade_compositions", "BladeCompositions"),
-    "BladeSQS": ("blade.tools.blade_sqsgen", "BladeSQS"),
-    "BladeTDBGen": ("blade.tools.blade_tdb_gen", "BladeTDBGen"),
-    "BladeCutoff": ("blade.tools.blade_cutoff", "BladeCutoff"),
+    "BladeSQS":          ("blade.tools.blade_sqsgen",       "BladeSQS"),
+    "BladeTDBGen":       ("blade.tools.blade_tdb_gen",      "BladeTDBGen"),
+    "BladeCutoff":       ("blade.tools.blade_cutoff",       "BladeCutoff"),
+    "ScrapsSQSGen":      ("blade.tools.blade_scraps_gen",   "ScrapsSQSGen"),
 }
 
 __all__ = list(_TOOLS_MAP)
 
 
 def __getattr__(name: str) -> type:
-    """Lazily import and return a tool class by name.
-
-    Args:
-        name (str): The class name to look up.
-
-    Returns:
-        type: The requested class.
-
-    Raises:
-        AttributeError: If ``name`` is not found in the tools map.
-    """
     if name in _TOOLS_MAP:
         module_path, class_name = _TOOLS_MAP[name]
         module = importlib.import_module(module_path)

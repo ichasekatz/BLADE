@@ -436,6 +436,7 @@ class ScrapsSQSGen:
                         lines.append(f"{px:.10f} {py:.10f} {pz:.10f} {atat_label}")
 
         (sqsdir / "bestsqs.out").write_text("\n".join(lines) + "\n")
+        (sqsdir / "wait").touch()
         print(f"  Endmember bestsqs.out written: {sqsdir.name}")
 
     def _run_scraps_in_dir(
@@ -456,6 +457,7 @@ class ScrapsSQSGen:
 
         if self.skip_existing and (sqsdir / "bestsqs.out").exists():
             print(f"Skipping SCRAPS for {sqsdir.name}: bestsqs.out exists")
+            (sqsdir / "wait").touch()
             return
 
         if not (sqsdir / "rndstr.in").exists():
@@ -533,6 +535,7 @@ class ScrapsSQSGen:
         )
         shutil.copy(scraps_vasp, sqsdir / "SCRAPS.vasp")
         shutil.copy(log_path, sqsdir / "scraps.log")
+        (sqsdir / "wait").touch()
         print(f"  bestsqs.out written → {sqsdir / 'bestsqs.out'}")
 
     def _write_objective_summary(self, parent_dir: Path) -> None:

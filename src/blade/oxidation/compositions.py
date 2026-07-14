@@ -211,4 +211,3 @@ class OxideCompositions:
 
         comp_df.to_excel(self.files_dir / "composition_list.xlsx", index=False)
         print(f"Saved {(self.files_dir / 'composition_list.xlsx').resolve()}")
-
