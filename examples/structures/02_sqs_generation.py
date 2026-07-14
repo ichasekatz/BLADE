@@ -29,7 +29,6 @@ paths = [path0, path1, path2]
 # Run flags
 # ------------------------------------------------------------------
 level = 2
-sqs_iter = 1_000_000
 skip_existing_sqs = False
 
 sqsgen_in: dict | None = None
@@ -50,8 +49,15 @@ secondary_max = 0
 # FCC lattice constants (Å, conventional cubic cell)
 # ------------------------------------------------------------------
 _FCC_A = {
-    "Cr": 3.52, "Hf": 4.11, "Mo": 3.96, "Nb": 4.30,
-    "Ta": 4.29, "Ti": 4.10, "V":  3.80, "W":  4.01, "Zr": 4.15,
+    "Cr": 3.52,
+    "Hf": 4.11,
+    "Mo": 3.96,
+    "Nb": 4.30,
+    "Ta": 4.29,
+    "Ti": 4.10,
+    "V": 3.80,
+    "W": 4.01,
+    "Zr": 4.15,
 }
 _active_f = [el for el in primary_elements if el in _FCC_A]
 _avg_a_fcc = sum(_FCC_A[el] for el in _active_f) / len(_active_f)
@@ -123,12 +129,11 @@ phase_list = [
 # mcsqs run parameters
 # ------------------------------------------------------------------
 mcsqs_params = {
-    "use_time": True,
-    "time": 30,          # seconds per sqsdb directory
-    "cutoff_mode": "nn", # "nn" = NN shell index (decimals OK), "angstrom" = direct Å
-    "2": 5,              # pair cutoff  = 5th-nearest shell
-    "3": 4,              # triplet cutoff
-    "4": 3,              # quadruplet cutoff
+    "time": 30,  # seconds per sqsdb directory
+    "cutoff_mode": "nn",  # "nn" = NN shell index (decimals OK), "angstrom" = direct Å
+    "2": 5,  # pair cutoff  = 5th-nearest shell
+    "3": 4,  # triplet cutoff
+    "4": 3,  # quadruplet cutoff
     "wr": 20,
     "wn": 0.75,
     "wd": 1,
@@ -139,13 +144,13 @@ mcsqs_params = {
 # SQS composition levels
 # ------------------------------------------------------------------
 sqsgen_levels = [
-    {"level": 0, "compositions": [[1.0, 0.0]],                            "letter": ["a", "b"]},
-    {"level": 1, "compositions": [[0.5, 0.5]],                             "letter": ["a", "b"]},
-    {"level": 2, "compositions": [[0.75, 0.25]],                           "letter": ["a", "b"]},
-    {"level": 3, "compositions": [[0.33333, 0.33333, 0.33333]],            "letter": ["a", "b"]},
-    {"level": 4, "compositions": [[0.5, 0.25, 0.25]],                      "letter": ["a", "b"]},
-    {"level": 5, "compositions": [[0.875, 0.125], [0.625, 0.375]],         "letter": ["a", "b"]},
-    {"level": 6, "compositions": [[0.75, 0.125, 0.125]],                   "letter": ["a", "b"]},
+    {"level": 0, "compositions": [[1.0, 0.0]], "letter": ["a", "b"]},
+    {"level": 1, "compositions": [[0.5, 0.5]], "letter": ["a", "b"]},
+    {"level": 2, "compositions": [[0.75, 0.25]], "letter": ["a", "b"]},
+    {"level": 3, "compositions": [[0.33333, 0.33333, 0.33333]], "letter": ["a", "b"]},
+    {"level": 4, "compositions": [[0.5, 0.25, 0.25]], "letter": ["a", "b"]},
+    {"level": 5, "compositions": [[0.875, 0.125], [0.625, 0.375]], "letter": ["a", "b"]},
+    {"level": 6, "compositions": [[0.75, 0.125, 0.125]], "letter": ["a", "b"]},
 ]
 
 # ------------------------------------------------------------------
@@ -180,7 +185,7 @@ for specific_phase in phase_list:
             sqsgen_in=sqsgen_in.get(lattice) if sqsgen_in else None,
         )
         params = mcsqs_params | {"super_cell_size": specific_phase["supercell_size"]}
-        sqs_gen.sqs_gen(phase=specific_phase, paths=paths, iter=sqs_iter, params=params)
+        sqs_gen.sqs_gen(phase=specific_phase, paths=paths, params=params)
 
 # ------------------------------------------------------------------
 # Preview only (no ATAT required) — inspect the generated file text
@@ -194,7 +199,7 @@ preview = BladeSQS(
     phases_dict=phases["ALLOY1_1"],
     sqsgen_levels=sqsgen_levels,
     level=level,
-    len_comp=2, 
+    len_comp=2,
 )
 sqsgen_text, rndstr_text = preview.sqs_struct()
 print("--- rndstr.skel ---")

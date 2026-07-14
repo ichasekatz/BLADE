@@ -8,15 +8,14 @@ This is the main driver script showing an example of MAX Phases but uses the ref
 """
 
 from collections import Counter
-
 from pathlib import Path
 
 from pycalphad import Database
 
+from blade.analysis.blade_visual import BladeVisualizer
 from blade.tools.blade_compositions import BladeCompositions
 from blade.tools.blade_sqsgen import BladeSQS
 from blade.tools.blade_tdb_gen import BladeTDBGen
-from blade.analysis.blade_visual import BladeVisualizer
 
 # ------------------------------------------------------------------
 # Paths
@@ -30,18 +29,24 @@ paths = [path0, path1, path2]
 # Run flags
 # ------------------------------------------------------------------
 level = 2
-sqs_iter = 1_000_000
 run_sqs = True
 skip_existing_sqs = False
 
 run_tdb = True
 skip_existing_tdb = False
+refit_existing_tdb = False
+skip_existing_plots = False
+generate_gibbs_energy = True
+generate_gibbs_mixing = True
+generate_phase_diagram = True
+generate_combined_phase_diagram = True
+generate_contcar_plots = True
 
 # ------------------------------------------------------------------
 # MLIP calculator — change mlip to swap potentials (see MaterialsFramework registry)
 # ------------------------------------------------------------------
-mlip        = "orb"                            # e.g. "grace", "mace", "uma", "chgnet", "orb"
-mlip_kwargs = {"steps": 1000, "device": "cpu"} # kwargs forwarded to the calculator constructor
+mlip = "orb"  # e.g. "grace", "mace", "uma", "chgnet", "orb"
+mlip_kwargs = {"steps": 1000, "device": "cpu"}  # kwargs forwarded to the calculator constructor
 
 tdb_params = {
     "fmax": 1e-4,
@@ -54,7 +59,7 @@ tdb_params = {
     "bv": 1e-3,
     "phonon": False,
     "open_calphad": False,
-    "track_trajectory": True,   # set False to skip relaxation_live.xyz
+    "track_trajectory": True,  # set False to skip relaxation_live.xyz
     "terms": None,
 }
 
@@ -62,11 +67,7 @@ tdb_params = {
 # Keys are lattice base names (e.g. "CARBIDE1", "FCC1", "BCC1").
 
 terms_in: dict | None = None
-terms_in = {"MAX1":
-    "1,0:1,0:1,0\n"
-    "2,2:2,2:1,0\n"
-    "3,0:2,0:1,0\n"
-    }
+terms_in = {"MAX1": "1,0:1,0:1,0\n" "2,2:2,2:1,0\n" "3,0:2,0:1,0\n"}
 
 mult_in: dict | None = None
 mult_in = {"MAX1": "a=2\tb=1\tc=1"}
@@ -76,7 +77,7 @@ sublattice_map = {
     "MAX1": {
         "a": ["Zr", "Hf", "Ti", "Nb", "V"],
         "b": ["Al", "Sn"],
-        "Constant": ["a", "b"],   # use exact order from fixed_compositions, no permutations
+        "Constant": ["a", "b"],  # use exact order from fixed_compositions, no permutations
     }
 }
 
@@ -103,10 +104,10 @@ run_movie = False
 # ------------------------------------------------------------------
 # Elements and composition constraints
 # ------------------------------------------------------------------
-primary_elements = ["Zr", "Hf", "Ti", "Nb", "V"]   # must match sublattice_map a-site
+primary_elements = ["Zr", "Hf", "Ti", "Nb", "V"]  # must match sublattice_map a-site
 secondary_elements: list[str] = []
 
-primary_min = 5   # quinary — all 5 a-site elements in one composition
+primary_min = 5  # quinary — all 5 a-site elements in one composition
 primary_max = 5
 secondary_min = 0
 secondary_max = 0
@@ -116,13 +117,27 @@ secondary_max = 0
 # Used to auto-compute a, b, c from the chosen primary elements.
 # ------------------------------------------------------------------
 _MAX_A = {
-    "Cr": 2.86, "Hf": 3.28, "Mo": 2.96, "Nb": 3.10,
-    "Ta": 3.08, "Ti": 3.04, "V":  2.91, "W":  2.91, "Zr": 3.32,
+    "Cr": 2.86,
+    "Hf": 3.28,
+    "Mo": 2.96,
+    "Nb": 3.10,
+    "Ta": 3.08,
+    "Ti": 3.04,
+    "V": 2.91,
+    "W": 2.91,
+    "Zr": 3.32,
 }
 
 _MAX_C = {
-    "Cr": 12.80, "Hf": 14.36, "Mo": 13.20, "Nb": 13.80,
-    "Ta": 14.10, "Ti": 13.60, "V":  13.20, "W":  13.80, "Zr": 14.57,
+    "Cr": 12.80,
+    "Hf": 14.36,
+    "Mo": 13.20,
+    "Nb": 13.80,
+    "Ta": 14.10,
+    "Ti": 13.60,
+    "V": 13.20,
+    "W": 13.80,
+    "Zr": 14.57,
 }
 _active_m = [el for el in primary_elements if el in _MAX_A]
 _avg_a = sum(_MAX_A[el] for el in _active_m) / len(_active_m)
@@ -155,7 +170,7 @@ phases: dict[str, dict] = {
 }
 
 phase_list = [
-    {"generator_name": "MAX", "lattice": "MAX1",  "supercell_size": (5, 5, 2)},
+    {"generator_name": "MAX", "lattice": "MAX1", "supercell_size": (5, 5, 2)},
 ]
 
 liquid = False
@@ -164,25 +179,24 @@ liquid = False
 # SQS composition levels
 # ------------------------------------------------------------------
 sqsgen_levels = [
-    {"level": 0, "compositions": [[1.0, 0.0]],                            "letter": ["a", "b"]},
-    {"level": 1, "compositions": [[0.5, 0.5]],                             "letter": ["a", "b"]},
-    {"level": 2, "compositions": [[0.75, 0.25]],                           "letter": ["a", "b"]},
-    {"level": 3, "compositions": [[0.33333, 0.33333, 0.33333]],            "letter": ["a", "b"]},
-    {"level": 4, "compositions": [[0.5, 0.25, 0.25]],                      "letter": ["a", "b"]},
-    {"level": 5, "compositions": [[0.875, 0.125], [0.625, 0.375]],         "letter": ["a", "b"]},
-    {"level": 6, "compositions": [[0.75, 0.125, 0.125]],                   "letter": ["a", "b"]},
+    {"level": 0, "compositions": [[1.0, 0.0]], "letter": ["a", "b"]},
+    {"level": 1, "compositions": [[0.5, 0.5]], "letter": ["a", "b"]},
+    {"level": 2, "compositions": [[0.75, 0.25]], "letter": ["a", "b"]},
+    {"level": 3, "compositions": [[0.33333, 0.33333, 0.33333]], "letter": ["a", "b"]},
+    {"level": 4, "compositions": [[0.5, 0.25, 0.25]], "letter": ["a", "b"]},
+    {"level": 5, "compositions": [[0.875, 0.125], [0.625, 0.375]], "letter": ["a", "b"]},
+    {"level": 6, "compositions": [[0.75, 0.125, 0.125]], "letter": ["a", "b"]},
 ]
 
 # ------------------------------------------------------------------
 # mcsqs run parameters
 # ------------------------------------------------------------------
 mcsqs_params = {
-    "use_time": True,
-    "time": 30,          # seconds per sqsdb directory
-    "cutoff_mode": "nn", # "nn" = NN shell index (decimals OK), "angstrom" = direct Å
-    "2": 4.5,            # pair cutoff
-    "3": 0,              # triplet cutoff (0 = omit)
-    "4": 0,              # quadruplet cutoff (0 = omit)
+    "time": 30,  # seconds per sqsdb directory
+    "cutoff_mode": "nn",  # "nn" = NN shell index (decimals OK), "angstrom" = direct Å
+    "2": 4.5,  # pair cutoff
+    "3": 0,  # triplet cutoff (0 = omit)
+    "4": 0,  # quadruplet cutoff (0 = omit)
     "wr": 20,
     "wn": 0.75,
     "wd": 1,
@@ -224,7 +238,7 @@ if run_sqs:
                 fixed_compositions=fixed_compositions,
             )
             params = mcsqs_params | {"super_cell_size": specific_phase["supercell_size"]}
-            sqs_gen.sqs_gen(phase=specific_phase, paths=paths, iter=sqs_iter, params=params)
+            sqs_gen.sqs_gen(phase=specific_phase, paths=paths, params=params)
 
 # ------------------------------------------------------------------
 # 3. Fit TDB databases
@@ -240,6 +254,7 @@ if run_tdb:
         composition_list=composition_list,
         level=level,
         skip_existing=skip_existing_tdb,
+        refit_existing=refit_existing_tdb,
         output_dir=comps_dir,
         terms_in=terms_in,
         mult_in=mult_in,
@@ -254,82 +269,97 @@ if run_tdb:
 # ------------------------------------------------------------------
 # Derive fixed-sublattice elements from phase coords.
 # Lowercase single-letter labels are variable sublattice sites;
-# uppercase labels are fixed element symbols (e.g. "B" in diborides).
+# Uppercase labels are fixed element symbols for this example prototype.
 _coords = phases[phase_list[0]["lattice"]]["coords"]
 _labels = [ln.strip().split()[-1] for ln in _coords.strip().splitlines() if ln.strip()]
-_fixed = [l for l in _labels if not (len(l) == 1 and l.islower())]
+_fixed = [label for label in _labels if not (len(label) == 1 and label.islower())]
 remove_elements = set(_fixed)
 fixed_species = {el: count / len(_labels) for el, count in Counter(_fixed).items()}
 
-filt_comp_list = [
-    [el for el in comp if el not in remove_elements]
-    for comp in composition_list
-]
+filt_comp_list = [[el for el in comp if el not in remove_elements] for comp in composition_list]
 
 viz = BladeVisualizer()
 
 for comp, comp_filt in zip(composition_list, filt_comp_list):
+    if len(comp_filt) != 2:
+        continue
     comp_name = "".join(comp_filt)
     comp_dir = comps_dir / comp_name
     if not comp_dir.exists():
         continue
     phase_name = f"{phase_list[0]['generator_name']}1_{len(comp_filt)}"
     tdb_phases = [phase_name]
+    plot_paths = (
+        comp_dir / f"{comp_name}_Gibbs_Energy.png",
+        comp_dir / f"{comp_name}_Gibbs_Mixing.png",
+        comp_dir / f"{comp_name}_Phase_Diagram.png",
+    )
+    make_energy = generate_gibbs_energy and not (skip_existing_plots and plot_paths[0].exists())
+    make_mixing = generate_gibbs_mixing and not (skip_existing_plots and plot_paths[1].exists())
+    make_phase = generate_phase_diagram and not (skip_existing_plots and plot_paths[2].exists())
+    if not any((make_energy, make_mixing, make_phase)):
+        continue
     for tdb_file in comp_dir.glob("*.tdb"):
         tdb = Database(str(tdb_file))
-        viz.plot_gibbs_energy(
-            tdb=tdb,
-            metals=comp_filt,
-            phase=phase_name,
-            fixed_species=fixed_species,
-            temperatures=[300, 1000, 2000, 3000, 4000],
-            output_path=comp_dir / f"{comp_name}_Gibbs_Energy.png",
-        )
-        viz.plot_gibbs_mixing(
-            tdb=tdb,
-            metals=comp_filt,
-            phase=phase_name,
-            fixed_species=fixed_species,
-            temperatures=[300, 1000, 2000, 3000, 4000],
-            output_path=comp_dir / f"{comp_name}_Gibbs_Mixing.png",
-        )
-        viz.plot_binary_phase_diagram(
-            tdb=tdb,
-            metals=comp_filt,
-            phases=tdb_phases,
-            fixed_species=fixed_species,
-            temperature_range=(300, 4500, 50),
-            output_path=comp_dir / f"{comp_name}_Phase_Diagram.png",
-        )
+        if make_energy:
+            viz.plot_gibbs_energy(
+                tdb=tdb,
+                metals=comp_filt,
+                phase=phase_name,
+                fixed_species=fixed_species,
+                temperatures=[300, 1000, 2000, 3000, 4000],
+                output_path=plot_paths[0],
+            )
+        if make_mixing:
+            viz.plot_gibbs_mixing(
+                tdb=tdb,
+                metals=comp_filt,
+                phase=phase_name,
+                fixed_species=fixed_species,
+                temperatures=[300, 1000, 2000, 3000, 4000],
+                output_path=plot_paths[1],
+            )
+        if make_phase:
+            viz.plot_binary_phase_diagram(
+                tdb=tdb,
+                metals=comp_filt,
+                phases=tdb_phases,
+                fixed_species=fixed_species,
+                temperature_range=(300, 4500, 50),
+                output_path=plot_paths[2],
+            )
 
 # ------------------------------------------------------------------
 # 5. Visualize
 # ------------------------------------------------------------------
 
 # Combine phase diagram PNGs
-pngs = []
-for comp_filt in filt_comp_list:
-    comp_dir = comps_dir / "".join(comp_filt)
-    pngs.extend(comp_dir.glob("*_Phase_Diagram.png"))
-
-if pngs:
+if generate_combined_phase_diagram:
+    pngs = []
+    for comp_filt in filt_comp_list:
+        comp_dir = comps_dir / "".join(comp_filt)
+        pngs.extend(comp_dir.glob("*_Phase_Diagram.png"))
     out_pd = comps_dir / "Combined_Phase_Diagrams.png"
-    viz.phase_diagram(pngs, save=out_pd)
-    print(f"Combined phase diagrams → {out_pd}")
+    if pngs and not (skip_existing_plots and out_pd.exists()):
+        viz.phase_diagram(pngs, save=out_pd)
+        print(f"Combined phase diagrams → {out_pd}")
 
 # Combine CONTCAR structures for each phase in every composition
-for comp_filt in filt_comp_list:
-    comp_name = "".join(comp_filt)
-    comp_dir = comps_dir / comp_name
-    if not comp_dir.exists():
-        continue
-    for phase_dir in sorted(p for p in comp_dir.iterdir() if p.is_dir()):
-        contcars = sorted(phase_dir.glob("sqs_lev=*/CONTCAR"))
-        if not contcars:
+if generate_contcar_plots:
+    for comp_filt in filt_comp_list:
+        comp_name = "".join(comp_filt)
+        comp_dir = comps_dir / comp_name
+        if not comp_dir.exists():
             continue
-        out = comp_dir / f"Combined_CONTCARs_{comp_name}_{phase_dir.name}.png"
-        viz.contcar(contcars, save=out)
-        print(f"Saved combined CONTCARs → {out}")
+        for phase_dir in sorted(p for p in comp_dir.iterdir() if p.is_dir()):
+            contcars = sorted(phase_dir.glob("sqs_lev=*/CONTCAR"))
+            if not contcars:
+                continue
+            out = comp_dir / f"Combined_CONTCARs_{comp_name}_{phase_dir.name}.png"
+            if skip_existing_plots and out.exists():
+                continue
+            viz.contcar(contcars, save=out)
+            print(f"Saved combined CONTCARs → {out}")
 
 # Relaxation movies (requires trajectory files from TDB fitting)
 if run_movie:

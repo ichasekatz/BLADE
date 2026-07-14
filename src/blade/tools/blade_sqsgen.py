@@ -13,13 +13,13 @@ Example::
     from blade.tools.blade_sqsgen import BladeSQS
 
     sqs = BladeSQS(
-        phases_dict=phases["HEDB1"],
+        phases_dict=phases["PHASE1"],
         sqsgen_levels=sqsgen_levels,
         level=5,
         len_comp=3,
         skip_existing_sqs=True,
     )
-    sqs.sqs_gen(phase=phase_list[0], paths=paths, iter=1_000_000, params=mcsqs_params)
+    sqs.sqs_gen(phase=phase_list[0], paths=paths, params=mcsqs_params)
 """
 
 from __future__ import annotations
@@ -27,13 +27,12 @@ from __future__ import annotations
 import math
 import re
 import shutil
-from fractions import Fraction
-from itertools import combinations, combinations_with_replacement, product
-from math import gcd
 import subprocess
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from fractions import Fraction
+from itertools import combinations, product
+from math import gcd
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -150,7 +149,7 @@ class BladeSQS:
                 constant_letters = phase_map.get("Constant", [])
                 for letter in constant_letters:
                     if letter not in merged_fixed:
-                        merged_fixed[letter] = []   # placeholder; caller must also set fixed_compositions
+                        merged_fixed[letter] = []  # placeholder; caller must also set fixed_compositions
         self.fixed_compositions = merged_fixed
 
         self.sqsgen_text: str = ""
@@ -171,10 +170,7 @@ class BladeSQS:
             where ``sqsgen_text`` is the content for ``sqsgen.in`` and
             ``rndstr_text`` is the content for ``rndstr.skel``.
         """
-        rndstr_header = (
-            f"{self.a} {self.b} {self.c} {self.alpha} {self.beta} {self.gamma}\n"
-            f"{self.vectors.strip()}"
-        )
+        rndstr_header = f"{self.a} {self.b} {self.c} {self.alpha} {self.beta} {self.gamma}\n" f"{self.vectors.strip()}"
         print(rndstr_header)
 
         sqsgen = self.sqsgen_in if self.sqsgen_in is not None else self._build_sqsgen_text()
@@ -199,6 +195,8 @@ class BladeSQS:
         if not bestcorr_path.exists():
             return None
         text = bestcorr_path.read_text(errors="ignore")
+        if re.search(r"Objective_function\s*=\s*Perfect_match", text, re.IGNORECASE):
+            return float("-inf")
         match = re.search(
             r"Objective_function\s*=\s*([+-]?\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?)",
             text,
@@ -276,10 +274,7 @@ class BladeSQS:
                     key = bestcorr_path.name
                     if last_objectives.get(key) != objective:
                         elapsed = time.time() - start_time
-                        print(
-                            f"{sqsdir.name}: id={file_id} "
-                            f"time={elapsed:.1f}s objective={objective}"
-                        )
+                        print(f"{sqsdir.name}: id={file_id} " f"time={elapsed:.1f}s objective={objective}")
                         f.write(f"{elapsed:.2f}\t{file_id}\t{objective}\t")
                         f.flush()
                         last_objectives[key] = objective
@@ -289,7 +284,6 @@ class BladeSQS:
         self,
         phase: dict,
         paths: list[str | Path],
-        iter: float,
         params: dict,
     ) -> None:
         """Generate SQS folders and run ``corrdump`` + ``mcsqs``.
@@ -299,8 +293,8 @@ class BladeSQS:
         1. Computes cutoff distances from lattice parameters.
         2. Runs ``corrdump`` to generate cluster correlations.
         3. Spawns ``params["parallel_runs"]`` parallel ``mcsqs`` processes.
-        4. Stops them after ``params["time"]`` seconds (if ``use_time=True``)
-           or after ``iter`` steps, by writing a ``stopsqs`` sentinel file.
+        4. Stops them after ``params["time"]`` seconds by writing a
+           ``stopsqs`` sentinel file.
         5. Writes ``objective_functions.txt`` summarizing all runs.
 
         Args:
@@ -308,17 +302,17 @@ class BladeSQS:
                 a ``"lattice"`` key.
             paths (list[str | Path]): Three-element path bundle
                 (see :class:`BladeTDBGen` for the convention).
-            iter (float): Maximum ``mcsqs`` iteration count (used when
-                ``params["use_time"]`` is ``False``).
             params (dict): ``mcsqs`` run parameters. Required keys:
 
                 - ``"super_cell_size"`` (tuple[int, int, int])
                 - ``"parallel_runs"`` (int)
-                - ``"use_time"`` (bool)
-                - ``"time"`` (float): seconds (when ``use_time=True``)
+                - ``"time"`` (float): positive run duration in seconds
                 - ``"2"``, ``"3"``, ``"4"`` (int): neighbor-shell indices
                 - ``"wr"``, ``"wn"``, ``"wd"`` (float): mcsqs weights
         """
+        if float(params.get("time", 0)) <= 0:
+            raise ValueError('params["time"] must be positive')
+
         dir_name = Path(paths[1]) / "Files" / "SQS" / f"{phase['lattice']}_{self.len_comp}"
 
         if not self.skip_existing_sqs and dir_name.exists():
@@ -354,9 +348,7 @@ class BladeSQS:
         parent_dir = Path(paths[1]) / "Files" / "SQS" / f"{phase['lattice']}_{self.len_comp}"
 
         cutoff = BladeCutoff()
-        lattice = cutoff.lattice_from_params(
-            self.a, self.b, self.c, self.alpha, self.beta, self.gamma
-        )
+        lattice = cutoff.lattice_from_params(self.a, self.b, self.c, self.alpha, self.beta, self.gamma)
         frac = cutoff.read_coords(self.unit_cell)
         shells = cutoff.get_shells(lattice, frac, params["super_cell_size"])
 
@@ -389,13 +381,10 @@ class BladeSQS:
             + (f", {cutoff_dict['-4']:.5f} (quadruplets)" if "-4" in cutoff_dict else "")
         )
 
-        n_atoms = (
-            len(self.unit_cell.strip().splitlines())
-            * math.prod(params["super_cell_size"])
-        )
+        n_atoms = len(self.unit_cell.strip().splitlines()) * math.prod(params["super_cell_size"])
 
         for sqsdir in parent_dir.glob("sqsdb_lev=*/"):
-            self._run_mcsqs_in_dir(sqsdir, n_atoms, cutoff_dict, iter, params)
+            self._run_mcsqs_in_dir(sqsdir, n_atoms, cutoff_dict, params)
 
         self._write_objective_summary(parent_dir)
 
@@ -434,9 +423,7 @@ class BladeSQS:
             if sqsgen_path.exists():
                 lines = sqsgen_path.read_text().splitlines()
                 new_lines = [
-                    line + f"\t\t{letter}={compositions}"
-                    if line.strip() and suffix not in line
-                    else line
+                    line + f"\t\t{letter}={compositions}" if line.strip() and suffix not in line else line
                     for line in lines
                 ]
                 sqsgen_path.write_text("\n".join(new_lines) + "\n")
@@ -513,8 +500,7 @@ class BladeSQS:
                     best_level_for_comp[key] = level_num
 
         comp_entries: list[tuple[int, list[float]]] = [
-            (level_num, list(comp))
-            for comp, level_num in best_level_for_comp.items()
+            (level_num, list(comp)) for comp, level_num in best_level_for_comp.items()
         ]
 
         comp_entries = sorted(comp_entries, key=lambda x: (x[0], x[1]))
@@ -535,8 +521,7 @@ class BladeSQS:
             # so sqs2tdb -mk can create the sqsdb directory.
             if self.fixed_compositions:
                 fixed_suffix = "".join(
-                    f"\t\t{letter}={_fmt_comp(comp)}"
-                    for letter, comp in self.fixed_compositions.items()
+                    f"\t\t{letter}={_fmt_comp(comp)}" for letter, comp in self.fixed_compositions.items()
                 )
                 return f"level=0{fixed_suffix}\n"
             return ""
@@ -550,10 +535,7 @@ class BladeSQS:
 
                 line = f"level={level_num}\t\t{letter}={_fmt_comp(vals)}"
                 if self.fixed_compositions:
-                    line += "".join(
-                        f"\t\t{fl}={_fmt_comp(fc)}"
-                        for fl, fc in self.fixed_compositions.items()
-                    )
+                    line += "".join(f"\t\t{fl}={_fmt_comp(fc)}" for fl, fc in self.fixed_compositions.items())
                 sqsgen += line + "\n"
 
             return sqsgen
@@ -564,9 +546,7 @@ class BladeSQS:
         sqsgen += endmember_line + "\n"
 
         non_endmember_entries = [
-            (level_num, vals)
-            for level_num, vals in comp_entries
-            if level_num > 0 and not _is_pure_one(vals)
+            (level_num, vals) for level_num, vals in comp_entries if level_num > 0 and not _is_pure_one(vals)
         ]
 
         written: set[str] = set()
@@ -615,13 +595,9 @@ class BladeSQS:
         # Append fixed-composition sublattices to every generated line
         if self.fixed_compositions:
             fixed_suffix = "".join(
-                f"\t\t{letter}={_fmt_comp(comp)}"
-                for letter, comp in self.fixed_compositions.items()
+                f"\t\t{letter}={_fmt_comp(comp)}" for letter, comp in self.fixed_compositions.items()
             )
-            sqsgen = "\n".join(
-                line + fixed_suffix if line.strip() else line
-                for line in sqsgen.splitlines()
-            ) + "\n"
+            sqsgen = "\n".join(line + fixed_suffix if line.strip() else line for line in sqsgen.splitlines()) + "\n"
 
         return sqsgen
 
@@ -630,7 +606,6 @@ class BladeSQS:
         sqsdir: Path,
         n_atoms: int,
         cutoff_dict: dict[str, float],
-        iter: float,
         params: dict,
     ) -> None:
         """Run ``corrdump`` then parallel ``mcsqs`` in a single sqsdb directory.
@@ -640,8 +615,6 @@ class BladeSQS:
             n_atoms (int): Supercell size argument for ``mcsqs -n``.
             cutoff_dict (dict[str, float]): Cutoff distances keyed by
                 ``"-2"``, ``"-3"``, ``"-4"``.
-            iter (float): Maximum mcsqs iteration count
-                (used when ``use_time=False``).
             params (dict): mcsqs run parameters (see :meth:`sqs_gen`).
         """
         if self.skip_existing_sqs and (sqsdir / "bestcorr.out").exists():
@@ -649,12 +622,8 @@ class BladeSQS:
             return
 
         folder_name = sqsdir.name
-        sublattice_fracs = re.findall(r'_([a-z])=([\d.,]+)', folder_name)
-        all_fracs = [
-            float(x)
-            for _, comp_str in sublattice_fracs
-            for x in comp_str.split(",")
-        ]
+        sublattice_fracs = re.findall(r"_([a-z])=([\d.,]+)", folder_name)
+        all_fracs = [float(x) for _, comp_str in sublattice_fracs for x in comp_str.split(",")]
         non_zero = [f for f in all_fracs if f > 0.0]
         if non_zero and all(f == 1.0 for f in non_zero):
             print(f"Skipping pure-species directory: {sqsdir}")
@@ -695,14 +664,10 @@ class BladeSQS:
         )
         monitor_thread.start()
 
-        processes = [
-            self._spawn_mcsqs(sqsdir, ip, n_atoms, cutoff_dict, iter, params)
-            for ip in range(1, n_parallel + 1)
-        ]
+        processes = [self._spawn_mcsqs(sqsdir, ip, n_atoms, cutoff_dict, params) for ip in range(1, n_parallel + 1)]
 
         try:
-            if params["use_time"]:
-                self._wait_with_timeout(sqsdir, processes, stopsqs_path, params)
+            self._wait_with_timeout(sqsdir, processes, stopsqs_path, params)
             for ip, p in processes:
                 ret = p.wait()
                 status = "OK" if ret == 0 else f"exit code {ret}"
@@ -729,7 +694,6 @@ class BladeSQS:
         ip: int,
         n_atoms: int,
         cutoff_dict: dict[str, float],
-        iter: float,
         params: dict,
     ) -> tuple[int, subprocess.Popen]:
         """Start a single ``mcsqs -ip=N`` process.
@@ -739,7 +703,6 @@ class BladeSQS:
             ip (int): Parallel instance index.
             n_atoms (int): Supercell size.
             cutoff_dict (dict[str, float]): Cutoff distances.
-            iter (float): Max iterations (when ``use_time=False``).
             params (dict): mcsqs parameters.
 
         Returns:
@@ -757,9 +720,6 @@ class BladeSQS:
             f"-wd={params['wd']}",
             f"-ip={ip}",
         ]
-        if not params["use_time"]:
-            cmd.append(f"-ms={iter}")
-
         print(f"Starting mcsqs -ip={ip} in {sqsdir}")
         p = subprocess.Popen(cmd, cwd=sqsdir)
         return ip, p

@@ -33,8 +33,18 @@ from ase import Atoms
 from ase.cell import Cell
 
 _PLACEHOLDER_POOL = [
-    "Ni", "Co", "Cu", "Ag", "Au", "Pt", "Pd",
-    "Rh", "Ir", "Os", "Ru", "Re",
+    "Ni",
+    "Co",
+    "Cu",
+    "Ag",
+    "Au",
+    "Pt",
+    "Pd",
+    "Rh",
+    "Ir",
+    "Os",
+    "Ru",
+    "Re",
 ]
 
 
@@ -42,11 +52,18 @@ _PLACEHOLDER_POOL = [
 # Primitive-cell helpers
 # ------------------------------------------------------------------
 
+
 def _prim_cell_matrix(phases_dict: dict) -> np.ndarray:
-    return Cell.fromcellpar([
-        phases_dict["a"],     phases_dict["b"],    phases_dict["c"],
-        phases_dict["alpha"], phases_dict["beta"],  phases_dict["gamma"],
-    ]).array
+    return Cell.fromcellpar(
+        [
+            phases_dict["a"],
+            phases_dict["b"],
+            phases_dict["c"],
+            phases_dict["alpha"],
+            phases_dict["beta"],
+            phases_dict["gamma"],
+        ]
+    ).array
 
 
 def _parse_coords(coords_str: str) -> tuple[list[list[float]], list[str]]:
@@ -72,18 +89,12 @@ def _build_prim_atoms(phases_dict: dict, placeholder: str = "X") -> tuple[Atoms,
         if lbl.islower() and len(lbl) == 1 and lbl not in letter_to_placeholder:
             letter_to_placeholder[lbl] = _PLACEHOLDER_POOL[pool_offset % len(_PLACEHOLDER_POOL)]
             pool_offset += 1
-    symbols = [
-        letter_to_placeholder[lbl] if (lbl.islower() and len(lbl) == 1) else lbl
-        for lbl in labels
-    ]
+    symbols = [letter_to_placeholder[lbl] if (lbl.islower() and len(lbl) == 1) else lbl for lbl in labels]
     return Atoms(symbols=symbols, scaled_positions=pos, cell=cell, pbc=True), labels
 
 
 def _parse_sqsdb_comp(dirname: str) -> dict[str, list[float]]:
-    return {
-        m.group(1): [float(x) for x in m.group(2).split(",")]
-        for m in re.finditer(r"_([a-z])=([\d.,]+)", dirname)
-    }
+    return {m.group(1): [float(x) for x in m.group(2).split(",")] for m in re.finditer(r"_([a-z])=([\d.,]+)", dirname)}
 
 
 def _var_sublattices(site_labels: list[str]) -> dict[str, list[int]]:
@@ -105,6 +116,7 @@ def _fixed_sites(site_labels: list[str]) -> dict[str, list[int]]:
 # ------------------------------------------------------------------
 # SCRAPS INPUT config builder
 # ------------------------------------------------------------------
+
 
 def _build_scraps_config(
     site_labels: list[str],
@@ -165,7 +177,7 @@ def _build_scraps_config(
                 # Multi-basis variable sublattice with fix enabled: one spectator per
                 # basis atom cycling through fraction-ranked species.  Avoids SCRAPS's
                 # uniformity check failure when basis atoms are 0.5c apart (e.g. 2d
-                # Wyckoff in MAX phases).  Elements are present but not WC-optimised.
+                # fixed Wyckoff site). Elements are present but not optimized.
                 for rank, bi in enumerate(basis_idxs):
                     species_rank = rank % len(fracs)
                     ph = _PLACEHOLDER_POOL[pool_idx % len(_PLACEHOLDER_POOL)]
@@ -197,6 +209,7 @@ def _build_scraps_config(
 # ------------------------------------------------------------------
 # SCRAPS.vasp → ATAT bestsqs.out
 # ------------------------------------------------------------------
+
 
 def _write_bestsqs(
     scraps_vasp: Path,
@@ -231,6 +244,7 @@ def _write_bestsqs(
 # ------------------------------------------------------------------
 # ScrapsSQSGen
 # ------------------------------------------------------------------
+
 
 class ScrapsSQSGen:
     """SQS generation using SCRAPS instead of ATAT corrdump + mcsqs.
@@ -273,39 +287,40 @@ class ScrapsSQSGen:
         max_shellnum: int = 2,
         fix_multibasis_sublattice: bool = True,
     ) -> None:
-        self.phases_dict              = phases_dict
-        self.sqsgen_levels            = sqsgen_levels
-        self.level                    = level
-        self.len_comp                 = len_comp
-        self.skip_existing            = skip_existing_sqs
-        self.sublattice_map           = sublattice_map
-        self.sqsgen_in                = sqsgen_in
-        self.fixed_compositions       = fixed_compositions or {}
-        self.scraps_bin               = Path(scraps_bin) if scraps_bin else None
-        self.scraps_tools             = Path(scraps_tools) if scraps_tools else None
-        self.ranks                    = ranks
-        self.auto_budget              = auto_budget
-        self.max_shellnum             = max_shellnum
+        self.phases_dict = phases_dict
+        self.sqsgen_levels = sqsgen_levels
+        self.level = level
+        self.len_comp = len_comp
+        self.skip_existing = skip_existing_sqs
+        self.sublattice_map = sublattice_map
+        self.sqsgen_in = sqsgen_in
+        self.fixed_compositions = fixed_compositions or {}
+        self.scraps_bin = Path(scraps_bin) if scraps_bin else None
+        self.scraps_tools = Path(scraps_tools) if scraps_tools else None
+        self.ranks = ranks
+        self.auto_budget = auto_budget
+        self.max_shellnum = max_shellnum
         self.fix_multibasis_sublattice = fix_multibasis_sublattice
 
         _, self._site_labels = _build_prim_atoms(phases_dict)
-        self._prim_cell      = _prim_cell_matrix(phases_dict)
+        self._prim_cell = _prim_cell_matrix(phases_dict)
 
         # Lazy-import scraps_ase after sys.path is extended
         self._make_scraps_inputs = None
         self._read_scraps_output = None
-        self._find_mpirun        = None
-        self._mpirun             = mpirun  # resolved on first use
+        self._find_mpirun = None
+        self._mpirun = mpirun  # resolved on first use
 
     def _load_scraps_ase(self) -> None:
         if self._make_scraps_inputs is not None:
             return
         if self.scraps_tools is not None and str(self.scraps_tools) not in sys.path:
             sys.path.insert(0, str(self.scraps_tools))
-        from scraps_ase import make_scraps_inputs, read_scraps_output, _find_mpirun
+        from scraps_ase import _find_mpirun, make_scraps_inputs, read_scraps_output
+
         self._make_scraps_inputs = make_scraps_inputs
         self._read_scraps_output = read_scraps_output
-        self._find_mpirun        = _find_mpirun
+        self._find_mpirun = _find_mpirun
         if self._mpirun is None:
             self._mpirun = _find_mpirun()
 
@@ -314,6 +329,7 @@ class ScrapsSQSGen:
     def sqs_struct(self) -> tuple[str, str]:
         """Build ``sqsgen.in`` + ``rndstr.skel`` text via BladeSQS helpers."""
         from blade.tools.blade_sqsgen import BladeSQS
+
         _sqs = BladeSQS(
             phases_dict=self.phases_dict,
             sqsgen_levels=self.sqsgen_levels,
@@ -330,7 +346,6 @@ class ScrapsSQSGen:
         self,
         phase: dict,
         paths: list,
-        iter: float,
         params: dict,
     ) -> None:
         """Generate SQS structures via SCRAPS for all sqsdb_lev compositions.
@@ -343,20 +358,18 @@ class ScrapsSQSGen:
         Args:
             phase  : phase entry dict (must contain ``"lattice"``).
             paths  : ``[path0, path1, path2]`` path bundle.
-            iter   : unused (SCRAPS uses ``auto_budget`` / early-stop).
             params : must contain ``"super_cell_size"`` ``tuple[int,int,int]``.
         """
         self._load_scraps_ase()
 
         if self.scraps_bin is None or not self.scraps_bin.exists():
             raise FileNotFoundError(
-                f"SCRAPS binary not found at {self.scraps_bin}. "
-                "Pass scraps_bin= or run build.sh in scraps-perpair/."
+                f"SCRAPS binary not found at {self.scraps_bin}. " "Pass scraps_bin= or run build.sh in scraps-perpair/."
             )
         if self._mpirun is None:
             raise RuntimeError("No mpirun found. Set MPIRUN env var or install OpenMPI.")
 
-        lattice  = phase["lattice"]
+        lattice = phase["lattice"]
         cell_dim = params["super_cell_size"]
         dir_name = Path(paths[1]) / "Files" / "SQS" / f"{lattice}_{self.len_comp}"
 
@@ -372,7 +385,10 @@ class ScrapsSQSGen:
 
             result = subprocess.run(
                 ["sqs2tdb", "-mk"],
-                cwd=dir_name, capture_output=True, text=True, check=False,
+                cwd=dir_name,
+                capture_output=True,
+                text=True,
+                check=False,
             )
             print(result.stdout)
             if result.stderr:
@@ -424,7 +440,7 @@ class ScrapsSQSGen:
         for i in range(n0):
             for j in range(n1):
                 for k in range(n2):
-                    for (pos, lbl) in zip(pos_list, site_labels):
+                    for pos, lbl in zip(pos_list, site_labels):
                         px = pos[0] + i
                         py = pos[1] + j
                         pz = pos[2] + k
@@ -448,7 +464,7 @@ class ScrapsSQSGen:
         sqsdb_comp = _parse_sqsdb_comp(sqsdir.name)
 
         all_fracs = [f for fracs in sqsdb_comp.values() for f in fracs]
-        non_zero  = [f for f in all_fracs if f > 0.0]
+        non_zero = [f for f in all_fracs if f > 0.0]
         if non_zero and all(f == 1.0 for f in non_zero):
             # Always regenerate endmember bestsqs.out in our prim-vector-unit
             # format regardless of any pre-existing mcsqs file (wrong format).
@@ -471,10 +487,10 @@ class ScrapsSQSGen:
             fix_multibasis_sublattice=self.fix_multibasis_sublattice,
         )
 
-        n_basis  = len(self._site_labels)
+        n_basis = len(self._site_labels)
         cell_vol = cell_dim[0] * cell_dim[1] * cell_dim[2]
         expected = n_basis * cell_vol
-        total    = sum(cfg["element_counts"])
+        total = sum(cfg["element_counts"])
         if total != expected:
             print(
                 f"WARNING: element_counts sum {total} != expected {expected} "
@@ -505,9 +521,7 @@ class ScrapsSQSGen:
         print(f"SCRAPS {sqsdir.name}: {' '.join(cmd)}")
         t0 = time.time()
         with log_path.open("w") as fh:
-            rc = subprocess.run(
-                cmd, cwd=work_dir, stdout=fh, stderr=subprocess.STDOUT
-            ).returncode
+            rc = subprocess.run(cmd, cwd=work_dir, stdout=fh, stderr=subprocess.STDOUT).returncode
         elapsed = time.time() - t0
 
         scraps_vasp = work_dir / "SCRAPS.vasp"

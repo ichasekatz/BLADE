@@ -32,14 +32,15 @@ files_dir = path1 / "Files"
 
 folder_1 = files_dir / "MaterialsProject_Comps_GRACE"
 folder_2 = files_dir / "MaterialsProject_Comps_ORB"
-label_1  = folder_1.name.replace("MaterialsProject_Comps_", "") or "Folder1"
-label_2  = folder_2.name.replace("MaterialsProject_Comps_", "") or "Folder2"
+label_1 = folder_1.name.replace("MaterialsProject_Comps_", "") or "Folder1"
+label_2 = folder_2.name.replace("MaterialsProject_Comps_", "") or "Folder2"
 
 output_dir = files_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # Optional: path to MP summary xlsx for DFT comparison (set None to skip)
 dft_xlsx = folder_1 / "materials_project_summary.xlsx"
+
 
 # ------------------------------------------------------------------
 # Scanner: works for any folder with POSCAR/CONTCAR + energy files
@@ -67,14 +68,16 @@ def scan_energies(folder: Path, label: str) -> pd.DataFrame:
         except Exception:
             continue
 
-        rows.append({
-            "formula": s.composition.reduced_formula,
-            f"epa_{label}": epa,
-            "n_atoms": len(s),
-            "n_elements": len(s.composition.get_el_amt_dict()),
-            "folder": folder.name,
-            "subdir": str(subdir),
-        })
+        rows.append(
+            {
+                "formula": s.composition.reduced_formula,
+                f"epa_{label}": epa,
+                "n_atoms": len(s),
+                "n_elements": len(s.composition.get_el_amt_dict()),
+                "folder": folder.name,
+                "subdir": str(subdir),
+            }
+        )
 
     df = pd.DataFrame(rows)
     print(f"{label}: {len(df)} structures with energy files in {folder.name}")
@@ -82,16 +85,19 @@ def scan_energies(folder: Path, label: str) -> pd.DataFrame:
 
 
 def plot_parity_and_residual(
-    x: pd.Series, y: pd.Series,
-    xlabel: str, ylabel: str,
-    title_parity: str, title_residual: str,
+    x: pd.Series,
+    y: pd.Series,
+    xlabel: str,
+    ylabel: str,
+    title_parity: str,
+    title_residual: str,
     color_by: pd.Series | None = None,
     out_png: Path | None = None,
     out_xlsx: Path | None = None,
 ) -> None:
     diff = y - x
-    mae  = diff.abs().mean()
-    rmse = (diff ** 2).mean() ** 0.5
+    mae = diff.abs().mean()
+    rmse = (diff**2).mean() ** 0.5
     mean_d = diff.mean()
     print(f"MAE:  {mae:.4f} eV/atom")
     print(f"RMSE: {rmse:.4f} eV/atom")
@@ -117,34 +123,47 @@ def plot_parity_and_residual(
     if colors and color_by is not None:
         for v in vals:
             mask = (color_by == v) & in_view
-            ax.scatter(x[mask], y[mask], color=colors[v], alpha=0.7, s=30,
-                       label=f"{v}-element", zorder=3)
+            ax.scatter(x[mask], y[mask], color=colors[v], alpha=0.7, s=30, label=f"{v}-element", zorder=3)
             out_mask = (color_by == v) & ~in_view
             if out_mask.any():
-                ax.scatter(x[out_mask].clip(_lo, _hi), y[out_mask].clip(_lo, _hi),
-                           color=colors[v], alpha=0.4, s=60, marker="^",
-                           edgecolors="k", linewidths=0.5, zorder=4)
+                ax.scatter(
+                    x[out_mask].clip(_lo, _hi),
+                    y[out_mask].clip(_lo, _hi),
+                    color=colors[v],
+                    alpha=0.4,
+                    s=60,
+                    marker="^",
+                    edgecolors="k",
+                    linewidths=0.5,
+                    zorder=4,
+                )
     else:
         ax.scatter(x[in_view], y[in_view], alpha=0.6, s=30, zorder=3)
     lims = [_lo, _hi]
     ax.plot(lims, lims, "k--", lw=1, zorder=2)
-    ax.set_xlim(lims); ax.set_ylim(lims)
+    ax.set_xlim(lims)
+    ax.set_ylim(lims)
     ax.set_xlabel(xlabel, fontsize=13)
     ax.set_ylabel(ylabel, fontsize=13)
     ax.set_title(title_parity, fontsize=14)
     if colors:
         ax.legend(fontsize=10, framealpha=0.8)
     note = f"\n(▲ {n_out} outliers clipped)" if n_out else ""
-    ax.text(0.05, 0.95,
-            f"MAE = {mae:.4f} eV/atom\nRMSE = {rmse:.4f} eV/atom\nn = {len(x)}{note}",
-            transform=ax.transAxes, va="top", fontsize=10,
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8))
+    ax.text(
+        0.05,
+        0.95,
+        f"MAE = {mae:.4f} eV/atom\nRMSE = {rmse:.4f} eV/atom\nn = {len(x)}{note}",
+        transform=ax.transAxes,
+        va="top",
+        fontsize=10,
+        bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8),
+    )
 
     ax = axes[1]
     _d_lo = np.percentile(diff.dropna(), _pct_lo)
     _d_hi = np.percentile(diff.dropna(), _pct_hi)
     ax.hist(diff.clip(_d_lo, _d_hi), bins=40, color="steelblue", edgecolor="white", alpha=0.85)
-    ax.axvline(0,      color="k",   lw=1.5, linestyle="--", label="zero")
+    ax.axvline(0, color="k", lw=1.5, linestyle="--", label="zero")
     ax.axvline(mean_d, color="red", lw=1.5, linestyle="--", label=f"mean = {mean_d:+.4f}")
     ax.set_xlabel(f"{ylabel.split('(')[0].strip()} − {xlabel.split('(')[0].strip()} (eV/atom)", fontsize=13)
     ax.set_ylabel("Count", fontsize=13)
@@ -207,7 +226,9 @@ if folder_2.exists():
 
     merged2 = df1_dedup.merge(
         df2_dedup[["formula", f"epa_{label_2}", "n_elements"]],
-        on="formula", how="inner", suffixes=("", "_2"),
+        on="formula",
+        how="inner",
+        suffixes=("", "_2"),
     )
     merged2 = merged2.dropna(subset=[f"epa_{label_1}", f"epa_{label_2}"])
     print(f"Matched {len(merged2)} unique formulas")

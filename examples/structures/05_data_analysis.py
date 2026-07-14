@@ -36,8 +36,7 @@ if comp_dir.exists():
     df = data.scan_poscars(comp_dir)
     print(f"\nFound {len(df)} POSCAR(s)")
     if not df.empty:
-        cols = ["phase_folder", "sqs_level", "natoms",
-                "volume_per_atom_A3", "energy_eV", "energy_per_atom_eV"]
+        cols = ["phase_folder", "sqs_level", "natoms", "volume_per_atom_A3", "energy_eV", "energy_per_atom_eV"]
         print(df[[c for c in cols if c in df.columns]].to_string())
 else:
     print(f"Directory not found: {comp_dir} — skipping.")
@@ -64,25 +63,14 @@ if all_frames:
     print(f"\nTotal POSCARs found: {len(combined)}")
 
     print("\nVolume per atom (Å³) by phase:")
-    print(
-        combined.groupby("phase_folder")["volume_per_atom_A3"]
-        .describe()
-        .round(3)
-        .to_string()
-    )
+    print(combined.groupby("phase_folder")["volume_per_atom_A3"].describe().round(3).to_string())
 
     if "energy_per_atom_eV" in combined.columns:
         has_energy = combined["energy_per_atom_eV"].notna()
         print(f"\nPOSCARs with energy files: {has_energy.sum()} / {len(combined)}")
         if has_energy.any():
             print("\nEnergy per atom (eV) by phase:")
-            print(
-                combined[has_energy]
-                .groupby("phase_folder")["energy_per_atom_eV"]
-                .describe()
-                .round(4)
-                .to_string()
-            )
+            print(combined[has_energy].groupby("phase_folder")["energy_per_atom_eV"].describe().round(4).to_string())
 
     # Export to CSV
     out_csv = path1 / "data_summary.csv"

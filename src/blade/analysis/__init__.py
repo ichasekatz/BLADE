@@ -16,8 +16,8 @@ __author__ = "Chase Katz"
 
 _ANALYSIS_MAP: dict[str, tuple[str, str]] = {
     "BladeVisualizer": ("blade.analysis.blade_visual", "BladeVisualizer"),
-    "BLADEData":       ("blade.analysis.blade_data",   "BLADEData"),
-    "BLADEVolume":     ("blade.analysis.blade_data",   "BLADEVolume"),  # deprecated alias
+    "BLADEData": ("blade.analysis.blade_data", "BLADEData"),
+    "BLADEVolume": ("blade.analysis.blade_data", "BLADEVolume"),  # deprecated alias
 }
 
 __all__ = list(_ANALYSIS_MAP)

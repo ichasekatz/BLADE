@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blade"
-version = "1.6.0"
-description = "BLADE — high-throughput materials discovery and thermodynamic database generation"
-requires-python = ">=3.10"
+version = "1.7.0"
+description = "General high-throughput materials discovery, thermodynamic modeling, and environmental stability analysis"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "psutil>=7.2.2,<8",
     "pandarallel>=1.6.5,<2",
@@ -16,6 +16,20 @@ dependencies = [
     "openpyxl>=3.1.5,<4",
     "pandas",
     "numpy",
+    "scipy",
+    "matplotlib",
+    "plotly",
+    "pillow",
+    "imageio",
+    "ase",
+]
+
+[project.optional-dependencies]
+workflow = [
+    "materialsframework",
+    "pycalphad>=0.11.1,<0.12",
+    "mp-api>=0.46.4,<0.47",
+    "orb-models>=0.4.2,<0.5",
 ]
 
 [dependency-groups]
@@ -24,6 +38,9 @@ dev = [
     "black>=26.3.1,<27",
     "isort>=8.0.1,<9",
 ]
+
+[tool.uv.sources]
+materialsframework = { git = "https://github.com/ichasekatz/MaterialsFramework.git" }
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -34,7 +51,7 @@ include = ["blade*"]
 
 [tool.ruff]
 line-length = 120
-target-version = "1.6.0"
+target-version = "py312"
 
 [tool.black]
 line-length = 120

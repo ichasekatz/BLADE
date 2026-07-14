@@ -1,0 +1,801 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[margin=0.85in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+
+\definecolor{bladeblue}{HTML}{174A5B}
+\definecolor{bladeorange}{HTML}{B85C2B}
+\definecolor{codebg}{HTML}{F4F2EC}
+\definecolor{codeframe}{HTML}{C8C3B8}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=bladeblue,
+  urlcolor=bladeorange,
+  citecolor=bladeblue,
+  pdftitle={BLADE Complete Framework Manual},
+  pdfauthor={BLADE Project}
+}
+
+\lstdefinestyle{blade}{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  tabsize=4
+}
+\lstset{style=blade}
+
+\setlist{nosep}
+\setlength{\parskip}{0.45em}
+\setlength{\parindent}{0pt}
+\setlength{\emergencystretch}{3em}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{BLADE Framework Manual}
+\fancyhead[R]{\thepage}
+
+\newcommand{\file}[1]{\nolinkurl{#1}}
+\newcommand{\setting}[1]{\nolinkurl{#1}}
+\newcommand{\stage}[1]{\textsf{#1}}
+
+\title{\textbf{BLADE Complete Framework Manual}\\
+\large Structure Generation, Thermodynamic Fitting, Phase Visualization,
+Database Construction, and Oxidation Analysis}
+\author{BLADE Project}
+\date{July 18, 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Purpose and Scope}
+
+BLADE is a general, high-throughput materials workflow that connects chemical
+system enumeration, prototype-based structure generation, special
+quasirandom structures (SQS), machine-learned interatomic-potential (MLIP)
+relaxation, CALPHAD database fitting, thermodynamic visualization, reference
+database construction, and environmental stability or oxidation analysis.
+
+The example configurations use diboride-like and MAX-like structures to
+demonstrate prototype definitions. A phase is defined by lattice vectors,
+coordinates, variable and fixed sublattice labels, site species, and optional
+fixed compositions. Fixed species such as B, C, or any other element are
+specified through the user configuration.
+
+The framework's practical novelty is the reproducible connection of:
+\begin{enumerate}
+  \item arbitrary prototype and sublattice definitions;
+  \item high-throughput SQS generation through ATAT/mcsqs or SCRAPS;
+  \item calculator-selectable structure relaxation and energy generation;
+  \item automated fitting of per-system thermodynamic databases;
+  \item binary through higher-order phase visualization;
+  \item a shared energy database for environmental equilibrium calculations;
+  \item static, animated, and exact-hover visual outputs; and
+  \item cache-aware restart behavior across expensive stages.
+\end{enumerate}
+
+This is a workflow and software manual, not a validation claim for a specific
+potential, fitted database, phase set, or scientific conclusion. Scientific
+accuracy remains conditional on structures, energies, references, fitting
+choices, solver assumptions, and convergence.
+
+\section{Repository Layout}
+
+\begin{longtable}{p{0.34\textwidth}p{0.60\textwidth}}
+\toprule
+Path & Purpose \\
+\midrule
+\endhead
+\file{src/blade/tools/} & Composition, SQS, SCRAPS, cutoff, and TDB-generation classes. \\
+\file{src/blade/analysis/} & Structural data extraction and thermodynamic/structure visualization. \\
+\file{src/blade/oxidation/} & Database construction plus public oxidation calculation and visualization APIs. \\
+\file{src/blade/oxidation/framework/} & General equilibrium, map, batch, single-composition, labeling, caching, and plotting implementation. \\
+\file{examples/full_framework.py} & TOML-driven end-to-end orchestrator. \\
+\file{examples/full_framework.toml} & Standard complete-workflow demonstration configuration. \\
+\file{examples/full_framework_max.toml} & Multibasis demonstration configuration. \\
+\file{examples/structures/} & Direct structure/SQS/TDB examples and complete prototype drivers. \\
+\file{examples/oxidation/} & Direct database and oxidation examples. \\
+\file{examples/extra/} & Optional refitting, comparison, and combined phase visualization utilities. \\
+\file{Files/} & User-configurable persistent inputs, caches, databases, and outputs. \\
+\file{uv.lock} & Reproducible uv dependency resolution. \\
+\file{pixi.toml} and \file{pixi.lock} & Pixi environment and task definitions. \\
+\bottomrule
+\end{longtable}
+
+\section{Installation}
+
+\subsection{Python and Package Managers}
+
+BLADE targets Python 3.12. Use either Pixi or uv.
+
+\subsubsection{Pixi}
+\begin{lstlisting}[language=bash]
+cd /path/to/BLADE
+pixi install
+pixi run python -c "import blade; print(blade.__version__)"
+pixi run check
+\end{lstlisting}
+
+\subsubsection{uv}
+\begin{lstlisting}[language=bash]
+cd /path/to/BLADE
+uv sync --locked --extra workflow
+uv run --locked --extra workflow python -c "import blade; print(blade.__version__)"
+uv run --locked --extra workflow python examples/full_framework.py --check
+\end{lstlisting}
+
+The \setting{workflow} extra installs MaterialsFramework, pycalphad, mp-api,
+and the configured MLIP dependency. The lock file should be committed and
+retained with a run.
+
+\subsection{External Programs}
+
+\begin{longtable}{p{0.22\textwidth}p{0.70\textwidth}}
+\toprule
+Program & Requirement \\
+\midrule
+\endhead
+ATAT & Supplies \file{sqs2tdb}, \file{corrdump}, and \file{mcsqs}; required by the mcsqs SQS/fitting path. \\
+SCRAPS & Required only when \setting{tdb.sqs_method = "scraps"}. Configure \setting{paths.scraps_repo}. \\
+FFmpeg & Required for MP4 movies and synchronized phase-grid video output. \\
+Materials Project & Network access and an API key are required only for uncached reference downloads. \\
+MLIP runtime & Calculator-dependent models, device support, and model files must be available. \\
+\bottomrule
+\end{longtable}
+
+Store the Materials Project credential in the environment:
+\begin{lstlisting}[language=bash]
+export MP_API_KEY="your-key"
+\end{lstlisting}
+Do not commit credentials to TOML, source, logs, or documentation.
+
+\section{End-to-End Orchestrator}
+
+\subsection{Commands}
+
+The default input is \file{examples/full_framework.toml}.
+\begin{lstlisting}[language=bash]
+# Validate files, settings, imports, and external dependencies.
+pixi run python examples/full_framework.py --check
+
+# Print enabled stages without executing calculations.
+pixi run python examples/full_framework.py --dry-run
+
+# Run the default configuration.
+pixi run python examples/full_framework.py
+
+# Run an alternate configuration.
+pixi run python examples/full_framework.py examples/full_framework_max.toml
+\end{lstlisting}
+
+Equivalent uv commands prepend
+\file{uv run --locked --extra workflow} instead of \file{pixi run}.
+
+\subsection{Major Stage Switches}
+
+The top of each TOML exposes the high-level controls:
+\begin{lstlisting}
+[stages]
+sqs_generation = true
+tdb_fitting = true
+phase_diagrams = true
+oxide_database = true
+oxidation_graphs = true
+\end{lstlisting}
+
+The orchestrator executes these internal groups in order:
+\begin{enumerate}
+  \item \stage{tdb}: SQS generation and/or TDB fitting;
+  \item \stage{phase\_visualization}: phase plots/GIFs and grid movies;
+  \item \stage{database}: reference structures, energies, and phase database;
+  \item \stage{oxidation}: batch or single-composition analysis.
+\end{enumerate}
+
+The two first booleans both route through the selected TDB driver. The runner
+injects independent \file{run_sqs} and \file{run_tdb} values, so either half
+can be run alone. The remaining booleans enable their corresponding stages.
+
+\subsection{Configuration Injection}
+
+\file{full_framework.py} parses the selected TOML with the Python standard
+library. For legacy direct examples, it parses the target script's abstract
+syntax tree, removes only top-level assignments whose names are supplied by
+the orchestrator, and executes the script with injected values. Functions and
+workflow code remain the same as direct execution. Database and oxidation
+stages use class APIs directly.
+
+\section{Complete TOML Reference}
+
+\subsection{\texttt{[paths]}}
+
+\begin{longtable}{p{0.32\textwidth}p{0.60\textwidth}}
+\toprule
+Setting & Meaning \\
+\midrule
+\endhead
+\setting{blade_root} & Repository root used to find \file{src/} and \file{examples/}. \\
+\setting{files_dir} & Persistent BLADE data/output root. \\
+\setting{sqsdb_dir} & ATAT SQS database location used by the fitting tools. \\
+\setting{scraps_repo} & SCRAPS checkout; used only by the SCRAPS backend. \\
+\bottomrule
+\end{longtable}
+
+\subsection{\texttt{[tdb]}}
+
+\begin{longtable}{p{0.35\textwidth}p{0.57\textwidth}}
+\toprule
+Setting & Meaning \\
+\midrule
+\endhead
+\setting{sqs_method} & \file{"mcsqs"} or \file{"scraps"}. \\
+\setting{prototype_driver} & \file{"standard"} or \file{"multibasis"}; selects the bundled general driver implementation. \\
+\setting{level} & SQS composition level to generate/fit. \\
+\setting{skip_existing_sqs} & Reuse completed SQS artifacts. \\
+\setting{skip_existing_tdb} & Reuse existing TDB output. \\
+\setting{refit_existing_tdb} & Refit from retained structures/energies even when SQS generation is skipped. \\
+\setting{skip_existing_plots} & Reuse each plot independently when that output exists. \\
+\setting{generate_gibbs_energy} & Enable per-binary Gibbs-energy plot. \\
+\setting{generate_gibbs_mixing} & Enable per-binary Gibbs-mixing plot. \\
+\setting{generate_phase_diagram} & Enable applicable phase-diagram plot. \\
+\setting{generate_combined_phase_diagram} & Enable montage/combined diagram output. \\
+\setting{generate_contcar_plots} & Enable combined structure images. \\
+\setting{run_movie} & Enable relaxation movie generation. \\
+\setting{mlip} & MaterialsFramework calculator registry name. \\
+\setting{primary_elements}, \setting{secondary_elements} & Element pools used for system enumeration. \\
+\setting{primary_min/max}, \setting{secondary_min/max} & Number of elements drawn from each pool per system. \\
+\setting{liquid} & Include configured liquid treatment in fitting. \\
+\setting{comps_folder} & Per-system output directory below \file{Files/}. \\
+\bottomrule
+\end{longtable}
+
+\setting{[tdb_mlip_kwargs]} is passed to the selected calculator, for example
+\setting{steps} and \setting{device}. Calculator-specific arguments are
+allowed when supported by MaterialsFramework.
+
+\subsection{\texttt{[tdb\_fit]}, \texttt{[tdb\_sqs]}, and \texttt{[tdb\_scraps]}}
+
+\setting{[tdb_fit]} controls relaxation/fitting: \setting{fmax},
+\setting{verbose}, \setting{t_min}, \setting{t_max}, \setting{sro},
+\setting{bv}, \setting{phonon}, \setting{open_calphad}, and
+\setting{track_trajectory}. Disabling trajectory tracking reduces storage.
+
+\begin{sloppypar}
+\setting{[tdb_sqs]} controls the mcsqs run time,
+cutoff interpretation, pair/triplet/quadruplet cutoffs, correlation weights
+\setting{wr}, \setting{wn}, and \setting{wd}, plus the parallel run count. Cutoff meaning
+depends on \setting{cutoff_mode}; record the mode with numeric values.
+\end{sloppypar}
+
+\setting{[tdb_scraps]} controls SCRAPS ranks, automatic search budget,
+maximum shell, and multibasis sublattice handling.
+
+Each \setting{[[tdb_sqs_levels]]} has a numeric \setting{level}, one or more
+\setting{compositions}, and the sublattice \setting{letter} list to which the
+composition applies.
+
+\subsection{\texttt{[phase]}}
+
+\begin{longtable}{p{0.30\textwidth}p{0.62\textwidth}}
+\toprule
+Setting & Meaning \\
+\midrule
+\endhead
+\setting{key} & Phase definition key referenced by the driver. \\
+\setting{generator_name} & Base phase/prototype name. \\
+\setting{a,b,c} and angles & Initial cell parameters and angles. \\
+\setting{supercell_size} & Integer replication along the three lattice directions. \\
+\setting{use_average_lattice} & Average active elements' lattice references for the phase. \\
+\setting{vectors} & Three lattice vectors in the prototype convention. \\
+\setting{coords} & Fractional coordinates followed by variable-site letters or fixed element symbols. \\
+\bottomrule
+\end{longtable}
+
+When averaging is enabled, active elements come from the configured phase
+site definitions or phase element pools. Prototype presets may be used when
+available; otherwise periodic-table reference cells are used. Missing bulk
+reference cells fall back to an isotropic covalent-radius estimate. Explicit
+phase-level or configured element values can override inferred references.
+Always record the resulting cell values because these are initial structure
+estimates, not universal experimental constants.
+
+\subsection{\texttt{[tdb\_inputs]}}
+
+\setting{terms_in} and \setting{mult_in} are tables keyed by phase name,
+optionally including system-size suffixes such as \file{PHASE_2} or
+\file{PHASE_3}. Resolution selects the most specific applicable entry.
+\setting{sqsgen_in} can similarly override generated SQS composition text.
+
+Site tables define elements and behavior per sublattice:
+\begin{lstlisting}
+[tdb_inputs.sites.PHASE.a]
+elements = ["A", "B", "C"]
+constant = false
+
+[tdb_inputs.sites.PHASE.b]
+elements = ["D", "E"]
+constant = true
+composition = [0.4, 0.6]
+\end{lstlisting}
+
+A constant site preserves the listed element order and fixed composition
+instead of permuting it. System-specific override tables can replace terms,
+multiplicities, sites, SQS text, or fixed compositions for a selected chemical
+system. Fractions on a fixed site must be numeric, match the element count,
+and sum to one.
+
+\subsection{\texttt{[phase\_plots]} and \texttt{[phase\_grid]}}
+
+\setting{[phase_plots]} specifies input/output folders, plot temperature
+range, missing-calculation policy, GIF settings, fixed species, variable-site
+fraction, composition-grid density, convex-hull energy threshold, and
+pressure. \setting{selected_systems} is inferred from configured TDB element
+pools unless explicitly implemented by the calling context.
+
+\setting{[phase_grid]} specifies the GIF directory, panel dimensions, optional
+column count, output frame rate, background color, header/colorbar dimensions,
+and temperature range. Its range and step must match GIF frame generation for
+strict synchronization.
+
+\subsection{\texttt{[database]}}
+
+This section defines variable and fixed elements, oxidizing species, element
+count limits, Materials Project stability filtering, duplicate formula
+handling, POSCAR/energy cache behavior, MLIP name/label/folder, source
+composition folders, four database substage switches, and
+\setting{api_key_env}. Prefer naming an environment variable, normally
+\file{MP_API_KEY}. An explicit \setting{api_key} value is also accepted.
+For compatibility, an unset nondefault value in \setting{api_key_env} is
+treated as a literal key, but committed credentials should be avoided.
+
+\setting{[database_mlip_kwargs]} configures the reference-structure
+calculator. \setting{[database_fallback_refs]} provides explicit elemental
+energy references when the selected MLIP source does not provide one. Mixing
+inconsistent reference methods changes formation energies and must be treated
+as a scientific input choice.
+
+\subsection{\texttt{[oxidation]} and Modes}
+
+\setting{[oxidation]} selects \file{"batch"} or \file{"single"}, identifies an
+optional fixed phase element and stoichiometry, chooses structure/database
+subdirectories, configures region labels, and defines composition-slice axis
+priority. Use no phase element and zero stoichiometry for a metal-only phase.
+
+\setting{[oxidation_batch]} independently enables oxidation scans,
+chemical-potential/composition maps, onset calculations, 3-D onset surfaces,
+animations, composition slices, and per-composition slice muO--T maps.
+The \setting{run_calculations} and \setting{run_plots} switches control two
+global execution passes. When both are true, every selected system is
+calculated and cached before plotting begins. Calculation-only mode disables
+all figures and animations; plot-only mode performs no LP solves and reports
+any missing required cache. A batch with failed systems prints the complete
+failure summary and exits before a plotting pass can begin.
+\setting{elements} is an optional allowed metal pool; an empty list includes
+all systems, while a populated list skips systems containing any other metal.
+The section also defines cache switches; temperature, chemical-potential, and
+composition ranges; slice ratios; onset composition resolution; and onset
+threshold. \setting{slice_muT_comp_step} controls only the fixed compositions
+used for per-composition muO--T maps; it does not change muO--x slices or onset
+composition grids. Batch muO--T maps are written only within composition slices.
+Their region keys contain phase-fraction ranges, and their HTML files report
+exact pointwise phase fractions on hover.
+For each composition and temperature, an onset chemical-potential sweep stops
+at the first infeasible assemblage. The onset table records both the last
+feasible and first infeasible chemical potential. If no onset occurs over an
+otherwise valid sweep, downstream AUC ranking uses the last feasible value,
+not the configured upper chemical-potential bound.
+The same sweep integrates raw LP fractions for the parent multicomponent phase
+and for oxygen-containing phases. Parent-phase composition may vary or split
+across multiple equilibrium pseudophases; all such fractions count while each
+configured variable element remains above 0.01. End members missing an element
+do not count toward the parent-phase integral. The private ranking utility then
+integrates both quantities over temperature and plots parent-phase retention
+against oxide formation.
+
+\setting{[oxidation_single]} defines one system, metal ordering, normalized
+initial composition, temperature and chemical-potential grids, scan
+temperatures, composition coordinate range, cache setting, component-display
+setting, Redlich--Kister order, and secondary map step. Its
+\setting{run_calculations} and \setting{run_plots} switches use the same
+calculation-first behavior as batch mode.
+
+Ranges are three-value inclusive specifications \file{[start, stop, step]}.
+The runner validates positive steps and materializes them with a small
+floating-point endpoint allowance.
+
+\section{Structure and TDB Calculations}
+
+\subsection{Composition Enumeration}
+
+\file{BladeCompositions} combines primary and secondary pools subject to
+minimum and maximum counts. System identity is based on valid, unique chemical
+symbols. The order-independent system key is generated from sorted element
+symbols, while explicit sublattice order is retained where thermodynamically
+meaningful.
+
+\subsection{SQS Generation}
+
+\file{BladeSQS} creates prototype and SQS composition inputs, asks ATAT to
+materialize level directories, computes correlations, and launches one or
+more mcsqs searches. Candidate quality is represented by retained correlation
+outputs such as \file{bestcorr.out}. Pure-species directories may not need an
+mcsqs search; their treatment is separate from a missing failed search.
+
+\file{ScrapsSQSGen} provides the alternate SCRAPS path. Backend selection
+should not change the downstream API, but it can change the selected
+structures and therefore all fitted outputs.
+
+\subsection{MLIP Relaxation and TDB Fit}
+
+\file{BladeTDBGen} is configured without side effects. Calling \file{fit()}
+iterates systems and phase data, prepares fitting directories, invokes the
+MaterialsFramework fitting path, and writes TDBs. Calculator choice and
+calculator arguments are forwarded explicitly; no calculator name is
+hard-coded in the generalized class.
+
+Refitting is safe with respect to avoiding a new MLIP calculation only when
+the retained structures and energy files are valid and the intended changes
+are limited to fitting/model inputs. It can change TDB coefficients and
+thermodynamic predictions, as expected, while leaving source energies fixed.
+
+\section{Phase Visualization}
+
+\file{examples/extra/phase_visualization.py} is the single implementation for
+phase plotting and synchronized grid compilation. Direct execution uses:
+\begin{lstlisting}[language=Python]
+run_phase_plots = True
+run_phase_grid = True
+\end{lstlisting}
+
+The switches allow plot-only, grid-only, both, or neither. Plotting discovers
+top-level TDBs under selected system folders. Binary systems receive Gibbs
+energy, Gibbs mixing, and applicable phase-diagram plots. Higher-order systems
+use a simplex composition grid, compute mixing free energy, identify the lower
+convex hull, classify points above the hull threshold, and project the
+N-component simplex to a regular polygon for display. Temperature frames can
+be cached and assembled into GIFs.
+
+Grid compilation discovers clean phase-evolution GIFs, groups them by parsed
+element count, resizes panels, synchronizes frames to the configured
+temperature array, adds temperature/colorbar context, and streams raw frames
+to FFmpeg. If no GIF exists, grid-only mode reports the condition and returns
+normally.
+
+\section{Oxidation Database Workflow}
+
+\subsection{Composition List}
+
+\file{OxideCompositions} builds chemical systems from variable pools, fixed
+phase species, and the oxidizing species. Inclusion flags control base,
+oxidized, fixed-species, and no-oxygen combinations. It writes a composition
+workbook used by reference acquisition.
+
+\subsection{Reference Structures and Energies}
+
+The Materials Project stage searches each chemical system, optionally limits
+results to stable entries, skips formulas already represented by BLADE data,
+and stores POSCARs with metadata. The MLIP stage uses one configured
+calculator to relax/reference these structures and writes total and per-atom
+energies.
+
+\subsection{Database Assembly}
+
+\file{OxideDatabase} scans BLADE structures and TDB outputs, combines MLIP
+sources and fallback elemental references, writes unified and per-system
+energy tables, and collects the files needed by equilibrium analysis into
+\file{Files/system_structures/<system>/}. System detection derives from
+configured directories and formulas; no phase element should be appended
+implicitly to a system name.
+
+\section{Oxidation Equilibrium and Maps}
+
+\subsection{Public API}
+
+\file{OxidationConfig} carries shared paths, phase species/stoichiometry,
+labels, and slice priorities. \file{OxidationCalculator} method
+\file{run_batch()} discovers
+eligible systems and launches generalized analysis. \file{single()} returns a
+fixed-composition analyzer for the requested system, metals, and composition.
+\file{OxidationVisualizer} exposes visualization behavior separately from
+calculation setup.
+
+\subsection{Equilibrium Model}
+
+At each temperature, oxygen chemical potential, and initial composition, the
+framework constructs the feasible phase set and solves the phase-fraction
+optimization subject to element mass balance and nonnegative fractions.
+Consecutive chemical-potential solves are neighboring points in a scan; their
+problem structure and cached thermodynamic data can be reused even though each
+point represents a distinct equilibrium condition.
+
+The configured initial composition belongs to the point being calculated. In
+composition maps, each grid point is a different initial composition. A guide
+line should appear on an onset plot only when the complete diagram is defined
+relative to that initial composition.
+
+\subsection{Region Identity and Labels}
+
+Region separation is based on the set of displayed compounds after the
+configured composition-component cutoff is applied. Fraction-range changes
+alone do not create a separate region. If a component enters or leaves the
+displayed phase composition at the cutoff, the displayed compound identity
+changes and a new region may form.
+
+Static keys summarize phase-fraction and phase-composition ranges. Endpoint
+values near zero or one can be represented as 0 or 1 according to configured
+labeling rules; small composition components can be omitted or included
+according to the relevant option. Exact HTML hover text is generated from the
+underlying point, not the summarized region key. Values below 0.01 retain
+additional significant decimal places in hover text; ordinary values are
+shown compactly.
+
+\subsection{Outputs}
+
+Depending on switches and system size, outputs include:
+\begin{itemize}
+  \item oxidation scan curves and per-temperature folders;
+  \item oxygen-chemical-potential/composition assemblage maps;
+  \item per-composition oxygen-chemical-potential/temperature slice maps;
+  \item miscibility-gap panels and composition-slice maps;
+  \item onset curves, AUC summaries, and 3-D onset surfaces;
+  \item equilibrium phase-composition 3-D plots;
+  \item GIF/MP4 animations;
+  \item interactive HTML plots with exact point hover values;
+  \item per-composition tables and compact NumPy cache files.
+\end{itemize}
+
+Composition-slice output uses a selected axis and configured remainder ratios.
+Axis priority selects the first applicable element; it avoids generating every
+permutation when only one ordered axis family is desired. Static muO--T maps
+are stored in each slice's \file{muO_T_plots/} directory; GIF/MP4 and other
+aggregate slice products remain at the slice root.
+
+\section{Caching, Restarting, and Storage}
+
+\begin{longtable}{p{0.30\textwidth}p{0.62\textwidth}}
+\toprule
+Artifact/setting & Reuse behavior \\
+\midrule
+\endhead
+\file{bestcorr.out} and SQS outputs & Allow completed SQS searches to be skipped. Validate parseability; existence alone may not prove a valid result. \\
+\setting{skip_existing_tdb} & Avoids a complete existing TDB fit unless refit is requested. \\
+\setting{refit_existing_tdb} & Reuses relaxed energies but refreshes fitting inputs and TDB parameters. \\
+\setting{skip_existing_plots} & Checks individual enabled plot files so missing products can be generated independently. \\
+\setting{skip_if_tables_exist} & Reuses matching equilibrium tables instead of repeating solves. \\
+\setting{skip_if_analysis_exists} & Reuses derived oxidation analysis products. \\
+\file{.npz} caches & Compact numerical data used for redraw/interactive output. \\
+Trajectory setting & Disable trajectory generation to reduce storage if no relaxation movie is needed. \\
+\bottomrule
+\end{longtable}
+
+Do not reuse a cache after changing solver grids, source TDBs, phase energies,
+element ordering, fixed species, initial compositions, model terms, or other
+inputs that affect the cached quantity. Removing only a PNG or HTML file
+should not require recalculation when the corresponding numerical cache is
+intact.
+
+\section{Every Example Script}
+
+\begin{longtable}{p{0.35\textwidth}p{0.57\textwidth}}
+\toprule
+Script & Role and direct-run behavior \\
+\midrule
+\endhead
+\file{examples/full_framework.py} & TOML orchestrator; defaults to the adjacent standard TOML. Supports \file{--check} and \file{--dry-run}. \\
+\file{structures/01_compositions.py} & Standalone composition enumeration; no generated input required. \\
+\file{structures/02_sqs_generation.py} & Standalone ATAT SQS generation from in-file prototype settings. \\
+\file{structures/03_tdb_generation.py} & Standalone TDB fitting from existing SQS data. \\
+\file{structures/04_visualization.py} & Standalone examples for structures, energies, phase diagrams, and movies; skips some absent inputs. \\
+\file{structures/05_data_analysis.py} & Standalone scan of structure/energy directories into tabular data. \\
+\file{structures/tdb_gen_hedb.py} & Complete standard/mcsqs prototype demonstration and orchestrator driver. \\
+\file{structures/tdb_gen_hedb_scraps.py} & Complete standard/SCRAPS demonstration and driver. \\
+\file{structures/tdb_gen_max.py} & Complete multibasis/mcsqs demonstration and driver. \\
+\file{structures/tdb_gen_max_scraps.py} & Complete multibasis/SCRAPS demonstration and driver. \\
+\file{oxidation/01_compositions.py} & Standalone oxidation-system enumeration. \\
+\file{oxidation/02_poscars.py} & Standalone Materials Project acquisition; requires the step-01 workbook and a key. \\
+\file{oxidation/03_energy.py} & Standalone reference-structure MLIP relaxation. \\
+\file{oxidation/04_database.py} & Standalone database assembly and structure collection. \\
+\file{oxidation/database_framework.py} & Resumable class-based combination of oxidation steps 01--04 using in-file settings. \\
+\file{oxidation/oxidation_framework.py} & Standalone batch/single oxidation analysis using in-file settings. \\
+\file{extra/phase_visualization.py} & Combined phase plotting/GIF and grid-video implementation with two booleans. \\
+\file{extra/compare_energy.py} & Energy-source parity, residual, and tabular comparison. \\
+\file{extra/refit_tdb.py} & Refit TDB model terms from existing structures and energies. \\
+\file{extra/tdb_gen_alloy.py} & Complete single-sublattice alloy demonstration. \\
+\file{extra/tdb_gen_hedb_quaternary.py} & Complete higher-order prototype demonstration. \\
+\bottomrule
+\end{longtable}
+
+Every example Python file is directly executable, but later workflow steps
+require the artifacts or services stated above. Library files under
+\file{src/blade/} are imported APIs and are not intended as standalone
+commands.
+
+\section{Library Class and Module Reference}
+
+\subsection{\texttt{blade.tools}}
+
+\begin{itemize}
+  \item \file{blade_compositions.py}: \file{BladeCompositions} generates
+  constrained chemical systems.
+  \item \file{blade_sqsgen.py}: \file{BladeSQS} creates ATAT SQS inputs and
+  executes SQS generation.
+  \item \file{blade_scraps_gen.py}: \file{ScrapsSQSGen} provides the SCRAPS
+  backend.
+  \item \file{blade_tdb_gen.py}: \file{BladeTDBGen} prepares and runs
+  structure-energy/TDB fitting.
+  \item \file{blade_cutoff.py}: neighbor/correlation cutoff support.
+\end{itemize}
+
+\subsection{\texttt{blade.analysis}}
+
+\begin{itemize}
+  \item \file{blade_data.py}: \file{BLADEData} extracts structural and energy
+  information into data tables.
+  \item \file{blade_visual.py}: \file{BladeVisualizer} produces structure
+  images, Gibbs curves, phase diagrams, composites, and relaxation movies.
+\end{itemize}
+
+\subsection{\texttt{blade.oxidation}}
+
+\begin{itemize}
+  \item \file{compositions.py}: \file{OxideCompositions}.
+  \item \file{database.py}: \file{OxideDatabase}.
+  \item \file{oxidation_calculations.py}: public \file{OxidationConfig} and
+  \file{OxidationCalculator}.
+  \item \file{oxidation_visualization.py}: public
+  \file{OxidationVisualizer}.
+\end{itemize}
+
+\subsection{\texttt{blade.oxidation.framework}}
+
+\begin{longtable}{p{0.30\textwidth}p{0.62\textwidth}}
+\toprule
+Module & Responsibility \\
+\midrule
+\endhead
+\file{config.py} & Shared analysis options and path/range configuration. \\
+\file{system_config.py} & System discovery, metal detection, phase/TDB path assembly. \\
+\file{thermodynamics.py} & Phase thermodynamic data and equilibrium/optimization support. \\
+\file{compiler.py} & Input-table and phase-data compilation. \\
+\file{analyzer.py} & Main analysis orchestration, region construction, labels, and plot dispatch. \\
+\file{maps.py} & Composition and chemical-potential map calculations. \\
+\file{single.py} & Fixed-composition workflow. \\
+\file{batch.py} and \file{_batch_internal.py} & Multi-system batch workflow. \\
+\file{_run.py} & Shared run entry behavior. \\
+\file{utils.py} & Parsing, formatting, and numerical utilities. \\
+\bottomrule
+\end{longtable}
+
+\section{Reproducible Execution Records}
+
+For every scientific run, archive:
+\begin{enumerate}
+  \item the exact TOML or direct script;
+  \item BLADE commit hash and uncommitted diff;
+  \item \file{uv.lock} or \file{pixi.lock};
+  \item Python, external binary, MLIP, and model versions;
+  \item element pools/order, phase sites, cell, supercell, and fixed species;
+  \item SQS backend, levels, cutoffs, budgets, seeds where available, and
+  selected correlation output;
+  \item relaxed structures, energies, reference energies, and fitting files;
+  \item generated TDBs and phase database inventory;
+  \item temperature, chemical-potential, and composition grids;
+  \item cache settings and a manifest of reused artifacts;
+  \item output tables, NumPy caches, and figures.
+\end{enumerate}
+
+Recommended command record:
+\begin{lstlisting}[language=bash]
+git rev-parse HEAD
+git status --short
+pixi run python examples/full_framework.py --check
+pixi run python examples/full_framework.py --dry-run
+pixi run python examples/full_framework.py 2>&1 | tee Files/run.log
+\end{lstlisting}
+
+\section{Quality Checks}
+
+\begin{lstlisting}[language=bash]
+# Repository lint and format verification
+pixi run check
+
+# Explicit Python compilation
+pixi run python -m compileall -q src examples
+
+# Configuration/dependency validation
+pixi run python examples/full_framework.py --check
+
+# Stage-routing validation without calculations
+pixi run python examples/full_framework.py --dry-run
+
+# uv lock and uv environment validation
+uv lock --check
+uv run --locked --extra workflow python examples/full_framework.py --check
+\end{lstlisting}
+
+To format edited Python:
+\begin{lstlisting}[language=bash]
+pixi run isort src examples
+pixi run black src examples
+pixi run ruff check src examples
+\end{lstlisting}
+
+\section{Troubleshooting}
+
+\begin{longtable}{p{0.33\textwidth}p{0.59\textwidth}}
+\toprule
+Symptom & Interpretation and action \\
+\midrule
+\endhead
+\file{No such file or directory: .../grace} & A calculator-specific folder/path was selected by configuration or old generated data. Set the calculator and all base paths in the direct script/TOML; generalized library code should not infer a calculator-named folder. \\
+\file{metal detection ... positional argument} & Caller/method signature mismatch. Validate with the current package and runner versions; do not mix copied framework revisions. \\
+\file{expected 2+ metals} & System detection found fewer variable species after fixed species were removed. Verify phase coordinates, fixed-element configuration, and directory/formula names. \\
+\file{No bestcorr.out} & Pure species may legitimately skip mcsqs; otherwise the SQS search is incomplete. \\
+\file{Could not parse objective} & The file exists but is not a valid completed correlation result. Do not treat it as a reusable completed SQS. \\
+\file{No TDB files found} & TDB fitting did not run, selected output folder differs, or system filtering excludes the files. Check stage switches and \setting{comps_folder}. \\
+\file{expected two metals} & A binary-only Gibbs/phase plot received a higher-order system. Higher-order phase-map logic should handle those systems instead. \\
+\file{need at least one array}\newline
+\file{to concatenate} & pycalphad found no tie-line data for the requested binary plot. Treat as a plot-specific failure; retained energy plots/TDB may still be valid. \\
+\file{No clean GIFs found} & Grid compilation has no cached animation input. Enable phase plotting/GIF creation or point \setting{phase_diagrams_folder} to existing GIFs. \\
+\file{TOMLDecodeError: Cannot overwrite a value} & The same key was assigned twice in one TOML scope. Remove or rename the duplicate assignment. \\
+Plots recalculate unexpectedly & Preserve equilibrium tables/\file{.npz}, enable cache switches, and verify that grid/settings and output paths match the original run. \\
+Missing plot families & Check both major stage switches and plot-specific booleans; a cache skip should be evaluated per output, not per entire plot group. \\
+\bottomrule
+\end{longtable}
+
+\section{Extending to a New Material System}
+
+\begin{enumerate}
+  \item Copy a TOML to a new, versioned configuration.
+  \item Define primary/secondary element pools and desired system sizes.
+  \item Define the phase cell, vectors, coordinates, and supercell.
+  \item Mark variable sites with site letters and fixed sites with actual
+  species; do not add a demonstration fixed element unless it is physical.
+  \item Define site element lists, constants, and compositions.
+  \item Define SQS levels and backend settings.
+  \item Set calculator and relaxation/fitting settings.
+  \item Run \file{--check}, then SQS only.
+  \item Inspect structures and correlation objectives.
+  \item Run TDB fitting/refitting and inspect fit/phase outputs.
+  \item Define database species/reference sources and construct the collected
+  system database.
+  \item Define oxidation phase species, grids, mode, and output switches.
+  \item Run a reduced validation grid before the full unchanged-resolution
+  production run.
+  \item Archive all provenance listed above.
+\end{enumerate}
+
+\section{Standalone Versus Configured Execution}
+
+\file{phase_visualization.py}, numbered examples, complete prototype drivers,
+\file{database_framework.py}, and \file{oxidation_framework.py} can run with
+their in-file settings and no TOML. \file{full_framework.py} is intentionally
+TOML-driven, but its argument is optional because it defaults to
+\file{examples/full_framework.toml}. Package modules are intended to be
+imported into user code:
+\begin{lstlisting}[language=Python]
+from blade.tools import BladeCompositions, BladeSQS, BladeTDBGen
+from blade.analysis import BLADEData, BladeVisualizer
+from blade.oxidation import OxidationCalculator, OxidationConfig
+\end{lstlisting}
+
+The README files under \file{examples/} provide the shortest retraceable run
+sequence. This manual provides the full reference and should be updated when
+entry points, settings, output layout, or scientific assumptions change.
+
+\end{document}

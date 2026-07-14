@@ -84,6 +84,7 @@ class BladeTDBGen:
         level: int,
         sqsgen_levels2: list[dict] | None = None,
         skip_existing: bool = False,
+        refit_existing: bool = False,
         phases_dict: dict[str, dict] | None = None,
         output_dir: str | Path | None = None,
         terms_in: dict[str, str] | None = None,
@@ -121,6 +122,10 @@ class BladeTDBGen:
             skip_existing (bool, optional): Skip a composition if its output
                 directory already contains a ``.tdb`` file.
                 Defaults to ``False``.
+            refit_existing (bool, optional): When ``skip_existing`` is true
+                and a TDB exists, rewrite configured ``terms.in``/``mult.in``
+                files and rerun only ``sqs2tdb -fit`` and ``sqs2tdb -tdb``.
+                Existing relaxed structures are reused. Defaults to ``False``.
             output_dir (str | Path | None, optional): Root directory under
                 which per-composition output folders are created.  Defaults
                 to ``paths[1]`` when ``None``.
@@ -190,6 +195,7 @@ class BladeTDBGen:
         else:
             self.sqsgen_levels2 = sqsgen_levels2
         self.skip_existing = skip_existing
+        self.refit_existing = refit_existing
         self.output_dir = Path(output_dir) if output_dir is not None else self.path1
         self.terms_in = terms_in
         self.mult_in = mult_in
@@ -221,8 +227,18 @@ class BladeTDBGen:
             comp_name = "".join(comp)
             comp_dir = self.output_dir / comp_name
 
-            if self.skip_existing:
-                comp_dir.mkdir(parents=True, exist_ok=True)
+            tdb_exists = comp_dir.is_dir() and any(comp_dir.glob("*.tdb"))
+            if self.skip_existing and tdb_exists:
+                if self.refit_existing:
+                    phase_list = self._build_phase_list(length)
+                    print(f"Refitting existing TDB system: {comp_name}")
+                    os.chdir(comp_dir)
+                    try:
+                        self._refit_tdb(comp, phase_list)
+                    finally:
+                        os.chdir(self.path0)
+                else:
+                    print(f"Skipping existing TDB system: {comp_name}")
                 continue
             elif comp_dir.exists():
                 shutil.rmtree(comp_dir)
@@ -242,7 +258,8 @@ class BladeTDBGen:
             phase_list = self._build_phase_list(length)
             os.chdir(comp_dir)
             _has_constant = bool(self.composition_elements) or (
-                self.sublattice_map and any(
+                self.sublattice_map
+                and any(
                     bool(phase_map.get("Constant"))  # only True if Constant list is non-empty
                     for phase_map in self.sublattice_map.values()
                 )
@@ -259,8 +276,7 @@ class BladeTDBGen:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _watch_and_delete(self, comp_dir: Path, phase_list: list[str],
-                          stop_event: threading.Event) -> None:
+    def _watch_and_delete(self, comp_dir: Path, phase_list: list[str], stop_event: threading.Event) -> None:
         """Background thread: delete non-matching sqs_lev dirs as soon as they appear."""
         import re as _re
 
@@ -281,12 +297,11 @@ class BladeTDBGen:
 
         def _matches(name: str) -> bool:
             out = {}
-            for m in _re.finditer(r'([a-z]_[A-Z][a-z]?)=([\d.]+)', name):
+            for m in _re.finditer(r"([a-z]_[A-Z][a-z]?)=([\d.]+)", name):
                 out[m.group(1)] = round(float(m.group(2)), 8)
             result = all(abs(out.get(k, -1) - v) < 1e-6 for k, v in desired.items())
             if not result:
-                misses = {k: (out.get(k, "MISSING"), v) for k, v in desired.items()
-                          if abs(out.get(k, -1) - v) >= 1e-6}
+                misses = {k: (out.get(k, "MISSING"), v) for k, v in desired.items() if abs(out.get(k, -1) - v) >= 1e-6}
                 print(f"[watcher] MISMATCH {name[:60]}... misses={misses}")
             return result
 
@@ -337,16 +352,13 @@ class BladeTDBGen:
 
         def _parse_dir_fracs(name: str) -> dict[str, float]:
             out = {}
-            for m in _re.finditer(r'([a-z]_[A-Z][a-z]?)=([\d.]+)', name):
+            for m in _re.finditer(r"([a-z]_[A-Z][a-z]?)=([\d.]+)", name):
                 out[m.group(1)] = round(float(m.group(2)), 8)
             return out
 
         def _matches(name: str) -> bool:
             parsed = _parse_dir_fracs(name)
-            return all(
-                abs(parsed.get(k, -1) - v) < 1e-6
-                for k, v in desired.items()
-            )
+            return all(abs(parsed.get(k, -1) - v) < 1e-6 for k, v in desired.items())
 
         for phase in phase_list:
             phase_dir = comp_dir / phase
@@ -411,12 +423,14 @@ class BladeTDBGen:
                 letter = next(alphabet)
                 if letter not in used_var_letters:
                     break
-            result.append({
-                "element": element,
-                "letter": letter,
-                "compositions": "1.0",
-                "count": str(fixed_counts[element]),
-            })
+            result.append(
+                {
+                    "element": element,
+                    "letter": letter,
+                    "compositions": "1.0",
+                    "count": str(fixed_counts[element]),
+                }
+            )
         return result
 
     def _build_phase_list(self, length: int) -> list[str]:
@@ -438,6 +452,29 @@ class BladeTDBGen:
             phase_list.append("LIQUID")
         return phase_list
 
+    @staticmethod
+    def _resolve_phase_inputs(
+        inputs: dict[str, str] | None,
+        phase_list: list[str],
+    ) -> dict[str, str] | None:
+        """Resolve a size-specific phase input, falling back to its base key.
+
+        MaterialsFramework addresses input overrides by lattice base name.
+        BLADE additionally accepts a generated phase name such as
+        ``PHASE1_3`` and translates it to ``PHASE1`` for the current fit.
+        """
+        if not inputs:
+            return None
+        resolved = {}
+        for lattice in phase_list:
+            if lattice == "LIQUID":
+                continue
+            lattice_base = lattice.rsplit("_", 1)[0]
+            content = inputs.get(lattice, inputs.get(lattice_base))
+            if content is not None:
+                resolved[lattice_base] = content
+        return resolved or None
+
     def _refit_tdb(self, comp: list[str], phase_list: list[str]) -> None:
         """Refit only: update terms.in if changed, then rerun sqs2tdb -fit and -tdb.
 
@@ -445,15 +482,20 @@ class BladeTDBGen:
         """
         import subprocess as _sp
 
+        terms_for_fit = self._resolve_phase_inputs(self.terms_in, phase_list)
+        mult_for_fit = self._resolve_phase_inputs(self.mult_in, phase_list)
         for lattice in phase_list:
             lat_dir = Path(lattice)
             if not lat_dir.exists():
                 continue
             # Write updated terms.in if provided
             lattice_base = lattice.rsplit("_", 1)[0]
-            if self.terms_in and lattice_base in self.terms_in:
-                (lat_dir / "terms.in").write_text(self.terms_in[lattice_base])
+            if terms_for_fit and lattice_base in terms_for_fit:
+                (lat_dir / "terms.in").write_text(terms_for_fit[lattice_base])
                 print(f"Updated terms.in for {lattice}")
+            if mult_for_fit and lattice_base in mult_for_fit:
+                (lat_dir / "mult.in").write_text(mult_for_fit[lattice_base])
+                print(f"Updated mult.in for {lattice}")
             # Rerun sqs2tdb -fit
             r = _sp.run(["sqs2tdb", "-fit"], cwd=lat_dir, capture_output=True, text=True)
             if r.stdout.strip():
@@ -463,8 +505,7 @@ class BladeTDBGen:
         if r.stdout.strip():
             print(r.stdout.strip()[:200])
 
-    def _run_sqsfit(self, comp: list[str], phase_list: list[str],
-                    use_filter: bool = False) -> None:
+    def _run_sqsfit(self, comp: list[str], phase_list: list[str], use_filter: bool = False) -> None:
         """Invoke Sqs2tdb for a single composition.
 
         Constructs a :class:`~materialsframework.calculators.GraceCalculator`
@@ -514,15 +555,15 @@ class BladeTDBGen:
 
                 def _dir_filter(subdir: Path) -> bool:
                     name = subdir.name
-                    level_m = _re.match(r'sqs_lev=(\d+)_', name)
+                    level_m = _re.match(r"sqs_lev=(\d+)_", name)
                     if not level_m:
                         return True
                     level_n = int(level_m.group(1))
                     by_letter: dict[str, list[tuple[str, float]]] = {}
-                    for m in _re.finditer(r'([a-z])_([A-Z][a-z]?)=([\d.]+)', name):
+                    for m in _re.finditer(r"([a-z])_([A-Z][a-z]?)=([\d.]+)", name):
                         letter, el, frac = m.group(1), m.group(2), float(m.group(3))
                         by_letter.setdefault(letter, []).append((el, frac))
-                    a_pairs = sorted(by_letter.get('a', []), key=lambda x: -x[1])
+                    a_pairs = sorted(by_letter.get("a", []), key=lambda x: -x[1])
                     if not a_pairs:
                         return True
                     a_fracs = [str(round(f, 6)) for _, f in a_pairs]
@@ -555,14 +596,15 @@ class BladeTDBGen:
                 def _dir_filter(subdir: Path) -> bool:  # type: ignore[no-redef]
                     name = subdir.name
                     parsed = {}
-                    for m in _re.finditer(r'([a-z]_[A-Z][a-z]?)=([\d.]+)', name):
+                    for m in _re.finditer(r"([a-z]_[A-Z][a-z]?)=([\d.]+)", name):
                         parsed[m.group(1)] = round(float(m.group(2)), 8)
                     return all(abs(parsed.get(k, -1) - v) < 1e-6 for k, v in desired.items())
 
                 sqs.dir_filter = _dir_filter
 
         smap_els = [
-            el for phase_map in (self.sublattice_map or {}).values()
+            el
+            for phase_map in (self.sublattice_map or {}).values()
             for letter, elems in phase_map.items()
             if letter != "Constant" and isinstance(elems, list)
             for el in elems
@@ -570,6 +612,8 @@ class BladeTDBGen:
         ]
         full_species = list(comp) + list(dict.fromkeys(smap_els))
 
+        terms_for_fit = self._resolve_phase_inputs(self.terms_in, phase_list)
+        mult_for_fit = self._resolve_phase_inputs(self.mult_in, phase_list)
         sqs.fit(
             paths=self.path2,
             sqsgen_levels2=self.sqsgen_levels2,
@@ -583,8 +627,8 @@ class BladeTDBGen:
             phonon=p.get("phonon", False),
             open_calphad=p.get("open_calphad", False),
             terms=p.get("terms", None),
-            terms_in=self.terms_in,
-            mult_in=self.mult_in,
+            terms_in=terms_for_fit,
+            mult_in=mult_for_fit,
             sublattice_map=clean_sublattice_map,
             skip_existing=self.skip_existing,
         )

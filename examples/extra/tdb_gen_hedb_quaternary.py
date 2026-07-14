@@ -8,15 +8,14 @@ This is the main driver script showing an example of HEDBs but uses the refactor
 """
 
 from collections import Counter
-
 from pathlib import Path
 
 from pycalphad import Database
 
+from blade.analysis.blade_visual import BladeVisualizer
 from blade.tools.blade_compositions import BladeCompositions
 from blade.tools.blade_sqsgen import BladeSQS
 from blade.tools.blade_tdb_gen import BladeTDBGen
-from blade.analysis.blade_visual import BladeVisualizer
 
 # ------------------------------------------------------------------
 # Paths
@@ -30,7 +29,6 @@ paths = [path0, path1, path2]
 # Run flags
 # ------------------------------------------------------------------
 level = 10
-sqs_iter = 1_000_000
 run_sqs = True
 skip_existing_sqs = False
 
@@ -40,8 +38,8 @@ skip_existing_tdb = False
 # ------------------------------------------------------------------
 # MLIP calculator — change mlip to swap potentials (see MaterialsFramework registry)
 # ------------------------------------------------------------------
-mlip        = "orb"                            # e.g. "grace", "mace", "uma", "chgnet", "orb"
-mlip_kwargs = {"steps": 1000, "device": "cpu"} # kwargs forwarded to the calculator constructor
+mlip = "orb"  # e.g. "grace", "mace", "uma", "chgnet", "orb"
+mlip_kwargs = {"steps": 1000, "device": "cpu"}  # kwargs forwarded to the calculator constructor
 
 tdb_params = {
     "fmax": 1e-4,
@@ -54,7 +52,7 @@ tdb_params = {
     "bv": 1e-3,
     "phonon": False,
     "open_calphad": False,
-    "track_trajectory": True,   # set False to skip relaxation_live.xyz
+    "track_trajectory": True,  # set False to skip relaxation_live.xyz
     "terms": None,
 }
 
@@ -62,12 +60,7 @@ tdb_params = {
 # Keys are lattice base names (e.g. "CARBIDE1", "FCC1", "BCC1").
 
 terms_in: dict | None = None
-terms_in = {"HEDB4": 
-    "1,0:1,0\n"
-    "2,2:1,0\n"
-    "3,0:3,0\n"
-    "4,0:4,0\n"
-    }
+terms_in = {"HEDB4": "1,0:1,0\n" "2,2:1,0\n" "3,0:3,0\n" "4,0:4,0\n"}
 
 mult_in: dict | None = None
 # mult_in = {"HEDB1": "a=1\tb=2"}
@@ -101,12 +94,26 @@ secondary_max = 0
 # Used to auto-compute a, b, c from the chosen primary elements.
 # ------------------------------------------------------------------
 _DIBORIDE_A = {
-    "Cr": 2.969, "Hf": 3.141, "Mo": 3.053, "Nb": 3.086,
-    "Ta": 3.098, "Ti": 3.028, "V":  2.998, "W":  3.020, "Zr": 3.169,
+    "Cr": 2.969,
+    "Hf": 3.141,
+    "Mo": 3.053,
+    "Nb": 3.086,
+    "Ta": 3.098,
+    "Ti": 3.028,
+    "V": 2.998,
+    "W": 3.020,
+    "Zr": 3.169,
 }
 _DIBORIDE_C = {
-    "Cr": 3.066, "Hf": 3.470, "Mo": 3.169, "Nb": 3.269,
-    "Ta": 3.227, "Ti": 3.228, "V":  3.057, "W":  3.137, "Zr": 3.530,
+    "Cr": 3.066,
+    "Hf": 3.470,
+    "Mo": 3.169,
+    "Nb": 3.269,
+    "Ta": 3.227,
+    "Ti": 3.228,
+    "V": 3.057,
+    "W": 3.137,
+    "Zr": 3.530,
 }
 _active_d = [el for el in primary_elements if el in _DIBORIDE_A]
 _avg_a = sum(_DIBORIDE_A[el] for el in _active_d) / len(_active_d)
@@ -125,18 +132,14 @@ phases: dict[str, dict] = {
         "beta": 90,
         "gamma": 120,
         "vectors": "1 0 0\n0 1 0\n0 0 1\n",
-        "coords": (
-            "0.000000 0.000000 0.000000 a\n"
-            "0.333333 0.666667 0.500000 B\n"
-            "0.666667 0.333333 0.500000 B\n"
-        ),
+        "coords": ("0.000000 0.000000 0.000000 a\n" "0.333333 0.666667 0.500000 B\n" "0.666667 0.333333 0.500000 B\n"),
     },
 }
 
 phase_list = [
     # supercell_size controls n_atoms = unit_cell_sites × product(supercell_size)
     # (2,2,2) → 64 atoms   (4,4,2) → 128   (4,4,4) → 256
-    {"generator_name": "HEDB", "lattice": "HEDB4",  "supercell_size": (4, 4, 3)},
+    {"generator_name": "HEDB", "lattice": "HEDB4", "supercell_size": (4, 4, 3)},
 ]
 
 liquid = False
@@ -145,17 +148,17 @@ liquid = False
 # SQS composition levels
 # ------------------------------------------------------------------
 sqsgen_levels = [
-    {"level": 0, "compositions": [[1.0, 0.0]],                            "letter": ["a"]},
-    {"level": 1, "compositions": [[0.5, 0.5]],                             "letter": ["a"]},
-    {"level": 2, "compositions": [[0.75, 0.25]],                           "letter": ["a"]},
-    {"level": 3, "compositions": [[0.33333, 0.33333, 0.33333]],            "letter": ["a"]},
-    {"level": 4, "compositions": [[0.5, 0.25, 0.25]],                      "letter": ["a"]},
-    {"level": 5, "compositions": [[0.875, 0.125], [0.625, 0.375]],         "letter": ["a"]},
-    {"level": 6, "compositions": [[0.75, 0.125, 0.125]],                   "letter": ["a"]},
-    {"level": 7, "compositions": [[0.25, 0.25, 0.25, 0.25]],               "letter": ["a"]},
-    {"level": 8, "compositions": [[0.5, 0.16667, 0.16667, 0.16667]],       "letter": ["a"]},
-    {"level": 9, "compositions": [[0.625, 0.125, 0.125, 0.125]],           "letter": ["a"]},
-    {"level": 10, "compositions": [[0.4, 0.2, 0.2, 0.2]],                  "letter": ["a"]},
+    {"level": 0, "compositions": [[1.0, 0.0]], "letter": ["a"]},
+    {"level": 1, "compositions": [[0.5, 0.5]], "letter": ["a"]},
+    {"level": 2, "compositions": [[0.75, 0.25]], "letter": ["a"]},
+    {"level": 3, "compositions": [[0.33333, 0.33333, 0.33333]], "letter": ["a"]},
+    {"level": 4, "compositions": [[0.5, 0.25, 0.25]], "letter": ["a"]},
+    {"level": 5, "compositions": [[0.875, 0.125], [0.625, 0.375]], "letter": ["a"]},
+    {"level": 6, "compositions": [[0.75, 0.125, 0.125]], "letter": ["a"]},
+    {"level": 7, "compositions": [[0.25, 0.25, 0.25, 0.25]], "letter": ["a"]},
+    {"level": 8, "compositions": [[0.5, 0.16667, 0.16667, 0.16667]], "letter": ["a"]},
+    {"level": 9, "compositions": [[0.625, 0.125, 0.125, 0.125]], "letter": ["a"]},
+    {"level": 10, "compositions": [[0.4, 0.2, 0.2, 0.2]], "letter": ["a"]},
 ]
 
 
@@ -163,12 +166,11 @@ sqsgen_levels = [
 # mcsqs run parameters
 # ------------------------------------------------------------------
 mcsqs_params = {
-    "use_time": True,
-    "time": 60,          # seconds per sqsdb directory
-    "cutoff_mode": "nn", # "nn" = NN shell index (decimals OK), "angstrom" = direct Å
-    "2": 5,              # pair cutoff  = 5th-nearest shell
-    "3": 4,              # triplet cutoff
-    "4": 3,              # quadruplet cutoff
+    "time": 60,  # seconds per sqsdb directory
+    "cutoff_mode": "nn",  # "nn" = NN shell index (decimals OK), "angstrom" = direct Å
+    "2": 5,  # pair cutoff  = 5th-nearest shell
+    "3": 4,  # triplet cutoff
+    "4": 3,  # quadruplet cutoff
     "wr": 20,
     "wn": 0.75,
     "wd": 1,
@@ -210,7 +212,7 @@ if run_sqs:
                 fixed_compositions=fixed_compositions,
             )
             params = mcsqs_params | {"super_cell_size": specific_phase["supercell_size"]}
-            sqs_gen.sqs_gen(phase=specific_phase, paths=paths, iter=sqs_iter, params=params)
+            sqs_gen.sqs_gen(phase=specific_phase, paths=paths, params=params)
 
 # ------------------------------------------------------------------
 # 3. Fit TDB databases
@@ -240,17 +242,14 @@ if run_tdb:
 # ------------------------------------------------------------------
 # Derive fixed-sublattice elements from phase coords.
 # Lowercase single-letter labels are variable sublattice sites;
-# uppercase labels are fixed element symbols (e.g. "B" in diborides).
+# Uppercase labels are fixed element symbols for this example prototype.
 _coords = phases[phase_list[0]["lattice"]]["coords"]
 _labels = [ln.strip().split()[-1] for ln in _coords.strip().splitlines() if ln.strip()]
-_fixed = [l for l in _labels if not (len(l) == 1 and l.islower())]
+_fixed = [label for label in _labels if not (len(label) == 1 and label.islower())]
 remove_elements = set(_fixed)
 fixed_species = {el: count / len(_labels) for el, count in Counter(_fixed).items()}
 
-filt_comp_list = [
-    [el for el in comp if el not in remove_elements]
-    for comp in composition_list
-]
+filt_comp_list = [[el for el in comp if el not in remove_elements] for comp in composition_list]
 
 viz = BladeVisualizer()
 

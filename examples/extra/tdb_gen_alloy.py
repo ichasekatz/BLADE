@@ -16,10 +16,10 @@ from pathlib import Path
 
 from pycalphad import Database
 
+from blade.analysis.blade_visual import BladeVisualizer
 from blade.tools.blade_compositions import BladeCompositions
 from blade.tools.blade_sqsgen import BladeSQS
 from blade.tools.blade_tdb_gen import BladeTDBGen
-from blade.analysis.blade_visual import BladeVisualizer
 
 # ------------------------------------------------------------------
 # Paths
@@ -32,18 +32,17 @@ paths = [path0, path1, path2]
 # ------------------------------------------------------------------
 # Run flags
 # ------------------------------------------------------------------
-level    = 6
-sqs_iter = 1_000_000
-run_sqs  = True
+level = 6
+run_sqs = True
 skip_existing_sqs = False
 
-run_tdb  = True
+run_tdb = True
 skip_existing_tdb = False
 
 # ------------------------------------------------------------------
 # MLIP calculator
 # ------------------------------------------------------------------
-mlip        = "orb"
+mlip = "orb"
 mlip_kwargs = {"steps": 1000, "device": "cpu"}
 
 tdb_params = {
@@ -61,14 +60,14 @@ tdb_params = {
 }
 
 terms_in: dict | None = {"ALLOY1": "1,0:1,0\n2,2:1,0\n3,0:1,0\n"}
-mult_in:  dict | None = None
+mult_in: dict | None = None
 sublattice_map: dict | None = None
 sqsgen_in: dict | None = None
 
 # ------------------------------------------------------------------
 # Elements
 # ------------------------------------------------------------------
-primary_elements   = ["Cr", "Hf", "Zr"]
+primary_elements = ["Cr", "Hf", "Zr"]
 secondary_elements: list[str] = []
 primary_min = 3
 primary_max = 3
@@ -85,11 +84,11 @@ print(f"FCC lattice estimate: a={_avg_a:.4f} Å (avg of {primary_elements})")
 # ------------------------------------------------------------------
 phases: dict[str, dict] = {
     "ALLOY1": {
-        "a": _avg_a, 
-        "b": _avg_a, 
+        "a": _avg_a,
+        "b": _avg_a,
         "c": _avg_a,
-        "alpha": 60, 
-        "beta": 60, 
+        "alpha": 60,
+        "beta": 60,
         "gamma": 60,
         "vectors": "1 0 0\n0 1 0\n0 0 1\n",
         "coords": "0.000000 0.000000 0.000000 a\n",
@@ -107,14 +106,13 @@ phase_list = [
 # them to actual Å using BladeCutoff). "3": 0 disables triplets.
 # ------------------------------------------------------------------
 mcsqs_params = {
-    "use_time":    True,
-    "time":        60,          # seconds per sqsdb directory
-    "2":           4,           # pair cutoff  = 4th-NN shell
-    "3":           3,           # triplet cutoff = 3rd-NN shell
-    "4":           0,           # quadruplet — disabled
-    "wr":          20,
-    "wn":          0.75,
-    "wd":          1,
+    "time": 60,  # seconds per sqsdb directory
+    "2": 4,  # pair cutoff  = 4th-NN shell
+    "3": 3,  # triplet cutoff = 3rd-NN shell
+    "4": 0,  # quadruplet — disabled
+    "wr": 20,
+    "wn": 0.75,
+    "wd": 1,
     "parallel_runs": 10,
 }
 
@@ -137,12 +135,38 @@ mcsqs_params = {
 sqsgen_levels = [
     {"level": 0, "compositions": [[1.0, 0.0, 0.0]], "letter": ["a"], "elements": [["Cr"]]},
     {"level": 1, "compositions": [[0.5, 0.5, 0.0]], "letter": ["a"], "elements": [["Cr", "Hf"]]},
-    {"level": 2, "compositions": [[0.5, 0.25, 0.25], [0.5, 0.5, 0.0]], "letter": ["a"], "elements": [["Cr", "Hf", "Zr"], ["Cr", "Hf"]]},
-    {"level": 3, "compositions": [[0.5, 0.25, 0.25], [0.75, 0.25, 0.0]], "letter": ["a"], "elements": [["Cr", "Hf", "Zr"], ["Cr", "Hf"]]},
-    {"level": 4, "compositions": [[0.5, 0.5, 0.0], [0.75, 0.25, 0.0]], "letter": ["a"], "elements": [["Cr", "Hf"], ["Cr", "Hf"]]},
-    {"level": 5, "compositions": [[0.5, 0.5, 0.0], [0.5, 0.25, 0.25]], "letter": ["a"], "elements": [["Cr", "Hf"], ["Cr", "Hf", "Zr"]]},
-    {"level": 6, "compositions": [[0.5, 0.5, 0.0], [1/3, 1/3, 1/3]], "letter": ["a"], "elements": [["Cr", "Hf", "Zr"], ["Cr", "Hf", "Zr"]]},
+    {
+        "level": 2,
+        "compositions": [[0.5, 0.25, 0.25], [0.5, 0.5, 0.0]],
+        "letter": ["a"],
+        "elements": [["Cr", "Hf", "Zr"], ["Cr", "Hf"]],
+    },
+    {
+        "level": 3,
+        "compositions": [[0.5, 0.25, 0.25], [0.75, 0.25, 0.0]],
+        "letter": ["a"],
+        "elements": [["Cr", "Hf", "Zr"], ["Cr", "Hf"]],
+    },
+    {
+        "level": 4,
+        "compositions": [[0.5, 0.5, 0.0], [0.75, 0.25, 0.0]],
+        "letter": ["a"],
+        "elements": [["Cr", "Hf"], ["Cr", "Hf"]],
+    },
+    {
+        "level": 5,
+        "compositions": [[0.5, 0.5, 0.0], [0.5, 0.25, 0.25]],
+        "letter": ["a"],
+        "elements": [["Cr", "Hf"], ["Cr", "Hf", "Zr"]],
+    },
+    {
+        "level": 6,
+        "compositions": [[0.5, 0.5, 0.0], [1 / 3, 1 / 3, 1 / 3]],
+        "letter": ["a"],
+        "elements": [["Cr", "Hf", "Zr"], ["Cr", "Hf", "Zr"]],
+    },
 ]
+
 
 # Auto-build composition_elements from sqsgen_levels "elements" keys.
 # Maps (level, sorted-desc-frac-str) → list of elements for dir_filter.
@@ -152,6 +176,7 @@ def _frac_key(fracs: list[float]) -> str:
         s.pop()
     return ",".join(str(round(f, 6)) for f in s)
 
+
 composition_elements: dict[tuple, list[str]] = {}
 for _lvl in sqsgen_levels:
     if "elements" not in _lvl:
@@ -159,7 +184,7 @@ for _lvl in sqsgen_levels:
     for _comp, _els in zip(_lvl["compositions"], _lvl["elements"]):
         composition_elements[(_lvl["level"], _frac_key(_comp))] = _els
 
-liquid    = False
+liquid = False
 comps_dir = path1 / "Files" / "Comps_alloy"
 
 # ------------------------------------------------------------------
@@ -174,8 +199,8 @@ composer = BladeCompositions(
     secondary_max=secondary_max,
 )
 
-composition_list  = composer.generate_compositions()
-unique_len_comps  = composer.get_systems()
+composition_list = composer.generate_compositions()
+unique_len_comps = composer.get_systems()
 
 print(f"Compositions ({len(composition_list)} total): {composition_list}")
 print(f"System sizes: {unique_len_comps}")
@@ -196,7 +221,7 @@ if run_sqs:
                 sqsgen_in=sqsgen_in.get(lattice) if sqsgen_in else None,
             )
             params = mcsqs_params | {"super_cell_size": specific_phase["supercell_size"]}
-            sqs_gen.sqs_gen(phase=specific_phase, paths=paths, iter=sqs_iter, params=params)
+            sqs_gen.sqs_gen(phase=specific_phase, paths=paths, params=params)
 
 # ------------------------------------------------------------------
 # 3. Fit TDB databases
@@ -224,27 +249,26 @@ if run_tdb:
 # ------------------------------------------------------------------
 _coords = phases[phase_list[0]["lattice"]]["coords"]
 _labels = [ln.strip().split()[-1] for ln in _coords.strip().splitlines() if ln.strip()]
-_fixed  = [l for l in _labels if not (len(l) == 1 and l.islower())]
+_fixed = [label for label in _labels if not (len(label) == 1 and label.islower())]
 remove_elements = set(_fixed)
-fixed_species   = {el: count / len(_labels) for el, count in Counter(_fixed).items()}
+fixed_species = {el: count / len(_labels) for el, count in Counter(_fixed).items()}
 
-filt_comp_list = [
-    [el for el in comp if el not in remove_elements]
-    for comp in composition_list
-]
+filt_comp_list = [[el for el in comp if el not in remove_elements] for comp in composition_list]
 
 viz = BladeVisualizer()
 
 for comp, comp_filt in zip(composition_list, filt_comp_list):
-    comp_name  = "".join(comp_filt)
-    comp_dir   = comps_dir / comp_name
+    comp_name = "".join(comp_filt)
+    comp_dir = comps_dir / comp_name
     if not comp_dir.exists():
         continue
     phase_name = f"{phase_list[0]['lattice']}_{len(comp_filt)}"
     for tdb_file in comp_dir.glob("*.tdb"):
         tdb = Database(str(tdb_file))
         viz.plot_gibbs_energy(
-            tdb=tdb, metals=comp_filt, phase=phase_name,
+            tdb=tdb,
+            metals=comp_filt,
+            phase=phase_name,
             fixed_species=fixed_species,
             temperatures=[300, 1000, 2000, 3000],
             output_path=comp_dir / f"{comp_name}_Gibbs_Energy.png",
