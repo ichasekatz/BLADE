@@ -66,6 +66,5 @@ pixi.toml
 * copy *.py
 CLAUDE.md
 backups/
-tests/
 uv.lock
 .python-version
