@@ -30,7 +30,6 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import imageio.v2 as imageio
 import matplotlib.pyplot as plt
@@ -40,10 +39,61 @@ from ase.io import read
 from ase.visualize.plot import plot_atoms
 from PIL import Image
 
-if TYPE_CHECKING:
-    pass
-
 __author__ = "Chase Katz"
+
+# ---------------------------------------------------------------------------
+# Module-level constants
+# ---------------------------------------------------------------------------
+_composition_epsilon: float = 1e-5
+"""Guard value that keeps composition variables away from 0 and 1 endpoints."""
+
+_composition_points: int = 201
+"""Number of evenly-spaced points used when sweeping metal-site fraction."""
+
+_standard_pressure_pa: int = 101_325
+"""Standard atmosphere in Pa (NIST value) used for pycalphad conditions."""
+
+_dpi_structure: int = 200
+"""DPI for structure-panel PNG renders."""
+
+_dpi_publication: int = 300
+"""DPI for Gibbs-energy and phase-diagram figure exports."""
+
+_figure_size_default: tuple[int, int] = (10, 7)
+"""Default (width, height) in inches for Gibbs-energy and phase-diagram plots."""
+
+_structure_panel_width: int = 4
+"""Width in inches of each structure panel in :meth:`BladeVisualizer.contcar`."""
+
+_structure_panel_height: int = 4
+"""Height in inches of each structure panel in :meth:`BladeVisualizer.contcar`."""
+
+_structure_rotation: str = "65x,45y,0z"
+"""ASE ``plot_atoms`` rotation string for 3-D structure projections."""
+
+_label_fontsize: int = 15
+"""Font size for axis labels on Gibbs-energy and phase-diagram figures."""
+
+_title_fontsize: int = 17
+"""Font size for figure titles on Gibbs-energy and phase-diagram figures."""
+
+_tick_fontsize: int = 13
+"""Font size for axis tick labels."""
+
+_legend_fontsize: int = 12
+"""Font size for legend entries."""
+
+_grid_alpha: float = 0.25
+"""Transparency of background grid lines."""
+
+_linewidth: float = 2.0
+"""Default line width for composition-sweep curves."""
+
+_n_phase_diagram_ticks: int = 5
+"""Number of x-axis ticks on pseudo-binary phase-diagram plots."""
+
+_phase_diagram_x_steps: int = 100
+"""Number of x-steps in the binplot composition condition array."""
 
 
 class BladeVisualizer:
@@ -55,7 +105,7 @@ class BladeVisualizer:
     """
 
     def __init__(self) -> None:
-        """Initialize BladeVisualizer."""
+        """Initialize BladeVisualizer with no configuration state."""
 
     def contcar(
         self,
@@ -69,22 +119,25 @@ class BladeVisualizer:
         projection using ASE's plotting utilities.
 
         Args:
-            contcars (list[str | Path]): Paths to CONTCAR files.
-            save (str | Path | None, optional): Output path for the figure.
-                If ``None``, the figure is shown interactively.
-                Defaults to ``None``.
+            contcars: Paths to CONTCAR files.
+            save: Output path for the figure.  If ``None``, the figure is
+                shown interactively.  Defaults to ``None``.
         """
-        fig, axes = plt.subplots(1, len(contcars), figsize=(4 * len(contcars), 4))
+        fig, axes = plt.subplots(
+            1,
+            len(contcars),
+            figsize=(_structure_panel_width * len(contcars), _structure_panel_height),
+        )
         if len(contcars) == 1:
             axes = [axes]
 
-        for ax, p in zip(axes, contcars):
+        for ax, p in zip(axes, contcars, strict=False):
             atoms = self.read_contcar_inline_symbols(p)
-            plot_atoms(atoms, ax, rotation="65x,45y,0z", show_unit_cell=True)
+            plot_atoms(atoms, ax, rotation=_structure_rotation, show_unit_cell=True)
             ax.set_axis_off()
 
         if save is not None:
-            fig.savefig(save, dpi=200, bbox_inches="tight")
+            fig.savefig(save, dpi=_dpi_structure, bbox_inches="tight")
             plt.close(fig)
         else:
             plt.show()
@@ -100,8 +153,8 @@ class BladeVisualizer:
         background where heights differ.
 
         Args:
-            images (list[str | Path]): Paths to image files to combine.
-            save (str | Path): Output path for the combined image.
+            images: Paths to image files to combine.
+            save: Output path for the combined image.
         """
         import math
 
@@ -133,13 +186,13 @@ class BladeVisualizer:
 
         Args:
             tdb: pycalphad Database loaded from a ``.tdb`` file.
-            metals (list[str]): Two metal symbols, e.g. ``["Cr", "Hf"]``.
-                The second is the x-axis variable.
-            phase (str): Phase name in the TDB, e.g. ``"PHASE1_2"``.
-            fixed_species (dict[str, float]): Elements with fixed total mole
-                fractions, e.g. ``{"Al": 1/3}`` for a multi-sublattice phase.
-            temperatures (list[int]): Temperatures in K to evaluate.
-            output_path (str | Path): Path to save the PNG.
+            metals: Two metal symbols, e.g. ``["Cr", "Hf"]``.  The second is
+                the x-axis variable.
+            phase: Phase name in the TDB, e.g. ``"PHASE1_2"``.
+            fixed_species: Elements with fixed total mole fractions,
+                e.g. ``{"Al": 1/3}`` for a multi-sublattice phase.
+            temperatures: Temperatures in K to evaluate.
+            output_path: Path to save the PNG.
         """
         from pycalphad import equilibrium
         from pycalphad import variables as v
@@ -152,40 +205,41 @@ class BladeVisualizer:
         components = [metal_1, metal_2] + [el.upper() for el in fixed_species]
 
         metal_site_fraction = 1.0 - sum(fixed_species.values())
-        x_metal_site = np.linspace(1e-5, 1.0 - 1e-5, 201)
+        x_metal_site = np.linspace(_composition_epsilon, 1.0 - _composition_epsilon, _composition_points)
         x_total_metal2 = x_metal_site * metal_site_fraction
 
-        fig, ax = plt.subplots(figsize=(10, 7))
+        fig, ax = plt.subplots(figsize=_figure_size_default)
 
         for temperature in temperatures:
             conditions = {
                 v.N: 1,
-                v.P: 101325,
+                v.P: _standard_pressure_pa,
                 v.T: temperature,
                 **{v.X(el.upper()): frac for el, frac in fixed_species.items()},
                 v.X(metal_2): x_total_metal2,
             }
             result = equilibrium(tdb, components, [phase], conditions, output="GM")
             gm = np.squeeze(result.GM.values)
-            ax.plot(x_metal_site, gm, linewidth=2, label=f"{temperature} K")
+            ax.plot(x_metal_site, gm, linewidth=_linewidth, label=f"{temperature} K")
 
         ax.set_xlabel(
-            rf"Metal-site fraction $x_{{{metal_2}}}$ in " rf"$({metal_1}_{{1-x}}{metal_2}_x)$",
-            fontsize=15,
+            rf"Metal-site fraction $x_{{{metal_2}}}$ in "
+            rf"$({metal_1}_{{1-x}}{metal_2}_x)$",
+            fontsize=_label_fontsize,
         )
-        ax.set_ylabel("Molar Gibbs Energy (J/mol-atom)", fontsize=15)
+        ax.set_ylabel("Molar Gibbs Energy (J/mol-atom)", fontsize=_label_fontsize)
         ax.set_title(
             rf"Gibbs Energy of $({metal_1},{metal_2})$ {phase} Phase",
-            fontsize=17,
+            fontsize=_title_fontsize,
         )
-        ax.tick_params(axis="both", labelsize=13)
-        ax.legend(fontsize=12)
-        ax.grid(True, alpha=0.25)
+        ax.tick_params(axis="both", labelsize=_tick_fontsize)
+        ax.legend(fontsize=_legend_fontsize)
+        ax.grid(True, alpha=_grid_alpha)
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.tight_layout()
-        fig.savefig(output_path, dpi=300, bbox_inches="tight")
+        fig.savefig(output_path, dpi=_dpi_publication, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved Gibbs-energy plot to: {output_path}")
 
@@ -207,13 +261,13 @@ class BladeVisualizer:
 
         Args:
             tdb: pycalphad Database loaded from a ``.tdb`` file.
-            metals (list[str]): Two metal symbols, e.g. ``["Cr", "Hf"]``.
-                The second is the x-axis variable.
-            phase (str): Phase name in the TDB, e.g. ``"PHASE1_2"``.
-            fixed_species (dict[str, float]): Elements with fixed total mole
-                fractions, e.g. ``{"Al": 1/3}`` for a multi-sublattice phase.
-            temperatures (list[int]): Temperatures in K to evaluate.
-            output_path (str | Path): Path to save the PNG.
+            metals: Two metal symbols, e.g. ``["Cr", "Hf"]``.  The second is
+                the x-axis variable.
+            phase: Phase name in the TDB, e.g. ``"PHASE1_2"``.
+            fixed_species: Elements with fixed total mole fractions,
+                e.g. ``{"Al": 1/3}`` for a multi-sublattice phase.
+            temperatures: Temperatures in K to evaluate.
+            output_path: Path to save the PNG.
         """
         from pycalphad import equilibrium
         from pycalphad import variables as v
@@ -226,19 +280,19 @@ class BladeVisualizer:
         components = [metal_1, metal_2] + [el.upper() for el in fixed_species]
 
         metal_site_fraction = 1.0 - sum(fixed_species.values())
-        x_metal_site = np.linspace(0.0, 1.0, 201)
+        x_metal_site = np.linspace(0.0, 1.0, _composition_points)
         x_total_metal2 = np.clip(
             x_metal_site * metal_site_fraction,
-            1e-5,
-            metal_site_fraction - 1e-5,
+            _composition_epsilon,
+            metal_site_fraction - _composition_epsilon,
         )
 
-        fig, ax = plt.subplots(figsize=(10, 7))
+        fig, ax = plt.subplots(figsize=_figure_size_default)
 
         for temperature in temperatures:
             conditions = {
                 v.N: 1,
-                v.P: 101325,
+                v.P: _standard_pressure_pa,
                 v.T: temperature,
                 **{v.X(el.upper()): frac for el, frac in fixed_species.items()},
                 v.X(metal_2): x_total_metal2,
@@ -248,26 +302,27 @@ class BladeVisualizer:
 
             g0, g1 = gm[0], gm[-1]
             dg_mix = gm - ((1 - x_metal_site) * g0 + x_metal_site * g1)
-            ax.plot(x_metal_site, dg_mix, linewidth=2, label=f"{temperature} K")
+            ax.plot(x_metal_site, dg_mix, linewidth=_linewidth, label=f"{temperature} K")
 
         ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
         ax.set_xlabel(
-            rf"Metal-site fraction $x_{{{metal_2}}}$ in " rf"$({metal_1}_{{1-x}}{metal_2}_x)$",
-            fontsize=15,
+            rf"Metal-site fraction $x_{{{metal_2}}}$ in "
+            rf"$({metal_1}_{{1-x}}{metal_2}_x)$",
+            fontsize=_label_fontsize,
         )
-        ax.set_ylabel(r"$\Delta G_{\rm mix}$ (J/mol-atom)", fontsize=15)
+        ax.set_ylabel(r"$\Delta G_{\rm mix}$ (J/mol-atom)", fontsize=_label_fontsize)
         ax.set_title(
             rf"Gibbs Energy of Mixing — $({metal_1},{metal_2})$ {phase} Phase",
-            fontsize=17,
+            fontsize=_title_fontsize,
         )
-        ax.tick_params(axis="both", labelsize=13)
-        ax.legend(fontsize=12)
-        ax.grid(True, alpha=0.25)
+        ax.tick_params(axis="both", labelsize=_tick_fontsize)
+        ax.legend(fontsize=_legend_fontsize)
+        ax.grid(True, alpha=_grid_alpha)
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.tight_layout()
-        fig.savefig(output_path, dpi=300, bbox_inches="tight")
+        fig.savefig(output_path, dpi=_dpi_publication, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved Gibbs-mixing plot to: {output_path}")
 
@@ -288,15 +343,14 @@ class BladeVisualizer:
 
         Args:
             tdb: pycalphad Database loaded from a ``.tdb`` file.
-            metals (list[str]): Two metal symbols, e.g. ``["Cr", "Hf"]``.
-                The second is the x-axis variable.
-            phases (list[str]): Phase names to include, e.g.
-                ``["PHASE1_2", "LIQUID"]``.
-            fixed_species (dict[str, float]): Elements with fixed total mole
-                fractions, e.g. ``{"Al": 1/3}`` for a multi-sublattice phase.
-            temperature_range (tuple[float, float, float]): ``(T_min, T_max,
-                T_step)`` in K, e.g. ``(300, 4500, 50)``.
-            output_path (str | Path): Path to save the PNG.
+            metals: Two metal symbols, e.g. ``["Cr", "Hf"]``.  The second is
+                the x-axis variable.
+            phases: Phase names to include, e.g. ``["PHASE1_2", "LIQUID"]``.
+            fixed_species: Elements with fixed total mole fractions,
+                e.g. ``{"Al": 1/3}`` for a multi-sublattice phase.
+            temperature_range: ``(T_min, T_max, T_step)`` in K,
+                e.g. ``(300, 4500, 50)``.
+            output_path: Path to save the PNG.
         """
         from pycalphad import binplot
         from pycalphad import variables as v
@@ -309,17 +363,17 @@ class BladeVisualizer:
         components = [metal_1, metal_2] + [el.upper() for el in fixed_species]
 
         metal_site_fraction = 1.0 - sum(fixed_species.values())
-        x_max = metal_site_fraction - 1e-6
+        x_max = metal_site_fraction - _composition_epsilon
 
         conditions = {
             v.N: 1,
-            v.P: 101325,
+            v.P: _standard_pressure_pa,
             v.T: temperature_range,
             **{v.X(el.upper()): frac for el, frac in fixed_species.items()},
-            v.X(metal_2): (1e-6, x_max, x_max / 100),
+            v.X(metal_2): (_composition_epsilon, x_max, x_max / _phase_diagram_x_steps),
         }
 
-        fig, ax = plt.subplots(figsize=(10, 7))
+        fig, ax = plt.subplots(figsize=_figure_size_default)
         try:
             binplot(tdb, components, phases, conditions, plot_kwargs={"ax": ax})
         except ValueError as exc:
@@ -338,26 +392,26 @@ class BladeVisualizer:
                 va="center",
             )
 
-        n_ticks = 5
-        tick_vals = [i * metal_site_fraction / (n_ticks - 1) for i in range(n_ticks)]
-        tick_labels = [f"{i / (n_ticks - 1):.2f}" for i in range(n_ticks)]
+        tick_vals = [i * metal_site_fraction / (_n_phase_diagram_ticks - 1) for i in range(_n_phase_diagram_ticks)]
+        tick_labels = [f"{i / (_n_phase_diagram_ticks - 1):.2f}" for i in range(_n_phase_diagram_ticks)]
         ax.set_xticks(tick_vals)
-        ax.set_xticklabels(tick_labels, fontsize=14)
+        ax.set_xticklabels(tick_labels, fontsize=_tick_fontsize)
         ax.set_xlabel(
-            rf"Metal-site fraction $x_{{{metal_2}}}$ in " rf"$({metal_1}_{{1-x}}{metal_2}_x)$",
-            fontsize=15,
+            rf"Metal-site fraction $x_{{{metal_2}}}$ in "
+            rf"$({metal_1}_{{1-x}}{metal_2}_x)$",
+            fontsize=_label_fontsize,
         )
-        ax.set_ylabel("Temperature (K)", fontsize=15)
+        ax.set_ylabel("Temperature (K)", fontsize=_label_fontsize)
         ax.set_title(
             rf"$({metal_1},{metal_2})$ Pseudo-Binary Phase Diagram",
-            fontsize=17,
+            fontsize=_title_fontsize,
         )
-        ax.tick_params(axis="both", labelsize=13)
+        ax.tick_params(axis="both", labelsize=_tick_fontsize)
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.tight_layout()
-        fig.savefig(output_path, dpi=300, bbox_inches="tight")
+        fig.savefig(output_path, dpi=_dpi_publication, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved phase diagram to: {output_path}")
 
@@ -369,22 +423,37 @@ class BladeVisualizer:
         Cartesian coordinate formats.
 
         Args:
-            contcar_path (str | Path): Path to the CONTCAR file.
+            contcar_path: Path to the CONTCAR file.
 
         Returns:
-            ase.Atoms: Atoms object with positions, cell, and periodic
-            boundary conditions set.
+            Atoms object with positions, cell, and periodic boundary
+            conditions set.
         """
-        with open(contcar_path) as f:
+        with contcar_path.open() as f:
             lines = [ln.strip() for ln in f if ln.strip()]
 
         scale = float(lines[1])
-        cell = np.array([[float(x) for x in lines[i].split()] for i in range(2, 5)], dtype=float) * scale
+        cell = (
+            np.array(
+                [[float(x) for x in lines[i].split()] for i in range(2, 5)],
+                dtype=float,
+            )
+            * scale
+        )
 
         i = 5
         toks = lines[i].split()
 
         def _all_int(ts: list[str]) -> bool:
+            """Return True if every token in *ts* can be cast to int.
+
+            Args:
+                ts: List of string tokens to test.
+
+            Returns:
+                ``True`` when all tokens are valid integers; ``False``
+                otherwise.
+            """
             try:
                 [int(x) for x in ts]
                 return True
@@ -426,8 +495,8 @@ class BladeVisualizer:
         atom, which is required by :meth:`read_contcar_inline_symbols`.
 
         Args:
-            atoms (ase.Atoms): Atoms object to serialize.
-            out_path (str | Path): Output file path.
+            atoms: Atoms object to serialize.
+            out_path: Output file path.
         """
         out_path = Path(out_path)
         cell = atoms.get_cell()
@@ -440,7 +509,7 @@ class BladeVisualizer:
                 species_order.append(s)
         counts = [symbols.count(s) for s in species_order]
 
-        with open(out_path, "w") as f:
+        with out_path.open("w") as f:
             f.write("Generated relaxation frame\n")
             f.write("1.0\n")
             for row in cell:
@@ -448,7 +517,7 @@ class BladeVisualizer:
             f.write(" ".join(species_order) + "\n")
             f.write(" ".join(str(c) for c in counts) + "\n")
             f.write("Direct\n")
-            for frac, symbol in zip(frac_coords, symbols):
+            for frac, symbol in zip(frac_coords, symbols, strict=False):
                 f.write(f"{frac[0]:.16f} {frac[1]:.16f} {frac[2]:.16f} {symbol}\n")
 
     def make_combined_relaxation_movie(
@@ -466,15 +535,13 @@ class BladeVisualizer:
         is on the system PATH, the GIF is also converted to MP4.
 
         Args:
-            composition_list (list[list[str]]): List of chemical systems,
-                each given as a list of element symbols.
-            path1 (str | Path): BLADE staging directory containing
-                per-composition sub-directories.
-            traj_name (str, optional): Trajectory filename to search for
-                inside each ``sqs_lev=*`` folder.
-                Defaults to ``"relaxation_live.xyz"``.
-            fps (int, optional): Frames per second for the output movie.
-                Defaults to ``5``.
+            composition_list: List of chemical systems, each given as a list
+                of element symbols.
+            path1: BLADE staging directory containing per-composition
+                sub-directories.
+            traj_name: Trajectory filename to search for inside each
+                ``sqs_lev=*`` folder.  Defaults to ``"relaxation_live.xyz"``.
+            fps: Frames per second for the output movie.  Defaults to ``5``.
         """
         path1 = Path(path1)
 
@@ -534,8 +601,7 @@ class BladeVisualizer:
                 if frames:
                     h, w = frames[0].shape[:2]
                     frames = [
-                        np.array(Image.fromarray(f).resize((w, h), Image.LANCZOS)) if f.shape[:2] != (h, w) else f
-                        for f in frames
+                        np.array(Image.fromarray(f).resize((w, h), Image.LANCZOS)) if f.shape[:2] != (h, w) else f for f in frames
                     ]
                 imageio.mimsave(out_gif, frames, fps=fps)
                 print(f"Saved GIF -> {out_gif}")

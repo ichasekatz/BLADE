@@ -158,9 +158,7 @@ class Config:
         self.ternary_diagrams_root = Path(self.ternary_diagrams_root)
         self.blade_subdir = str(self.blade_subdir)
         self.fixed_phases_subdir = str(self.fixed_phases_subdir)
-        self.elements = list(
-            dict.fromkeys(str(element).strip().title() for element in self.elements if str(element).strip())
-        )
+        self.elements = list(dict.fromkeys(str(element).strip().title() for element in self.elements if str(element).strip()))
         self.systems = list(dict.fromkeys(str(system).strip() for system in self.systems if str(system).strip()))
         label_mode = str(self.region_label_mode).strip().lower()
         if label_mode in {"id", "ids", "number", "numbers"}:

@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use BLADE in your research, please cite it as below."
+title: "BLADE: Boride Lattice Automated Discovery Engine"
+version: 1.7.0
+date-released: "2026-09-29"
+license: GPL-3.0-or-later
+repository-code: "https://github.com/ichasekatz/BLADE"
+doi: "TODO: add Zenodo DOI after first release"
+url: "https://github.com/ichasekatz/BLADE"
+abstract: >
+  BLADE is a high-throughput Python framework for automated CALPHAD TDB generation,
+  SQS structure creation via ATAT, MLIP-based structural relaxation, and
+  oxidation-stability analysis for multi-component boride and alloy systems.
+  The thermodynamic equilibrium solver and Gibbs free energy minimization are
+  contributed by Siya Zhu.
+authors:
+  - family-names: "Katz"
+    given-names: "Chase"
+    email: "ichasekatz@tamu.edu"
+    affiliation: "Texas A&M University"
+  - family-names: "Zhu"
+    given-names: "Siya"
+    email: "siyazhu1@gmail.com"

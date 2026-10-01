@@ -1,12 +1,24 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build"]
+build-backend = "uv_build.BuildBackend"
 
 [project]
 name = "blade"
-version = "1.7.0"
-description = "General high-throughput materials discovery, thermodynamic modeling, and environmental stability analysis"
+version = "1.7.1"
+description = "Automated CALPHAD TDB generation, SQS structure creation, and oxidation-stability analysis for multi-component borides and alloys"
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.12,<3.13"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+]
 dependencies = [
     "psutil>=7.2.2,<8",
     "pandarallel>=1.6.5,<2",
@@ -29,18 +41,22 @@ workflow = [
     "materialsframework",
     "pycalphad>=0.11.1,<0.12",
     "mp-api>=0.46.4,<0.47",
-    "orb-models>=0.4.2,<0.5",
+    "orb-models>=0.7.0,<0.8",
+]
+docs = [
+    "mkdocs-material>=9.5,<10",
+    "mkdocstrings[python]>=0.25,<0.26",
 ]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.15.13,<0.16",
-    "black>=26.3.1,<27",
-    "isort>=8.0.1,<9",
+    "pytest>=8,<9",
+    "ruff>=0.8,<1",
+    "ty>=0.0.1a13",
 ]
 
 [tool.uv.sources]
-materialsframework = { git = "https://github.com/ichasekatz/MaterialsFramework.git" }
+materialsframework = { git = "https://github.com/ichasekatz/MaterialsFramework.git", extras = ["orb"] }
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -50,13 +66,38 @@ where = ["src"]
 include = ["blade*"]
 
 [tool.ruff]
-line-length = 120
+line-length = 130
 target-version = "py312"
+force-exclude = true
 
-[tool.black]
-line-length = 120
-target-version = ["py312"]
+[tool.ruff.lint]
+select = ["A", "B", "C4", "D", "E", "ERA", "F", "FA", "I", "ICN", "N", "PL", "PTH", "Q", "SIM", "TC", "UP", "W"]
+ignore = [
+    "E501", "PLR0913", "PLR2004", "PLR0915", "D401",
+    # Scientific naming conventions (T for temperature, dH for enthalpy, M1/M2 for metals, etc.)
+    "N802", "N803", "N806", "N815",
+    # Lazy imports inside methods — intentional for optional heavy deps (pycalphad, materialsframework)
+    "PLC0415",
+    # Complex scientific algorithms naturally exceed branch limits
+    "PLR0912",
+    # __init__ and public method/function/class docstrings handled at class level
+    "D101", "D102", "D103", "D107",
+    # Commented-out code retained for reference in scientific context
+    "ERA001",
+    # Minor style / docstring formatting
+    "N814", "D105", "D205", "D417", "PLR0911", "SIM108", "SIM102",
+]
+pydocstyle.convention = "google"
 
-[tool.isort]
-profile = "black"
-line_length = 120
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "integration: tests that require ATAT binaries, MLIP models, or real data on disk",
+]
+
+[tool.ty.src]
+include = ["src", "tests"]

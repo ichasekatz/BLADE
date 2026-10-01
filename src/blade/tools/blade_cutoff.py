@@ -1,4 +1,4 @@
-"""Neighbor-shell cutoff distance computation for ATAT mcsqs.
+r"""Neighbor-shell cutoff distance computation for ATAT mcsqs.
 
 This module provides :class:`BladeCutoff`, which converts lattice parameters
 into a 3×3 lattice matrix, reads fractional coordinates from an ATAT
@@ -25,6 +25,9 @@ import re
 import numpy as np
 
 __author__ = "Chase Katz"
+
+# Minimum Cartesian distance (Å) below which a pair is treated as self-image.
+_min_distance_threshold: float = 1e-6
 
 
 def _build_supercell(frac: np.ndarray, rep: tuple[int, int, int]) -> np.ndarray:
@@ -171,7 +174,7 @@ class BladeCutoff:
             df = _min_image(df, rep)
             cart = df @ lattice
             r = np.linalg.norm(cart, axis=1)
-            dists.extend(float(val) for val in r if val > 1e-6)
+            dists.extend(float(val) for val in r if val > _min_distance_threshold)
 
         dists_sorted = np.sort(dists)
 

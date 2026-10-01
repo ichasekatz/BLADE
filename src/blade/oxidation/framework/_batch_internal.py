@@ -6,9 +6,9 @@ import sys
 import traceback
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .analyzer import SystemAnalyzer
-from .config import Config
 from .utils import (
     make_animation,
     prepare_system_tables_dir,
@@ -16,6 +16,9 @@ from .utils import (
     system_tag,
     tile_images,
 )
+
+if TYPE_CHECKING:
+    from .config import Config
 
 
 class BatchRunner:
@@ -67,11 +70,7 @@ class BatchRunner:
             l0_vals = l0_rows["value_eV_per_formula"].astype(float).values
             max_l0 = float(l0_vals.max()) if len(l0_vals) > 0 else 0.0
             if max_l0 > 0:
-                pairs = (
-                    l0_rows.loc[l0_rows["value_eV_per_formula"] > 0, "pair"].tolist()
-                    if "pair" in rk_df.columns
-                    else ["L0"]
-                )
+                pairs = l0_rows.loc[l0_rows["value_eV_per_formula"] > 0, "pair"].tolist() if "pair" in rk_df.columns else ["L0"]
                 print(f"  L0={max_l0:+.4f} eV > 0 ({', '.join(pairs)}) → miscibility gap → filtered")
                 return False
             print(f"  L0={max_l0:+.4f} eV ≤ 0 → included")
@@ -223,9 +222,9 @@ class BatchRunner:
                 print(f"[{name}]  tables cached → analysis only")
 
             metals_str = "/".join(filter(None, [m1, m2, m3]))
-            print(f"\n{'='*60}")
-            print(f"  {name}  ({i+1}/{len(all_systems)})  [{metals_str}]")
-            print(f"{'='*60}")
+            print(f"\n{'=' * 60}")
+            print(f"  {name}  ({i + 1}/{len(all_systems)})  [{metals_str}]")
+            print(f"{'=' * 60}")
 
             try:
                 analyzer = SystemAnalyzer(system_dir, config=system_cfg)
@@ -242,7 +241,7 @@ class BatchRunner:
                 failed.append((name, str(e)))
 
         # Summary
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("BATCH COMPLETE")
         print(f"  Analysed: {len(done)}/{len(all_systems)}")
         print(f"  Filtered (L0>0): {len(filtered)}")
