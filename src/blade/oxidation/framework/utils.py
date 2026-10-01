@@ -34,9 +34,7 @@ def prepare_system_tables_dir(tables_root: str | Path, metals, phase_element=Non
     return destination
 
 
-def make_animation(
-    frame_paths, out_gif: Path, out_mp4: Path, fps: int = 2, mp4_crf: int = 18, mp4_preset: str = "slow"
-) -> None:
+def make_animation(frame_paths, out_gif: Path, out_mp4: Path, fps: int = 2, mp4_crf: int = 18, mp4_preset: str = "slow") -> None:
     frame_paths = [Path(p) for p in frame_paths if Path(p).exists()]
     if len(frame_paths) < 2:
         return
@@ -185,7 +183,7 @@ def normalize_region_labels(labels: list[str]) -> list[str]:
         if not toks:
             return f"({segment}){suffix}"
         # Pure end-member: any metal's hi ≥ 0.99
-        for metal, lo_v, hi_v in toks:
+        for metal, _lo_v, hi_v in toks:
             if hi_v >= 0.99:
                 return f"{metal}{suffix}"
         # Wide range spanning nearly 0→1: collapse to pure end-member of dominant metal
@@ -196,9 +194,9 @@ def normalize_region_labels(labels: list[str]) -> list[str]:
 
     out = []
     for lbl in labels:
-        lbl = _DUPE_RANGE.sub(r"\1", lbl)
-        lbl = _PHASE_SEG.sub(lambda m: _collapse_phase(m.group(1), m.group(2) or ""), lbl)
-        out.append(lbl)
+        cleaned = _DUPE_RANGE.sub(r"\1", lbl)
+        cleaned = _PHASE_SEG.sub(lambda m: _collapse_phase(m.group(1), m.group(2) or ""), cleaned)
+        out.append(cleaned)
     return out
 
 

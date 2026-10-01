@@ -10,29 +10,67 @@ from __future__ import annotations
 import json
 import math
 import re
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     pass
 
 __author__ = "Chase Katz"
 
+# ---------------------------------------------------------------------------
+# POSCAR format constants (line indices are 0-based after stripping blanks)
+# ---------------------------------------------------------------------------
+_poscar_scale_line: int = 1
+"""Index of the universal scale-factor line in a POSCAR file."""
+
+_poscar_lattice_start: int = 2
+"""Index of the first lattice-vector line in a POSCAR file."""
+
+_poscar_lattice_end: int = 5
+"""One past the index of the last lattice-vector line (exclusive slice end)."""
+
+_poscar_species_line: int = 5
+"""Index of the species/count line; may be element symbols or integer counts."""
+
 
 class BLADEData:
-    """Extract structural and energetic data from BLADE POSCAR/energy trees."""
+    """Extract structural and energetic data from BLADE POSCAR/energy trees.
+
+    Recursively scans a composition directory for ``POSCAR`` files,
+    parses lattice parameters and atom counts, reads adjacent ``energy``
+    files, and stores results in a :class:`pandas.DataFrame` accessible
+    via :attr:`data`.
+    """
 
     def __init__(self) -> None:
+        """Initialize BLADEData with an empty data store.
+
+        Attributes:
+            data: Populated by :meth:`scan_poscars`; ``None`` until then.
+        """
         self.data: pd.DataFrame | None = None
 
     def parse_sqs_meta(self, poscar_path: Path) -> tuple[int | None, dict[str, float]]:
         """Extract SQS level and fractional composition from a POSCAR path.
 
         Walks up parent directories looking for a folder matching
-        ``sqs_lev=<N>`` optionally followed by ``_a_<element>=<fraction>`` tokens.
+        ``sqs_lev=<N>`` optionally followed by ``_a_<element>=<fraction>``
+        tokens.
+
+        Args:
+            poscar_path: Path to the ``POSCAR`` file whose parent directories
+                are searched.
+
+        Returns:
+            A 2-tuple ``(sqs_level, a_fracs)`` where ``sqs_level`` is the
+            integer extracted from the ``sqs_lev=<N>`` folder name (or
+            ``None`` if not found), and ``a_fracs`` maps element symbols to
+            their sublattice fractions parsed from ``a_<el>=<val>`` tokens.
         """
         sqs_level: int | None = None
         a_fracs: dict[str, float] = {}
@@ -51,16 +89,33 @@ class BLADEData:
     def poscar_lattice_and_counts(self, poscar_path: Path) -> tuple[np.ndarray, int, dict[str, int]]:
         """Parse a POSCAR and return its lattice matrix and atom counts.
 
-        Handles both VASP 4 (counts on line 6) and VASP 5 (elements on line 6,
-        counts on line 7) formats. ``counts_map`` is empty for VASP 4 files.
+        Handles both VASP 4 (counts on line 6) and VASP 5 (elements on
+        line 6, counts on line 7) formats.  ``counts_map`` is empty for
+        VASP 4 files because element labels are absent.
+
+        Args:
+            poscar_path: Path to the ``POSCAR`` file to parse.
+
+        Returns:
+            A 3-tuple ``(lattice, natoms, counts_map)`` where ``lattice`` is
+            a ``(3, 3)`` float array of row vectors scaled by the universal
+            scale factor, ``natoms`` is the total atom count, and
+            ``counts_map`` maps element symbol to atom count (empty for
+            VASP 4 format).
         """
-        with open(poscar_path) as f:
+        with poscar_path.open() as f:
             lines = [ln.strip() for ln in f if ln.strip()]
 
-        scale = float(lines[1])
-        lattice = np.array([[float(x) for x in lines[i].split()] for i in range(2, 5)], dtype=float) * scale
+        scale = float(lines[_poscar_scale_line])
+        lattice = (
+            np.array(
+                [[float(x) for x in lines[i].split()] for i in range(_poscar_lattice_start, _poscar_lattice_end)],
+                dtype=float,
+            )
+            * scale
+        )
 
-        i = 5
+        i = _poscar_species_line
         toks = lines[i].split()
         if self._all_int(toks):
             elems: list[str] = []
@@ -76,11 +131,20 @@ class BLADEData:
             i += 1
 
         natoms = int(sum(counts))
-        counts_map = {e: int(c) for e, c in zip(elems, counts)} if elems else {}
+        counts_map = {e: int(c) for e, c in zip(elems, counts, strict=False)} if elems else {}
         return lattice, natoms, counts_map
 
     def read_energy(self, poscar_path: Path) -> float | None:
-        """Read total energy in eV from an ``energy`` file next to a POSCAR."""
+        """Read total energy in eV from an ``energy`` file next to a POSCAR.
+
+        Args:
+            poscar_path: Path to the ``POSCAR`` file; the ``energy`` file is
+                expected in the same directory.
+
+        Returns:
+            The energy as a float if the file exists and is parseable;
+            ``None`` otherwise.
+        """
         energy_path = poscar_path.parent / "energy"
         if not energy_path.exists():
             return None
@@ -91,10 +155,29 @@ class BLADEData:
             return None
 
     def cellpar_from_lattice(self, lattice: np.ndarray) -> tuple[float, float, float, float, float, float]:
-        """Return ``(a, b, c, alpha, beta, gamma)`` from a 3×3 lattice matrix."""
+        """Return ``(a, b, c, alpha, beta, gamma)`` from a 3×3 lattice matrix.
+
+        Args:
+            lattice: A ``(3, 3)`` array whose rows are the lattice vectors
+                **a**, **b**, **c** in Ångströms.
+
+        Returns:
+            A 6-tuple ``(a, b, c, alpha, beta, gamma)`` where the lengths
+            are in Ångströms and the angles are in degrees.
+        """
         a_vec, b_vec, c_vec = lattice
 
         def _angle(u: np.ndarray, v: np.ndarray) -> float:
+            """Compute the angle between vectors *u* and *v* in degrees.
+
+            Args:
+                u: First vector.
+                v: Second vector.
+
+            Returns:
+                Angle in degrees, clamped to ``[0, 180]`` to guard against
+                floating-point values outside ``[-1, 1]`` for ``acos``.
+            """
             cos_val = float(np.dot(u, v) / (np.linalg.norm(u) * np.linalg.norm(v)))
             cos_val = max(-1.0, min(1.0, cos_val))
             return float(math.degrees(math.acos(cos_val)))
@@ -119,11 +202,21 @@ class BLADEData:
         - ``sqs_level`` (int | None)
         - ``sqs_a_fracs_json`` (str): JSON-encoded sublattice fractions.
         - ``poscar_path`` (str)
-        - ``volume_A3`` (float), ``natoms`` (int), ``volume_per_atom_A3`` (float | None)
+        - ``volume_A3`` (float), ``natoms`` (int),
+          ``volume_per_atom_A3`` (float | None)
         - ``a_A``, ``b_A``, ``c_A`` (float): lengths in Å.
         - ``alpha_deg``, ``beta_deg``, ``gamma_deg`` (float)
         - ``poscar_counts_json`` (str): JSON-encoded element counts.
-        - ``energy_eV`` (float | None), ``energy_per_atom_eV`` (float | None)
+        - ``energy_eV`` (float | None),
+          ``energy_per_atom_eV`` (float | None)
+
+        Args:
+            comp_dir: Root directory for one composition, containing one
+                sub-directory per phase.
+
+        Returns:
+            DataFrame with one row per successfully parsed POSCAR.  Also
+            stored as :attr:`data`.
         """
         rows: list[dict] = []
         comp_name = comp_dir.name
@@ -174,6 +267,17 @@ class BLADEData:
 
     @staticmethod
     def _all_int(tokens: list[str]) -> bool:
+        """Return ``True`` if every token in *tokens* can be cast to ``int``.
+
+        Used to distinguish VASP 4 POSCAR format (counts-only species line)
+        from VASP 5 (element-symbol line followed by counts).
+
+        Args:
+            tokens: List of whitespace-split string tokens to test.
+
+        Returns:
+            ``True`` when all tokens are valid integers; ``False`` otherwise.
+        """
         try:
             [int(t) for t in tokens]
             return True

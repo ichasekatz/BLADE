@@ -9,11 +9,14 @@ from __future__ import annotations
 import shutil
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from .config import Config
 from .utils import csv_has_rows, system_key, system_tag
+
+if TYPE_CHECKING:
+    from .config import Config
 
 
 class MapsRunner:
@@ -133,9 +136,9 @@ class MapsRunner:
         try:
             import pandas as pd
 
-            values = pd.read_csv(csv_path, usecols=["component_presence_threshold"])[
-                "component_presence_threshold"
-            ].to_numpy(dtype=float)
+            values = pd.read_csv(csv_path, usecols=["component_presence_threshold"])["component_presence_threshold"].to_numpy(
+                dtype=float
+            )
             expected = 0.01 if self.config.include_0p01_to_0p05_components else 0.05
             return len(values) > 0 and np.allclose(values, expected)
         except Exception:
@@ -261,7 +264,7 @@ class MapsRunner:
                 _sh.copy(summary_csv, per_x_cache)
 
             if self._muT_cache_matches(per_x_cache, n_expected, x):
-                print(f"\n--- muO-T map (x_{M1}={x:.2f}): " "data complete — skipping LP ---")
+                print(f"\n--- muO-T map (x_{M1}={x:.2f}): data complete — skipping LP ---")
                 _sh.copy(per_x_cache, summary_csv)
                 _r.SKIP_IF_ANALYSIS_EXISTS = True
             else:

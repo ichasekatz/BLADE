@@ -100,9 +100,7 @@ class BatchConfig:
         self.tables_dir = Path(self.tables_dir)
         self.figures_dir = Path(self.figures_dir)
         self.phase_diagrams_root = Path(self.phase_diagrams_root)
-        self.elements = list(
-            dict.fromkeys(str(element).strip().title() for element in self.elements if str(element).strip())
-        )
+        self.elements = list(dict.fromkeys(str(element).strip().title() for element in self.elements if str(element).strip()))
         self.systems = list(dict.fromkeys(str(system).strip() for system in self.systems if str(system).strip()))
         self.slice_muT_comp_step = float(self.slice_muT_comp_step)
         if not 0.0 < self.slice_muT_comp_step <= 1.0:

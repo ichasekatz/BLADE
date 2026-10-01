@@ -7,12 +7,15 @@ Encapsulates the logic from scripts/01_compositions.py:
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 from pymatgen.core import Composition
 
 from blade.tools.blade_compositions import BladeCompositions
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Module-level helper
@@ -20,6 +23,23 @@ from blade.tools.blade_compositions import BladeCompositions
 
 
 def calculate_dH(formula: str, energy_per_atom: float, refs: dict) -> float:
+    """Compute formation enthalpy (eV/atom) relative to elemental references.
+
+    Args:
+        formula: Composition string parseable by ``pymatgen.core.Composition``
+            (e.g. ``"HfCrB2"``).
+        energy_per_atom: MLIP total energy divided by the number of atoms in
+            the unit cell (eV/atom).
+        refs: Mapping of element symbol to elemental reference energy per atom
+            (eV/atom), e.g. ``{"Hf": -9.96, "Cr": -9.50, "B": -6.68}``.
+
+    Returns:
+        Formation enthalpy in eV/atom relative to the supplied elemental
+        references.
+
+    Raises:
+        ValueError: If any element in *formula* is absent from *refs*.
+    """
     comp = Composition(formula)
     total_atoms = comp.num_atoms
     ref_total = 0.0
@@ -106,11 +126,26 @@ class OxideCompositions:
     # ------------------------------------------------------------------
 
     def run(self) -> None:
-        """Generate and save composition_list.xlsx."""
+        """Generate and save ``composition_list.xlsx``.
+
+        Convenience entry point that delegates to
+        :meth:`generate_composition_list`.
+        """
         self.generate_composition_list()
 
     def generate_composition_list(self) -> None:
-        """Section 1 — enumerate systems and save ``composition_list.xlsx``."""
+        """Enumerate systems and write ``composition_list.xlsx``.
+
+        Builds all primary-element combinations via :class:`BladeCompositions`,
+        then augments the list with fixed-element and oxygen-bearing
+        combinations according to the ``include_*`` flags.  Pure single-element
+        rows are appended unconditionally so that elemental references are
+        always present.
+
+        The resulting DataFrame is deduplicated, sorted by
+        ``(metal_composition, both_composition, composition)``, and saved to
+        ``{files_dir}/composition_list.xlsx``.
+        """
         self.files_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate primary + user secondary combinations (secondary_min/max control A-site mixing only)
@@ -185,9 +220,8 @@ class OxideCompositions:
             elif has_fixed and not has_O:
                 if not self.include_fixed:
                     continue
-            else:  # no O, no fixed element — pure metals
-                if not self.include_no_oxygen:
-                    continue
+            elif not self.include_no_oxygen:
+                continue
 
             metals_only = sorted(el for el in comp if el not in non_primary)
             both_only = sorted(el for el in comp if el in non_primary)
@@ -200,7 +234,7 @@ class OxideCompositions:
                 "n_elements": len(comp_sorted),
             }
             for i in range(max_len):
-                row[f"element_{i+1}"] = comp_sorted[i] if i < len(comp_sorted) else ""
+                row[f"element_{i + 1}"] = comp_sorted[i] if i < len(comp_sorted) else ""
             rows.append(row)
 
         comp_df = pd.DataFrame(rows)

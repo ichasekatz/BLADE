@@ -191,11 +191,11 @@ def setup_system() -> SystemConfig:
 def _csv_complete(path: "Path", expected_rows: int, tol: float = 0.99) -> bool:
     """Return True if CSV exists and has at least tol × expected_rows data rows."""
     try:
-        import pandas as _pd
+        import pandas as pd
 
         if not path.exists():
             return False
-        df = _pd.read_csv(path)
+        df = pd.read_csv(path)
         return len(df) >= int(expected_rows * tol)
     except Exception:
         return False
@@ -207,9 +207,9 @@ def _component_presence_threshold() -> float:
 
 def _component_cache_matches(path: "Path") -> bool:
     try:
-        import pandas as _pd
+        import pandas as pd
 
-        values = _pd.read_csv(path, usecols=["component_presence_threshold"])
+        values = pd.read_csv(path, usecols=["component_presence_threshold"])
         return not values.empty and np.allclose(
             values["component_presence_threshold"].to_numpy(dtype=float),
             _component_presence_threshold(),
@@ -274,20 +274,20 @@ def _solve_row(A_eq, b_eq, grand, phase_ids, phase_kinds, phase_y, phase_O, phas
     n = len(phase_ids)
     amounts, omega, ok = solve_grand_lp(A_eq, b_eq, grand)
     if not ok:
-        return dict(
-            ok=False,
-            amounts=np.full(n, np.nan),
-            omega=np.nan,
-            fracs=np.full(n, np.nan),
-            absorbed_O=np.nan,
-            phase_amt=np.nan,
-            avg_y=np.nan,
-            y_min=np.nan,
-            y_max=np.nan,
-            n_active_phase=0,
-            exact_label="no feasible assemblage",
-            family_label="no feasible assemblage",
-        )
+        return {
+            "ok": False,
+            "amounts": np.full(n, np.nan),
+            "omega": np.nan,
+            "fracs": np.full(n, np.nan),
+            "absorbed_O": np.nan,
+            "phase_amt": np.nan,
+            "avg_y": np.nan,
+            "y_min": np.nan,
+            "y_max": np.nan,
+            "n_active_phase": 0,
+            "exact_label": "no feasible assemblage",
+            "family_label": "no feasible assemblage",
+        }
     total_amt = np.nansum(amounts)
     fracs = amounts / total_amt if total_amt > 0 else amounts.copy()
     fracs[np.abs(fracs) < ACTIVE_THRESHOLD] = 0.0
@@ -312,40 +312,40 @@ def _solve_row(A_eq, b_eq, grand, phase_ids, phase_kinds, phase_y, phase_O, phas
         family_values=amounts,
         family_threshold_inclusive=INCLUDE_0P01_TO_0P05_COMPONENTS,
     )
-    return dict(
-        ok=True,
-        amounts=amounts,
-        omega=omega,
-        fracs=fracs,
-        absorbed_O=absorbed_O,
-        phase_amt=bamt,
-        avg_y=avg_y,
-        y_min=y_min,
-        y_max=y_max,
-        n_active_phase=n_ab,
-        exact_label=el,
-        family_label=fl,
-    )
+    return {
+        "ok": True,
+        "amounts": amounts,
+        "omega": omega,
+        "fracs": fracs,
+        "absorbed_O": absorbed_O,
+        "phase_amt": bamt,
+        "avg_y": avg_y,
+        "y_min": y_min,
+        "y_max": y_max,
+        "n_active_phase": n_ab,
+        "exact_label": el,
+        "family_label": fl,
+    }
 
 
 def _process_row(amounts, omega, ok, phase_ids, phase_kinds, phase_y, phase_O, phase_mask, phase_label, metals=None):
     """Post-LP processing — same logic as _solve_row but accepts pre-solved (amounts,omega,ok)."""
     n = len(phase_ids)
     if not ok:
-        return dict(
-            ok=False,
-            amounts=np.full(n, np.nan),
-            omega=np.nan,
-            fracs=np.full(n, np.nan),
-            absorbed_O=np.nan,
-            phase_amt=np.nan,
-            avg_y=np.nan,
-            y_min=np.nan,
-            y_max=np.nan,
-            n_active_phase=0,
-            exact_label="no feasible assemblage",
-            family_label="no feasible assemblage",
-        )
+        return {
+            "ok": False,
+            "amounts": np.full(n, np.nan),
+            "omega": np.nan,
+            "fracs": np.full(n, np.nan),
+            "absorbed_O": np.nan,
+            "phase_amt": np.nan,
+            "avg_y": np.nan,
+            "y_min": np.nan,
+            "y_max": np.nan,
+            "n_active_phase": 0,
+            "exact_label": "no feasible assemblage",
+            "family_label": "no feasible assemblage",
+        }
     total_amt = np.nansum(amounts)
     fracs = amounts / total_amt if total_amt > 0 else amounts.copy()
     fracs[np.abs(fracs) < ACTIVE_THRESHOLD] = 0.0
@@ -370,20 +370,20 @@ def _process_row(amounts, omega, ok, phase_ids, phase_kinds, phase_y, phase_O, p
         family_values=amounts,
         family_threshold_inclusive=INCLUDE_0P01_TO_0P05_COMPONENTS,
     )
-    return dict(
-        ok=True,
-        amounts=amounts,
-        omega=omega,
-        fracs=fracs,
-        absorbed_O=absorbed_O,
-        phase_amt=bamt,
-        avg_y=avg_y,
-        y_min=y_min,
-        y_max=y_max,
-        n_active_phase=n_ab,
-        exact_label=el,
-        family_label=fl,
-    )
+    return {
+        "ok": True,
+        "amounts": amounts,
+        "omega": omega,
+        "fracs": fracs,
+        "absorbed_O": absorbed_O,
+        "phase_amt": bamt,
+        "avg_y": avg_y,
+        "y_min": y_min,
+        "y_max": y_max,
+        "n_active_phase": n_ab,
+        "exact_label": el,
+        "family_label": fl,
+    }
 
 
 def _build_region_details(
@@ -411,7 +411,7 @@ def _build_region_details(
     presence = np.asarray(wide_f, dtype=float) if presence_values is None else np.asarray(presence_values, dtype=float)
     fixed_cols = defaultdict(list)
     phase_cols = defaultdict(list)
-    for idx, (pid, kind) in enumerate(zip(phase_ids, phase_kinds)):
+    for idx, (pid, kind) in enumerate(zip(phase_ids, phase_kinds, strict=False)):
         if kind == "phase":
             phase_cols[_phase_component_signature(pid, metals)].append(idx)
         else:
@@ -450,7 +450,7 @@ def _build_region_details(
             if len(vals) == 0:
                 continue
             active_local = np.any(cell_values > min_frac, axis=0)
-            active_cols = [col for col, active in zip(cols, active_local) if active]
+            active_cols = [col for col, active in zip(cols, active_local, strict=False) if active]
             name = _phase_comp_range_label(
                 np.asarray(phase_ids, dtype=object)[active_cols],
                 metals,
@@ -602,9 +602,9 @@ def run_oxidation_scan(cfg: SystemConfig, pd_data: dict) -> None:
 
 
 def _plot_scan(sum_df, long_df, cfg: SystemConfig, oxygen_label: str) -> None:
-    import matplotlib
+    import matplotlib as mpl
 
-    matplotlib.use("Agg")
+    mpl.use("Agg")
     import matplotlib.pyplot as plt
     from thermodynamics import _phase_comp_label
 
@@ -626,8 +626,8 @@ def _plot_scan(sum_df, long_df, cfg: SystemConfig, oxygen_label: str) -> None:
         lmask = (np.abs(long_df["T_K"] - T) < 1e-12) & (long_df["kind"] == "fixed")
         if PLOT_SCAN_NONPHASE and lmask.any():
             fig, ax = plt.subplots(figsize=(10, 6))
-            for pid, grp in long_df[lmask].groupby("phase_id"):
-                grp = grp.sort_values("oxygen_axis")
+            for pid, grp_raw in long_df[lmask].groupby("phase_id"):
+                grp = grp_raw.sort_values("oxygen_axis")
                 fracs = grp["phase_fraction_formula"].values
                 if SCAN_PLOT_ONLY_ACTIVE and fracs.max() < PLOT_THRESHOLD:
                     continue
@@ -681,8 +681,8 @@ def _plot_scan(sum_df, long_df, cfg: SystemConfig, oxygen_label: str) -> None:
                 for pid in sb["phase_id"].values
             ]
             grouped = sb.groupby(["display_phase", "oxygen_axis"], as_index=False)["phase_fraction_formula"].sum()
-            for label, grp in grouped.groupby("display_phase", sort=True):
-                grp = grp.sort_values("oxygen_axis")
+            for label, grp_raw in grouped.groupby("display_phase", sort=True):
+                grp = grp_raw.sort_values("oxygen_axis")
                 if grp["phase_fraction_formula"].max() <= PLOT_THRESHOLD:
                     continue
                 ax_frac.plot(
@@ -955,10 +955,10 @@ def run_muO_x_map(cfg: SystemConfig, pd_data: dict) -> None:
 
 
 def run_muO_T_map(cfg: SystemConfig, pd_data: dict) -> None:
-    import matplotlib
+    import matplotlib as mpl
     import pandas as pd
 
-    matplotlib.use("Agg")
+    mpl.use("Agg")
     M1, M2, tag = cfg.metals[0], cfg.metals[1], cfg.tag
     sys_str = "–".join(cfg.metals + ([cfg.phase_element] if cfg.phase_element else []))
     mu_o_vals = MAP_T_MU_O
@@ -1129,9 +1129,9 @@ def run_muO_T_map(cfg: SystemConfig, pd_data: dict) -> None:
 def _plot_muO_T(
     mu_o_vals, T_vals, region_grid, rlabels, x, M1, M2, out_dir, sys_str=None, region_details=None, cell_text_grid=None
 ):
-    import matplotlib
+    import matplotlib as mpl
 
-    matplotlib.use("Agg")
+    mpl.use("Agg")
     import matplotlib.patches as mpatches
     import matplotlib.pyplot as plt
     from thermodynamics import (
@@ -1255,9 +1255,9 @@ def _plot_muO_T(
 
 
 def _plot_scalar_maps_T(mu_o_vals, T_vals, df, M1, M2, out_dir, sys_str=None):
-    import matplotlib
+    import matplotlib as mpl
 
-    matplotlib.use("Agg")
+    mpl.use("Agg")
     import matplotlib.pyplot as plt
 
     if sys_str is None:
@@ -1287,11 +1287,11 @@ def _plot_scalar_maps_T(mu_o_vals, T_vals, df, M1, M2, out_dir, sys_str=None):
 
 
 def run_fixed_phase_map(cfg: SystemConfig, pd_data: dict) -> None:
-    import matplotlib
+    import matplotlib as mpl
     import matplotlib.pyplot as plt
     import pandas as pd
 
-    matplotlib.use("Agg")
+    mpl.use("Agg")
     M1, M2, tag = cfg.metals[0], cfg.metals[1], cfg.tag
     sys_str = "–".join(cfg.metals + ([cfg.phase_element] if cfg.phase_element else []))
     x_values = MAP_X_X_VALUES
@@ -1363,11 +1363,7 @@ def run_fixed_phase_map(cfg: SystemConfig, pd_data: dict) -> None:
         if n_metals_local == 2:
             bid = f"{cfg.phase_label}_y={y_phase[0]:.4f}"
         else:
-            bid = (
-                cfg.phase_label
-                + "_"
-                + "_".join(f"{metals_local[k]}={y_phase[k]:.4f}" for k in range(n_metals_local - 1))
-            )
+            bid = cfg.phase_label + "_" + "_".join(f"{metals_local[k]}={y_phase[k]:.4f}" for k in range(n_metals_local - 1))
 
         pids = np.concatenate([fixed_ids, [bid]])
         pkinds = np.concatenate([np.full(n_fixed, "fixed"), ["phase"]])
@@ -1404,7 +1400,7 @@ def run_fixed_phase_map(cfg: SystemConfig, pd_data: dict) -> None:
                     onset[ix] = mu_o
                     onset_found = True
         if (ix + 1) % max(1, n_x // 10) == 0 or ix == n_x - 1:
-            print(f"    {ix+1}/{n_x} x done")
+            print(f"    {ix + 1}/{n_x} x done")
 
     region_ids, rlabels = assign_region_ids(fam_l.tolist())
     state_x = np.repeat(x_values, n_mu)
@@ -1516,7 +1512,7 @@ def _simplex_prism_wireframe(mu_min, mu_max, color="rgba(40,40,40,0.7)", width=3
 
     verts = [(1.0, 0.0), (0.0, 1.0), (0.0, 0.0)]
     traces = []
-    kw = dict(mode="lines", line=dict(color=color, width=width), showlegend=False)
+    kw = {"mode": "lines", "line": {"color": color, "width": width}, "showlegend": False}
     # Top and bottom triangles
     for mu in [mu_min, mu_max]:
         xs = [v[0] for v in verts] + [verts[0][0]]
@@ -1602,9 +1598,9 @@ def run_ternary_3d_map(cfg: SystemConfig, pd_data: dict) -> None:
       - Scatter: each LP solution coloured by total phase fraction.
       - Surface: oxidation onset μO as a function of composition.
     """
-    import matplotlib
+    import matplotlib as mpl
 
-    matplotlib.use("Agg")
+    mpl.use("Agg")
     import matplotlib.pyplot as plt
     import pandas as pd
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
@@ -1655,14 +1651,12 @@ def run_ternary_3d_map(cfg: SystemConfig, pd_data: dict) -> None:
         s_bfrac = df_sc["phase_fraction"].to_numpy(dtype=float)
         s_by1 = df_sc[f"phase_y_{M1}"].to_numpy(dtype=float)
         s_by2 = df_sc[f"phase_y_{M2}"].to_numpy(dtype=float)
-        comp_pts = list(zip(df_on[f"x_{M1}"], df_on[f"x_{M2}"], df_on[f"x_{M3}"]))
+        comp_pts = list(zip(df_on[f"x_{M1}"], df_on[f"x_{M2}"], df_on[f"x_{M3}"], strict=False))
         onset_mu = df_on["onset_muO_eV"].to_numpy(dtype=float)
     else:
         if not ALLOW_CALCULATIONS:
-            raise RuntimeError("plot-only mode requires both ternary caches: " f"{scatter_csv} and {onset_csv_path}")
-        comp_pts, s_x1, s_x2, s_mu, s_bfrac, s_by1, s_by2, onset_mu = _calculate_ternary_3d(
-            cfg, pd_data, T, mu_o_vals, comp_step
-        )
+            raise RuntimeError(f"plot-only mode requires both ternary caches: {scatter_csv} and {onset_csv_path}")
+        comp_pts, s_x1, s_x2, s_mu, s_bfrac, s_by1, s_by2, onset_mu = _calculate_ternary_3d(cfg, pd_data, T, mu_o_vals, comp_step)
         pd.DataFrame(
             {
                 f"x_{M1}_initial": s_x1,
@@ -1705,15 +1699,15 @@ def run_ternary_3d_map(cfg: SystemConfig, pd_data: dict) -> None:
                 y=s_mu[beq_ok],
                 z=s_by2[beq_ok],
                 mode="markers",
-                marker=dict(
-                    size=3,
-                    color=s_bfrac[beq_ok],
-                    colorscale="Viridis",
-                    opacity=0.6,
-                    cmin=0,
-                    cmax=1,
-                    colorbar=dict(title="phase<br>fraction"),
-                ),
+                marker={
+                    "size": 3,
+                    "color": s_bfrac[beq_ok],
+                    "colorscale": "Viridis",
+                    "opacity": 0.6,
+                    "cmin": 0,
+                    "cmax": 1,
+                    "colorbar": {"title": "phase<br>fraction"},
+                },
                 hovertemplate=(
                     f"phase {M1}=%{{x:.3f}}<br>μO=%{{y:.3f}} eV<br>"
                     f"phase {M2}=%{{z:.3f}}<br>fraction=%{{marker.color:.3f}}<extra></extra>"
@@ -1727,11 +1721,11 @@ def run_ternary_3d_map(cfg: SystemConfig, pd_data: dict) -> None:
             f"{sys_str} — equilibrium phase composition vs μO, T={T} K<br>"
             f"<sub>x/y/z = phase {M1}/{M2}/{M3} fractions; colour = total phase fraction</sub>"
         ),
-        scene=dict(
-            xaxis=dict(title=f"phase x_{M1}", range=[0, 1]),
-            yaxis=dict(title="μO (eV/O)"),
-            zaxis=dict(title=f"phase x_{M2}", range=[0, 1]),
-        ),
+        scene={
+            "xaxis": {"title": f"phase x_{M1}", "range": [0, 1]},
+            "yaxis": {"title": "μO (eV/O)"},
+            "zaxis": {"title": f"phase x_{M2}", "range": [0, 1]},
+        },
         width=950,
         height=800,
     )
@@ -1777,11 +1771,9 @@ def run_ternary_3d_map(cfg: SystemConfig, pd_data: dict) -> None:
                 y=s_mu[mask],
                 z=s_x2[mask],
                 mode="markers",
-                marker=dict(size=3, color=color, opacity=0.5),
+                marker={"size": 3, "color": color, "opacity": 0.5},
                 name=name,
-                hovertemplate=(
-                    f"init x_{M1}=%{{x:.2f}}<br>μO=%{{y:.3f}} eV<br>" f"init x_{M2}=%{{z:.2f}}<extra></extra>"
-                ),
+                hovertemplate=(f"init x_{M1}=%{{x:.2f}}<br>μO=%{{y:.3f}} eV<br>init x_{M2}=%{{z:.2f}}<extra></extra>"),
             )
         )
     pf2.update_layout(
@@ -1790,14 +1782,14 @@ def run_ternary_3d_map(cfg: SystemConfig, pd_data: dict) -> None:
             f"<sub>x/z = initial {M1}/{M2} fraction; y = μO; "
             f"surfaces at phase fraction = 0.1, 0.5, 0.9</sub>"
         ),
-        scene=dict(
-            xaxis=dict(title=f"initial x_{M1}", range=[0, 1]),
-            yaxis=dict(title="μO (eV/O)"),
-            zaxis=dict(title=f"initial x_{M2}", range=[0, 1]),
-        ),
+        scene={
+            "xaxis": {"title": f"initial x_{M1}", "range": [0, 1]},
+            "yaxis": {"title": "μO (eV/O)"},
+            "zaxis": {"title": f"initial x_{M2}", "range": [0, 1]},
+        },
         width=950,
         height=800,
-        legend=dict(x=0.01, y=0.99),
+        legend={"x": 0.01, "y": 0.99},
     )
     if PLOT_3D_BOUNDARY:
         pf2.write_html(str(out_dir / "oxidation_boundary_3d.html"))
@@ -1822,7 +1814,7 @@ def run_ternary_3d_map(cfg: SystemConfig, pd_data: dict) -> None:
 
         # Base triangle outline on the simplex floor
 
-        base_kw = dict(mode="lines", line=dict(color="rgba(40,40,40,0.6)", width=3), showlegend=False)
+        base_kw = {"mode": "lines", "line": {"color": "rgba(40,40,40,0.6)", "width": 3}, "showlegend": False}
         mu_floor = float(mu_on.min()) - 0.05
         base_xs = [1, 0, 0, 1]
         base_ys = [0, 1, 0, 0]
@@ -1834,22 +1826,20 @@ def run_ternary_3d_map(cfg: SystemConfig, pd_data: dict) -> None:
                     z=mu_on,
                     intensity=mu_on,
                     colorscale="Plasma",
-                    colorbar=dict(title="onset μO<br>(eV/O)"),
+                    colorbar={"title": "onset μO<br>(eV/O)"},
                     opacity=0.9,
-                    hovertemplate=(
-                        f"init x_{M1}=%{{x:.3f}}<br>init x_{M2}=%{{y:.3f}}<br>" f"onset=%{{z:.3f}} eV<extra></extra>"
-                    ),
+                    hovertemplate=(f"init x_{M1}=%{{x:.3f}}<br>init x_{M2}=%{{y:.3f}}<br>onset=%{{z:.3f}} eV<extra></extra>"),
                 ),
                 go.Scatter3d(x=base_xs, y=base_ys, z=[mu_floor] * 4, **base_kw),
             ]
         )
         ps.update_layout(
             title=f"{sys_str} — oxidation onset surface, T={T} K",
-            scene=dict(
-                xaxis_title=f"initial x_{M1}",
-                yaxis_title=f"initial x_{M2}",
-                zaxis_title="onset μO (eV/O)",
-            ),
+            scene={
+                "xaxis_title": f"initial x_{M1}",
+                "yaxis_title": f"initial x_{M2}",
+                "zaxis_title": "onset μO (eV/O)",
+            },
             width=950,
             height=800,
         )
@@ -1857,9 +1847,7 @@ def run_ternary_3d_map(cfg: SystemConfig, pd_data: dict) -> None:
 
     # ---- Ternary onset diagram ----
     if PLOT_3D_TERNARY_DIAG:
-        _add_ternary_diagram(
-            out_dir, comp_pts, onset_mu, mu_o_vals, comp_step, M1, M2, M3, sys_str, T, tag, plt, go, np
-        )
+        _add_ternary_diagram(out_dir, comp_pts, onset_mu, mu_o_vals, comp_step, M1, M2, M3, sys_str, T, tag, plt, go, np)
 
     print(f"  Figures → {out_dir}")
 
@@ -1907,8 +1895,7 @@ def _compile_system_animations(cfg: SystemConfig) -> None:
             raw = [imageio.imread(str(f)) for f in frames]
             h0, w0 = raw[0].shape[:2]
             imgs = [
-                np.array(_PIL.fromarray(img).resize((w0, h0), _PIL.LANCZOS)) if img.shape[:2] != (h0, w0) else img
-                for img in raw
+                np.array(_PIL.fromarray(img).resize((w0, h0), _PIL.LANCZOS)) if img.shape[:2] != (h0, w0) else img for img in raw
             ]
             imageio.mimsave(str(out_gif), imgs, fps=fps, loop=0)
         except ImportError:
@@ -1955,6 +1942,7 @@ def _compile_system_animations(cfg: SystemConfig) -> None:
                             str(out_mp4),
                         ],
                         capture_output=True,
+                        check=False,
                     )
                 except Exception:
                     pass
@@ -2030,16 +2018,16 @@ def _add_ternary_diagram(out_dir, comp_pts, onset_mu, mu_o_vals, comp_step, M1, 
             b=x2_all,
             c=x3_all,
             mode="markers",
-            marker=dict(
-                size=12,
-                color=resist_filled,
-                colorscale="RdYlGn",
-                cmin=0,
-                cmax=max(max_r, 0.01),
-                colorbar=dict(title=f"onset − ({mu_baseline:.0f}) eV"),
-                symbol="circle",
-                line=dict(color="grey", width=0.5),
-            ),
+            marker={
+                "size": 12,
+                "color": resist_filled,
+                "colorscale": "RdYlGn",
+                "cmin": 0,
+                "cmax": max(max_r, 0.01),
+                "colorbar": {"title": f"onset − ({mu_baseline:.0f}) eV"},
+                "symbol": "circle",
+                "line": {"color": "grey", "width": 0.5},
+            },
             hovertemplate=(
                 f"x_{M1}=%{{a:.3f}}<br>x_{M2}=%{{b:.3f}}<br>x_{M3}=%{{c:.3f}}<br>"
                 f"resistance=%{{marker.color:.3f}} eV<extra></extra>"
@@ -2048,7 +2036,7 @@ def _add_ternary_diagram(out_dir, comp_pts, onset_mu, mu_o_vals, comp_step, M1, 
     )
     ptern.update_layout(
         title=f"{sys_str} — oxidation resistance, T={T} K (green=resistant, red=early oxidation)",
-        ternary=dict(aaxis=dict(title=f"x_{M1}"), baxis=dict(title=f"x_{M2}"), caxis=dict(title=f"x_{M3}")),
+        ternary={"aaxis": {"title": f"x_{M1}"}, "baxis": {"title": f"x_{M2}"}, "caxis": {"title": f"x_{M3}"}},
         width=800,
         height=700,
     )
@@ -2071,9 +2059,7 @@ def _add_ternary_diagram(out_dir, comp_pts, onset_mu, mu_o_vals, comp_step, M1, 
     # Clip to triangle boundary
     _tri_path = MplPath([(0.0, 0.0), (1.0, 0.0), (0.5, sqrt3_2), (0.0, 0.0)])
     hb.set_clip_path(PathPatch(_tri_path, transform=ax_t.transData))
-    fig_t.colorbar(
-        hb, ax=ax_t, fraction=0.03, pad=0.02, label=f"onset − ({mu_baseline:.0f}) eV  (oxidation resistance)"
-    )
+    fig_t.colorbar(hb, ax=ax_t, fraction=0.03, pad=0.02, label=f"onset − ({mu_baseline:.0f}) eV  (oxidation resistance)")
     off = 0.04
     ax_t.set_ylim(-0.08, sqrt3_2 + 0.15)  # headroom so top vertex label clears title
     ax_t.text(-off, -off, M1, ha="right", va="top", fontsize=13, fontweight="bold")

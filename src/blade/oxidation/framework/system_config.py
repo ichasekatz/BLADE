@@ -10,7 +10,6 @@ import json
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import List
 
 import numpy as np
 
@@ -24,7 +23,7 @@ def _stoichiometric_suffix(element: str | None, stoichiometry: float) -> str:
 
 @dataclass
 class SystemConfig:
-    metals: List[str]
+    metals: list[str]
     phase_label: str
     tag: str
     tables_dir: str  # absolute path
@@ -87,7 +86,7 @@ class SystemConfig:
 
     def save(self) -> None:
         self.tables.mkdir(parents=True, exist_ok=True)
-        with open(self.config_file, "w") as f:
+        with self.config_file.open("w") as f:
             json.dump(asdict(self), f, indent=2)
 
     # ---- Construction -----------------------------------------------------
@@ -105,7 +104,7 @@ class SystemConfig:
         """Find or build SystemConfig. Priority:
         1. Existing *_system_config.json matching metals (if given)
         2. Auto-detect from data_root/blade_subdir/
-        3. Auto-detect from existing *_phase_table.csv columns
+        3. Auto-detect from existing *_phase_table.csv columns.
         """
         tables_dir = Path(tables_dir)
         tables_dir.mkdir(parents=True, exist_ok=True)
@@ -122,7 +121,7 @@ class SystemConfig:
 
         # 1. Try existing config JSON
         for cfg_file in sorted(tables_dir.glob("*_system_config.json")):
-            with open(cfg_file) as f:
+            with cfg_file.open() as f:
                 data = json.load(f)
             cfg_metals = data.get("metals", [])
             if metals and sorted(metals) != sorted(cfg_metals):
@@ -156,8 +155,7 @@ class SystemConfig:
 
         if not metals or len(metals) < 2:
             raise ValueError(
-                f"Cannot determine metals. Set DATA_ROOT to a folder with {blade_subdir!r} subdirs, "
-                "or set metals explicitly."
+                f"Cannot determine metals. Set DATA_ROOT to a folder with {blade_subdir!r} subdirs, or set metals explicitly."
             )
 
         suffix = _stoichiometric_suffix(phase_element, phase_element_stoichiometry)
@@ -195,7 +193,7 @@ class SystemConfig:
         """Read column names from *_phase_table.csv → metal columns."""
         non_metal = {"phase_id", "O", "energy_eV_per_atom"}
         non_metal.update(excluded_elements or set())
-        with open(phase_table_file, newline="") as f:
+        with phase_table_file.open(newline="") as f:
             header = next(csv.reader(f))
         return sorted(c for c in header if c not in non_metal)
 
@@ -260,9 +258,7 @@ def prepare_tables(data_root: Path, cfg: SystemConfig, rk_order: int = 3) -> Non
         all_rows.append(row)
 
     if not all_rows:
-        raise RuntimeError(
-            f"No valid structures in {blade_dir}. " f"Expected directories containing a_{metals[0]}=3,a_{metals[1]}=1"
-        )
+        raise RuntimeError(f"No valid structures in {blade_dir}. Expected directories containing a_{metals[0]}=3,a_{metals[1]}=1")
 
     y_cols = [f"y_{m}_metal_site" for m in metals]
     all_rows.sort(key=lambda r: [r[c] for c in y_cols])
@@ -286,11 +282,7 @@ def prepare_tables(data_root: Path, cfg: SystemConfig, rk_order: int = 3) -> Non
     for i, m in enumerate(metals):
         eye = [0.0] * n_metals
         eye[i] = 1.0
-        eps = [
-            r["energy_eV_per_formula"]
-            for r in all_rows
-            if all(abs(r[y_cols[k]] - eye[k]) < 1e-10 for k in range(n_metals))
-        ]
+        eps = [r["energy_eV_per_formula"] for r in all_rows if all(abs(r[y_cols[k]] - eye[k]) < 1e-10 for k in range(n_metals))]
         if not eps:
             raise ValueError(f"Missing pure endpoint y_{m}=1 in {blade_dir} data")
         h_ep[i] = eps[0]
@@ -371,10 +363,7 @@ def prepare_tables(data_root: Path, cfg: SystemConfig, rk_order: int = 3) -> Non
                 "value_eV_per_atom": ternary_coeff / (1.0 + phase_stoich),
             }
         )
-        print(
-            f'  Ternary L^{{{",".join(metals)}}} = {ternary_coeff:.6f} eV  '
-            f"(global fit over {len(basis_rows)} structures)"
-        )
+        print(f"  Ternary L^{{{','.join(metals)}}} = {ternary_coeff:.6f} eV  (global fit over {len(basis_rows)} structures)")
 
     _write_csv(cfg.interaction_coeff_file, ["pair", "term", "value_eV_per_formula", "value_eV_per_atom"], rk_rows)
     print(f"  Wrote {cfg.interaction_coeff_file}")
@@ -404,8 +393,7 @@ def prepare_tables(data_root: Path, cfg: SystemConfig, rk_order: int = 3) -> Non
     phase_rows = []
     if not fixed_dir.is_dir():
         raise FileNotFoundError(
-            f"Fixed-phase directory not found: {fixed_dir}. "
-            f"Set fixed_phases_subdir in run_simple.py to the correct folder name."
+            f"Fixed-phase directory not found: {fixed_dir}. Set fixed_phases_subdir in run_simple.py to the correct folder name."
         )
     for d in fixed_dir.iterdir():
         if not d.is_dir():
@@ -448,7 +436,7 @@ def prepare_tables(data_root: Path, cfg: SystemConfig, rk_order: int = 3) -> Non
 
     # ---- Human-readable model summary ----------------------------------
     lines = [
-        f'Phase: {"_".join(f"{m}_y{i}" for i,m in enumerate(metals))} target',
+        f"Phase: {'_'.join(f'{m}_y{i}' for i, m in enumerate(metals))} target",
         "",
         "RK/Muggianu model:",
         "  H(y) = sum_i y_i * H_i + sum_{i<j} y_i*y_j * sum_k L_k^{ij}*(y_i-y_j)^k",
@@ -552,8 +540,8 @@ def _read_contcar_counts(path: Path, elements: list) -> dict:
         raise ValueError(f"CONTCAR too short: {path}")
     syms = lines[5].split()
     counts = list(map(int, lines[6].split()))
-    result = {e: 0 for e in elements}
-    for s, c in zip(syms, counts):
+    result = dict.fromkeys(elements, 0)
+    for s, c in zip(syms, counts, strict=False):
         if s in result:
             result[s] += c
     return result
@@ -579,7 +567,7 @@ def _reduce_counts(counts: dict) -> dict:
 
 
 def _write_csv(path: Path, fieldnames: list, rows: list) -> None:
-    with open(path, "w", newline="") as f:
+    with path.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)

@@ -19,14 +19,13 @@ MPI warning:
 
 from __future__ import annotations
 
-import os
+import contextlib
 import re
 import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 from ase import Atoms
@@ -158,35 +157,34 @@ def _build_scraps_config(
             placeholder_to_atat[ph] = f"{letter}_A"
             for bi in basis_idxs:
                 spectator_pairs.append((bi, sp_idx))
+        elif len(basis_idxs) == 1 or not fix_multibasis_sublattice:
+            # Single-basis sublattice OR fix disabled → standard SUBLATTICE block.
+            sub_sp_idxs: list[int] = []
+            for rank, frac in enumerate(fracs):
+                ph = _PLACEHOLDER_POOL[pool_idx % len(_PLACEHOLDER_POOL)]
+                pool_idx += 1
+                sp_idx = len(species)
+                species.append(ph)
+                n = int(round(frac * n_sites))
+                element_counts.append(n)
+                placeholder_to_atat[ph] = f"{letter}_{rank_labels[rank]}"
+                sub_sp_idxs.append(sp_idx)
+            sub_id = len(sublattice_blocks)
+            sublattice_blocks.append((sub_id, list(basis_idxs), sub_sp_idxs))
         else:
-            if len(basis_idxs) == 1 or not fix_multibasis_sublattice:
-                # Single-basis sublattice OR fix disabled → standard SUBLATTICE block.
-                sub_sp_idxs: list[int] = []
-                for rank, frac in enumerate(fracs):
-                    ph = _PLACEHOLDER_POOL[pool_idx % len(_PLACEHOLDER_POOL)]
-                    pool_idx += 1
-                    sp_idx = len(species)
-                    species.append(ph)
-                    n = int(round(frac * n_sites))
-                    element_counts.append(n)
-                    placeholder_to_atat[ph] = f"{letter}_{rank_labels[rank]}"
-                    sub_sp_idxs.append(sp_idx)
-                sub_id = len(sublattice_blocks)
-                sublattice_blocks.append((sub_id, list(basis_idxs), sub_sp_idxs))
-            else:
-                # Multi-basis variable sublattice with fix enabled: one spectator per
-                # basis atom cycling through fraction-ranked species.  Avoids SCRAPS's
-                # uniformity check failure when basis atoms are 0.5c apart (e.g. 2d
-                # fixed Wyckoff site). Elements are present but not optimized.
-                for rank, bi in enumerate(basis_idxs):
-                    species_rank = rank % len(fracs)
-                    ph = _PLACEHOLDER_POOL[pool_idx % len(_PLACEHOLDER_POOL)]
-                    pool_idx += 1
-                    sp_idx = len(species)
-                    species.append(ph)
-                    element_counts.append(cell_vol)
-                    placeholder_to_atat[ph] = f"{letter}_{rank_labels[species_rank]}"
-                    spectator_pairs.append((bi, sp_idx))
+            # Multi-basis variable sublattice with fix enabled: one spectator per
+            # basis atom cycling through fraction-ranked species.  Avoids SCRAPS's
+            # uniformity check failure when basis atoms are 0.5c apart (e.g. 2d
+            # fixed Wyckoff site). Elements are present but not optimized.
+            for rank, bi in enumerate(basis_idxs):
+                species_rank = rank % len(fracs)
+                ph = _PLACEHOLDER_POOL[pool_idx % len(_PLACEHOLDER_POOL)]
+                pool_idx += 1
+                sp_idx = len(species)
+                species.append(ph)
+                element_counts.append(cell_vol)
+                placeholder_to_atat[ph] = f"{letter}_{rank_labels[species_rank]}"
+                spectator_pairs.append((bi, sp_idx))
 
     for elem, b_idxs in sorted(fix_sites.items()):
         n_sites = len(b_idxs) * cell_vol
@@ -234,7 +232,7 @@ def _write_bestsqs(
         lines.append(f"{v[0]:.10f} {v[1]:.10f} {v[2]:.10f}")
     for v in sup_prim:
         lines.append(f"{v[0]:.10f} {v[1]:.10f} {v[2]:.10f}")
-    for pos, sym in zip(pos_prim, syms):
+    for pos, sym in zip(pos_prim, syms, strict=False):
         label = placeholder_to_atat.get(sym, sym)
         lines.append(f"{pos[0]:.10f} {pos[1]:.10f} {pos[2]:.10f} {label}")
 
@@ -276,12 +274,12 @@ class ScrapsSQSGen:
         level: int,
         len_comp: int,
         skip_existing_sqs: bool = False,
-        sublattice_map: Optional[dict] = None,
-        sqsgen_in: Optional[str] = None,
-        fixed_compositions: Optional[dict] = None,
-        scraps_bin: Optional[Path] = None,
-        scraps_tools: Optional[Path] = None,
-        mpirun: Optional[str] = None,
+        sublattice_map: dict | None = None,
+        sqsgen_in: str | None = None,
+        fixed_compositions: dict | None = None,
+        scraps_bin: Path | None = None,
+        scraps_tools: Path | None = None,
+        mpirun: str | None = None,
         ranks: int = 4,
         auto_budget: int = 2,
         max_shellnum: int = 2,
@@ -364,7 +362,7 @@ class ScrapsSQSGen:
 
         if self.scraps_bin is None or not self.scraps_bin.exists():
             raise FileNotFoundError(
-                f"SCRAPS binary not found at {self.scraps_bin}. " "Pass scraps_bin= or run build.sh in scraps-perpair/."
+                f"SCRAPS binary not found at {self.scraps_bin}. Pass scraps_bin= or run build.sh in scraps-perpair/."
             )
         if self._mpirun is None:
             raise RuntimeError("No mpirun found. Set MPIRUN env var or install OpenMPI.")
@@ -440,7 +438,7 @@ class ScrapsSQSGen:
         for i in range(n0):
             for j in range(n1):
                 for k in range(n2):
-                    for pos, lbl in zip(pos_list, site_labels):
+                    for pos, lbl in zip(pos_list, site_labels, strict=False):
                         px = pos[0] + i
                         py = pos[1] + j
                         pz = pos[2] + k
@@ -492,10 +490,7 @@ class ScrapsSQSGen:
         expected = n_basis * cell_vol
         total = sum(cfg["element_counts"])
         if total != expected:
-            print(
-                f"WARNING: element_counts sum {total} != expected {expected} "
-                f"in {sqsdir.name} — rounding mismatch, skipping"
-            )
+            print(f"WARNING: element_counts sum {total} != expected {expected} in {sqsdir.name} — rounding mismatch, skipping")
             return
 
         work_dir = sqsdir / "_scraps_run"
@@ -514,14 +509,14 @@ class ScrapsSQSGen:
 
         scraps_dest = work_dir / "scraps"
         shutil.copy(self.scraps_bin, scraps_dest)
-        os.chmod(scraps_dest, 0o755)
+        scraps_dest.chmod(0o755)
 
         log_path = work_dir / "scraps.log"
         cmd = [self._mpirun, "--oversubscribe", "-np", str(self.ranks), "./scraps"]
         print(f"SCRAPS {sqsdir.name}: {' '.join(cmd)}")
         t0 = time.time()
         with log_path.open("w") as fh:
-            rc = subprocess.run(cmd, cwd=work_dir, stdout=fh, stderr=subprocess.STDOUT).returncode
+            rc = subprocess.run(cmd, cwd=work_dir, stdout=fh, stderr=subprocess.STDOUT, check=False).returncode
         elapsed = time.time() - t0
 
         scraps_vasp = work_dir / "SCRAPS.vasp"
@@ -532,10 +527,8 @@ class ScrapsSQSGen:
         fitness = None
         for line in log_path.read_text().splitlines():
             if line.startswith("FINAL fitness"):
-                try:
+                with contextlib.suppress(Exception):
                     fitness = float(line.split("=")[-1].strip())
-                except Exception:
-                    pass
                 break
         print(f"  fitness={fitness}  wall={elapsed:.1f}s")
 
@@ -561,10 +554,8 @@ class ScrapsSQSGen:
             if log.exists():
                 for line in log.read_text().splitlines():
                     if line.startswith("FINAL fitness"):
-                        try:
+                        with contextlib.suppress(Exception):
                             fitness = float(line.split("=")[-1].strip())
-                        except Exception:
-                            pass
                         break
             if fitness is not None:
                 lines.append(f"{sqsdir.name}\t{fitness}")

@@ -1,13 +1,57 @@
 """SystemAnalyzer — runs all analyses for one system."""
 
+# ---------------------------------------------------------------------------
+# Split recommendations — logical sections that should become separate modules
+# ---------------------------------------------------------------------------
+# 1. analyzer_setup      — SystemAnalyzer.__init__, prepare(), load_phases(),
+#                          _ensure_imports().  Pure orchestration / plumbing.
+#
+# 2. cache_validation    — _cache_columns_match(), _slice_cache_matches(),
+#                          _slice_muT_cache_matches(), _onset_cache_matches(),
+#                          _component_cache_matches().  Self-contained;
+#                          only reads CSVs and compares coordinate arrays.
+#
+# 3. composition_specs   — _composition_slice_specs(), _composition_from_slice(),
+#                          _composition_grid_for_onset().  Pure combinatorics;
+#                          no I/O, no LP.
+#
+# 4. region_labeling     — _coarse_family_label(),
+#                          _merge_same_component_adjacent_regions(),
+#                          _phase_fraction_summary(),
+#                          _parse_phase_fraction_summary(),
+#                          _build_region_details_from_csv().  Depends only on
+#                          phase-id strings and fraction arrays.
+#
+# 5. lp_solver           — _solve_metrics(), _state_key(),
+#                          _load_reusable_scalar_states().  Wraps the grand-LP
+#                          and result extraction; no plotting.
+#
+# 6. plot_region_map     — _plot_region_map_png().  Matplotlib region-map
+#                          renderer; could be a standalone function.
+#
+# 7. plot_side_by_side   — _find_external_diagram(), _read_diagram_image(),
+#                          _plot_side_by_side().  External-diagram overlay;
+#                          depends on plot_region_map output path only.
+#
+# 8. plot_onset_auc      — _ternary_frame(), _plot_ternary_scalar(),
+#                          _plot_onset_auc_binary(), _plot_onset_auc_ternary().
+#                          Stateless static methods; trivially separable.
+#
+# 9. runners             — _run_composition_slice_maps(),
+#                          _run_composition_slice_muT_maps(),
+#                          _run_onset_auc_diagrams().  High-level loops that
+#                          call cache_validation + lp_solver + plotting.
+#                          These hold the inner-loop scheduling logic.
+# ---------------------------------------------------------------------------
+
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from .config import Config
 from .utils import (
     csv_has_rows,
     fmt_frac,
@@ -16,6 +60,9 @@ from .utils import (
     phase_short,
     system_key,
 )
+
+if TYPE_CHECKING:
+    from .config import Config
 
 
 class SystemAnalyzer:
@@ -241,7 +288,7 @@ class SystemAnalyzer:
         priority = [str(element).strip() for element in self.config.slice_axis_priority if str(element).strip()]
         priority_axes = [metal_lookup[element.lower()] for element in priority if element.lower() in metal_lookup]
         if priority and not priority_axes:
-            raise ValueError(f"none of the slice_axis_priority elements {priority} " f"are present in {metals}")
+            raise ValueError(f"none of the slice_axis_priority elements {priority} are present in {metals}")
         selector = priority_axes[0] if priority else self.config.slice_axis
         if selector is None:
             axes = list(range(n))
@@ -266,11 +313,7 @@ class SystemAnalyzer:
             ]
         specs = []
         ratio_values = sorted(
-            {
-                round(float(value), 12)
-                for value in self.config.slice_remainder_ratios
-                if -1e-12 <= float(value) <= 1.0 + 1e-12
-            }
+            {round(float(value), 12) for value in self.config.slice_remainder_ratios if -1e-12 <= float(value) <= 1.0 + 1e-12}
         )
         if not ratio_values:
             raise ValueError("slice_remainder_ratios must contain values from 0 to 1")
@@ -279,26 +322,16 @@ class SystemAnalyzer:
             if n == 3:
                 for ratio in ratio_values:
                     rem = [float(ratio), 1.0 - float(ratio)]
-                    name = (
-                        f"axis_{metals[axis]}_"
-                        f"{metals[others[0]]}{fmt_frac(rem[0])}_"
-                        f"{metals[others[1]]}{fmt_frac(rem[1])}"
-                    )
-                    label = (
-                        f"x_{metals[axis]}, remainder "
-                        f"{rem[0]:.2f}{metals[others[0]]}/"
-                        f"{rem[1]:.2f}{metals[others[1]]}"
-                    )
+                    name = f"axis_{metals[axis]}_{metals[others[0]]}{fmt_frac(rem[0])}_{metals[others[1]]}{fmt_frac(rem[1])}"
+                    label = f"x_{metals[axis]}, remainder {rem[0]:.2f}{metals[others[0]]}/{rem[1]:.2f}{metals[others[1]]}"
                     specs.append({"axis": axis, "remainder": rem, "name": name, "label": label})
             else:
-                remainder_grid = [
-                    list(values) for values in product(ratio_values, repeat=n - 1) if abs(sum(values) - 1.0) < 1e-9
-                ]
+                remainder_grid = [list(values) for values in product(ratio_values, repeat=n - 1) if abs(sum(values) - 1.0) < 1e-9]
                 if not remainder_grid:
                     remainder_grid = [[1.0 / (n - 1)] * (n - 1)]
                 for rem in remainder_grid:
-                    suffix = "_".join(f"{metals[index]}{fmt_frac(value)}" for index, value in zip(others, rem))
-                    split = "/".join(f"{value:.2f}{metals[index]}" for index, value in zip(others, rem))
+                    suffix = "_".join(f"{metals[index]}{fmt_frac(value)}" for index, value in zip(others, rem, strict=False))
+                    split = "/".join(f"{value:.2f}{metals[index]}" for index, value in zip(others, rem, strict=False))
                     specs.append(
                         {
                             "axis": axis,
@@ -317,20 +350,20 @@ class SystemAnalyzer:
         others = [i for i in range(n_metals) if i != axis]
         weights = np.asarray(remainder_weights, dtype=float)
         weights = weights / weights.sum() if weights.sum() > 0 else np.ones(len(others)) / len(others)
-        for i, w in zip(others, weights):
+        for i, w in zip(others, weights, strict=False):
             comp[i] = rest * w
         return comp
 
     # A metal is absent (→ new region) if its fraction stays below this.
-    _COMPONENT_THRESHOLD = 0.01
+    _component_threshold = 0.01
 
     def _component_cache_matches(self, csv_path) -> bool:
         try:
             import pandas as pd
 
-            values = pd.read_csv(csv_path, usecols=["component_presence_threshold"])[
-                "component_presence_threshold"
-            ].to_numpy(dtype=float)
+            values = pd.read_csv(csv_path, usecols=["component_presence_threshold"])["component_presence_threshold"].to_numpy(
+                dtype=float
+            )
             expected = 0.01 if self.config.include_0p01_to_0p05_components else 0.05
             return len(values) > 0 and np.allclose(values, expected)
         except Exception:
@@ -341,16 +374,14 @@ class SystemAnalyzer:
         from thermodynamics import _phase_component_signature
 
         threshold = 0.01 if self.config.include_0p01_to_0p05_components else 0.05
-        active = (
-            values >= threshold - 1e-12 if self.config.include_0p01_to_0p05_components else values > threshold + 1e-12
-        )
+        active = values >= threshold - 1e-12 if self.config.include_0p01_to_0p05_components else values > threshold + 1e-12
         fixed = sorted(
-            {phase_short(pid) for pid, kind in zip(phase_ids[active], phase_kinds[active]) if kind != "phase"}
+            {phase_short(pid) for pid, kind in zip(phase_ids[active], phase_kinds[active], strict=False) if kind != "phase"}
         )
         phase_signatures = sorted(
             {
                 _phase_component_signature(pid, metals)
-                for pid, kind in zip(phase_ids[active], phase_kinds[active])
+                for pid, kind in zip(phase_ids[active], phase_kinds[active], strict=False)
                 if kind == "phase"
             }
         )
@@ -551,16 +582,12 @@ class SystemAnalyzer:
             from PIL import Image as _PILImg
 
             im = _PILImg.open(diag)
-            frame_idx = (
-                max(0, int(round((float(T) - t_start) / gif_t_step)))
-                if T is not None
-                else getattr(im, "n_frames", 1) - 1
-            )
+            frame_idx = max(0, int(round((float(T) - t_start) / gif_t_step))) if T is not None else getattr(im, "n_frames", 1) - 1
             im.seek(min(frame_idx, getattr(im, "n_frames", 1) - 1))
             return np.array(im.convert("RGB"))
-        import matplotlib.pyplot as _plt
+        import matplotlib.pyplot as plt
 
-        return _plt.imread(diag)
+        return plt.imread(diag)
 
     def _plot_region_map_png(
         self,
@@ -577,9 +604,9 @@ class SystemAnalyzer:
         y_label=None,
         y_axis_label=None,
     ) -> Path:
-        import matplotlib
+        import matplotlib as mpl
 
-        matplotlib.use("Agg")
+        mpl.use("Agg")
         import hashlib as _hl
 
         import matplotlib.patches as mpatches
@@ -607,9 +634,7 @@ class SystemAnalyzer:
         me = grid_edges(mu_values)
 
         if cfg.region_label_mode == "id":
-            fig, (ax, ax_leg) = plt.subplots(
-                1, 2, figsize=(17, 8), gridspec_kw={"width_ratios": [3.2, 1.2], "wspace": 0.05}
-            )
+            fig, (ax, ax_leg) = plt.subplots(1, 2, figsize=(17, 8), gridspec_kw={"width_ratios": [3.2, 1.2], "wspace": 0.05})
             ax_leg.axis("off")
         else:
             fig, ax = plt.subplots(figsize=(13, 8))
@@ -725,9 +750,9 @@ class SystemAnalyzer:
         diag = self._find_external_diagram(metals, T)
         if not src_map.exists():
             return None
-        import matplotlib
+        import matplotlib as mpl
 
-        matplotlib.use("Agg")
+        mpl.use("Agg")
         import matplotlib.pyplot as plt
 
         fig, axes = plt.subplots(1, 2, figsize=(18, 7), gridspec_kw={"wspace": 0.04})
@@ -779,7 +804,7 @@ class SystemAnalyzer:
                             va="top",
                             fontsize=13,
                             fontweight="bold",
-                            bbox=dict(fc="white", ec="none", alpha=0.7, pad=1),
+                            bbox={"fc": "white", "ec": "none", "alpha": 0.7, "pad": 1},
                         )
                     if not is_gif and T is not None:
                         t0 = float(getattr(self.config, "phase_diagram_t_start", 300))
@@ -836,7 +861,7 @@ class SystemAnalyzer:
                 va="bottom",
                 fontsize=11,
                 fontweight="bold",
-                bbox=dict(fc="white", ec="none", alpha=0.8, pad=2),
+                bbox={"fc": "white", "ec": "none", "alpha": 0.8, "pad": 2},
             )
         else:
             axes[1].axis("off")
@@ -906,8 +931,7 @@ class SystemAnalyzer:
                     import json
 
                     plot_settings_match = (
-                        plot_settings_path.exists()
-                        and json.loads(plot_settings_path.read_text()) == expected_plot_settings
+                        plot_settings_path.exists() and json.loads(plot_settings_path.read_text()) == expected_plot_settings
                     )
                 except (OSError, ValueError, TypeError):
                     plot_settings_match = False
@@ -928,13 +952,7 @@ class SystemAnalyzer:
                     continue
                 if not cache_ready and not cfg.run_calculations:
                     raise RuntimeError(f"plot-only mode requires the composition-slice cache: {csv_path}")
-                if (
-                    cache_ready
-                    and plot_settings_match
-                    and map_png.exists()
-                    and map_html.exists()
-                    and panel_png.exists()
-                ):
+                if cache_ready and plot_settings_match and map_png.exists() and map_html.exists() and panel_png.exists():
                     reused_caches += 1
                     state["map_frames"].append((float(T), map_png))
                     state["panel_frames"].append((float(T), panel_png))
@@ -982,9 +1000,7 @@ class SystemAnalyzer:
                                         pd_data.get("phase_suffix", ""),
                                     ),
                                     "assemblage_family_coarse": family,
-                                    "component_presence_threshold": (
-                                        0.01 if cfg.include_0p01_to_0p05_components else 0.05
-                                    ),
+                                    "component_presence_threshold": (0.01 if cfg.include_0p01_to_0p05_components else 0.05),
                                 }
                             )
                     df = pd.DataFrame(rows)
@@ -1061,10 +1077,7 @@ class SystemAnalyzer:
                         cfg.mp4_crf,
                         cfg.mp4_preset,
                     )
-        print(
-            f"  Composition slice data: reused {reused_caches} cache(s); "
-            f"calculated {calculated_caches} missing cache(s)"
-        )
+        print(f"  Composition slice data: reused {reused_caches} cache(s); calculated {calculated_caches} missing cache(s)")
 
     @staticmethod
     def _phase_fraction_summary(fracs, phase_ids, phase_kinds, metals, phase_suffix=""):
@@ -1075,7 +1088,7 @@ class SystemAnalyzer:
         totals = defaultdict(float)
         min_frac = 1e-12
         any_valid = False
-        for pid, kind, frac in zip(phase_ids, phase_kinds, fracs):
+        for pid, kind, frac in zip(phase_ids, phase_kinds, fracs, strict=False):
             if np.isnan(frac) or float(frac) <= min_frac:
                 continue
             any_valid = True
@@ -1088,9 +1101,7 @@ class SystemAnalyzer:
             if idx >= 0:
                 pid = phase_ids[idx]
                 kind = phase_kinds[idx]
-                name = (
-                    _phase_comp_label(pid, metals, phase_suffix=phase_suffix) if kind == "phase" else _short_label(pid)
-                )
+                name = _phase_comp_label(pid, metals, phase_suffix=phase_suffix) if kind == "phase" else _short_label(pid)
                 pairs = [(name, float(fracs[idx]))]
         return " | ".join(f"{name}={frac:.6f}" for name, frac in pairs)
 
@@ -1100,10 +1111,10 @@ class SystemAnalyzer:
             return []
         out = []
         for tok in summary.split("|"):
-            tok = tok.strip()
-            if "=" not in tok:
+            tok_stripped = tok.strip()
+            if "=" not in tok_stripped:
                 continue
-            name, val = tok.rsplit("=", 1)
+            name, val = tok_stripped.rsplit("=", 1)
             try:
                 out.append((name.strip(), float(val.strip())))
             except ValueError:
@@ -1128,7 +1139,7 @@ class SystemAnalyzer:
             else np.array([""] * len(df), dtype=object)
         )
         family_aliases = defaultdict(list)
-        for pid, kind in zip(phase_ids, phase_kinds):
+        for pid, kind in zip(phase_ids, phase_kinds, strict=False):
             family = _phase_comp_label(pid, metals, phase_suffix=phase_suffix) if kind == "phase" else _short_label(pid)
             family_aliases[family].append(family)
             family_aliases[family].append(str(pid).split("_")[-1])
@@ -1141,10 +1152,8 @@ class SystemAnalyzer:
             phase_maps = [dict(self._parse_phase_fraction_summary(s)) for s in frac_summaries[mask].tolist()]
             ranges = []
             seen = set()
-            for pid, kind in zip(phase_ids, phase_kinds):
-                name = (
-                    _phase_comp_label(pid, metals, phase_suffix=phase_suffix) if kind == "phase" else _short_label(pid)
-                )
+            for pid, kind in zip(phase_ids, phase_kinds, strict=False):
+                name = _phase_comp_label(pid, metals, phase_suffix=phase_suffix) if kind == "phase" else _short_label(pid)
                 if name in seen:
                     continue
                 seen.add(name)
@@ -1255,9 +1264,7 @@ class SystemAnalyzer:
                                         pd_data.get("phase_suffix", ""),
                                     ),
                                     "assemblage_family_coarse": family,
-                                    "component_presence_threshold": (
-                                        0.01 if cfg.include_0p01_to_0p05_components else 0.05
-                                    ),
+                                    "component_presence_threshold": (0.01 if cfg.include_0p01_to_0p05_components else 0.05),
                                 }
                             )
                     df = pd.DataFrame(rows)
@@ -1353,7 +1360,9 @@ class SystemAnalyzer:
         step = (
             cfg.onset_comp_step_binary
             if n_metals == 2
-            else cfg.onset_comp_step_ternary if n_metals == 3 else cfg.onset_comp_step_higher
+            else cfg.onset_comp_step_ternary
+            if n_metals == 3
+            else cfg.onset_comp_step_higher
         )
         grid = simplex_grid_nd(n_metals, step)
         while len(grid) > cfg.onset_max_comp_points and step < 0.5:
@@ -1480,9 +1489,7 @@ class SystemAnalyzer:
                         feasible_mu_max = np.nan
                     else:
                         auc = 0.0 if len(curve) == 1 else float(np.trapezoid(curve, sampled_mu_array))
-                        parent_auc = (
-                            0.0 if len(parent_curve) == 1 else float(np.trapezoid(parent_curve, sampled_mu_array))
-                        )
+                        parent_auc = 0.0 if len(parent_curve) == 1 else float(np.trapezoid(parent_curve, sampled_mu_array))
                         oxide_auc = 0.0 if len(oxide_curve) == 1 else float(np.trapezoid(oxide_curve, sampled_mu_array))
                         feasible_mu_max = float(sampled_mu_array[-1])
                     rows.append(
@@ -1505,7 +1512,7 @@ class SystemAnalyzer:
                     )
                 df = pd.DataFrame(rows)
                 df.to_csv(csv_path, index=False)
-                print(f"    T={int(T)} K: reused {reused_states} states, " f"solved {solved_states} new states")
+                print(f"    T={int(T)} K: reused {reused_states} states, solved {solved_states} new states")
             all_summary.append(df)
 
             if not cfg.run_plots:
@@ -1545,9 +1552,9 @@ class SystemAnalyzer:
 
     @staticmethod
     def _plot_onset_auc_binary(df, sys_cfg, T, out_dir):
-        import matplotlib
+        import matplotlib as mpl
 
-        matplotlib.use("Agg")
+        mpl.use("Agg")
         import matplotlib.pyplot as plt
 
         m0 = sys_cfg.metals[0]
@@ -1582,9 +1589,9 @@ class SystemAnalyzer:
 
     @staticmethod
     def _plot_ternary_scalar(df, sys_cfg, T, out_dir, value_col, title, color_label, filename, cmap="viridis"):
-        import matplotlib
+        import matplotlib as mpl
 
-        matplotlib.use("Agg")
+        mpl.use("Agg")
         import matplotlib.pyplot as plt
         import matplotlib.tri as tri_mod
 

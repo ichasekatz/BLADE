@@ -1,0 +1,55 @@
+site_name: BLADE
+site_description: Automated CALPHAD TDB generation and oxidation-stability analysis for multi-component borides and alloys
+site_author: Chase Katz
+repo_url: https://github.com/ichasekatz/BLADE
+repo_name: ichasekatz/BLADE
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Home: index.md
+  - Usage:
+    - Getting Started: usage/getting-started.md
+    - SQS Generation: usage/sqs-generation.md
+    - TDB Fitting: usage/tdb-fitting.md
+    - Oxidation Analysis: usage/oxidation-analysis.md
+  - Theory:
+    - CALPHAD Background: theory/calphad.md
+    - SQS Method: theory/sqs.md
+    - Oxidation Model: theory/oxidation.md
+  - API Reference:
+    - blade.tools: api/tools.md
+    - blade.oxidation: api/oxidation.md
+    - blade.analysis: api/analysis.md

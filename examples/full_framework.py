@@ -47,6 +47,49 @@ _LATTICE_PARAMETER_LIBRARY: dict[str, dict[str, dict[str, float]]] = {
 }
 
 
+# MLIP-relaxed elemental reference energies (eV/atom) used as fallback when
+# Materials Project data is unavailable for a given element.
+_database_fallback_refs: dict[str, float] = {
+    "B": -6.680,
+    "C": -9.200,
+    "Cr": -9.632,
+    "Hf": -9.956,
+    "Mo": -10.850,
+    "Nb": -10.094,
+    "O": -4.949,
+    "Ta": -11.853,
+    "Ti": -7.897,
+    "V": -9.080,
+    "W": -12.960,
+    "Zr": -8.547,
+}
+
+
+def _get_elements(section: dict[str, Any], global_cfg: dict[str, Any]) -> dict[str, Any]:
+    """Return element pool for a stage, falling back to the global [elements] table.
+
+    Args:
+        section: Stage-specific config dict (e.g. settings["tdb"]).
+        global_cfg: Top-level [elements] table from the TOML.
+
+    Returns:
+        Dict with keys primary, secondary, primary_min, primary_max,
+        secondary_min, secondary_max — merged from section override → global.
+    """
+
+    def _pick(key: str, default: Any) -> Any:
+        return section.get(key, global_cfg.get(key, default))
+
+    return {
+        "primary": list(_pick("primary", [])),
+        "secondary": list(_pick("secondary", [])),
+        "primary_min": int(_pick("primary_min", 2)),
+        "primary_max": int(_pick("primary_max", 3)),
+        "secondary_min": int(_pick("secondary_min", 0)),
+        "secondary_max": int(_pick("secondary_max", 0)),
+    }
+
+
 @lru_cache(maxsize=1)
 def _periodic_lattice_parameters() -> dict[str, dict[str, float]]:
     """Build reference a/b/c values for all 118 element symbols.
@@ -182,9 +225,12 @@ class FullFrameworkPipeline:
         self.input_path = input_path.resolve()
         with self.input_path.open("rb") as handle:
             self.settings = tomllib.load(handle)
-        paths = self.settings["paths"]
-        self.blade_root = Path(paths["blade_root"]).expanduser().resolve()
-        self.files_dir = Path(paths.get("files_dir", self.blade_root / "Files")).expanduser().resolve()
+        paths = self.settings.get("paths", {})
+        # Auto-detect blade_root as the parent of the examples/ directory.
+        # Explicit [paths] blade_root overrides the auto-detected value.
+        _auto_root = Path(__file__).parent.parent.resolve()
+        self.blade_root = Path(paths["blade_root"]).expanduser().resolve() if "blade_root" in paths else _auto_root
+        self.files_dir = self.blade_root / "Files"
         self.sqsdb_dir = Path(paths["sqsdb_dir"]).expanduser().resolve()
         self.scraps_repo = (
             Path(paths.get("scraps_repo", self.blade_root.parent / "SCRAPS" / "scraps-perpair")).expanduser().resolve()
@@ -244,13 +290,13 @@ class FullFrameworkPipeline:
                 raise ValueError("phase_plots.systems must be a non-empty list")
             return {_system_key(str(system)) for system in configured}
 
-        cfg = self.settings["tdb"]
-        primary = list(cfg.get("primary_elements", []))
-        secondary = list(cfg.get("secondary_elements", []))
+        elems = _get_elements(self.settings.get("tdb", {}), self.settings.get("elements", {}))
+        primary = elems["primary"]
+        secondary = elems["secondary"]
         systems = set()
-        for primary_count in range(cfg["primary_min"], cfg["primary_max"] + 1):
+        for primary_count in range(elems["primary_min"], elems["primary_max"] + 1):
             for primary_group in itertools.combinations(primary, primary_count):
-                for secondary_count in range(cfg.get("secondary_min", 0), cfg.get("secondary_max", 0) + 1):
+                for secondary_count in range(elems["secondary_min"], elems["secondary_max"] + 1):
                     for secondary_group in itertools.combinations(secondary, secondary_count):
                         elements = [*primary_group, *secondary_group]
                         if elements:
@@ -364,9 +410,8 @@ class FullFrameworkPipeline:
         else:
             raise ValueError("phase.average_elements must be a TOML inline table")
         if not elements:
-            elements = list(
-                dict.fromkeys(list(cfg.get("primary_elements", [])) + list(cfg.get("secondary_elements", [])))
-            )
+            _e = _get_elements(cfg, self.settings.get("elements", {}))
+            elements = list(dict.fromkeys(_e["primary"] + _e["secondary"]))
         if not elements:
             raise ValueError("phase.use_average_lattice requires at least one element")
 
@@ -401,7 +446,7 @@ class FullFrameworkPipeline:
                 errors.append(f"{name}.fixed_compositions.{letter} must be numeric")
                 continue
             if not np.isclose(sum(values), 1.0, atol=1e-8):
-                errors.append(f"{name}.fixed_compositions.{letter} sums to " f"{sum(values):g}, not 1")
+                errors.append(f"{name}.fixed_compositions.{letter} sums to {sum(values):g}, not 1")
             for phase_name, phase_map in phase_maps.items():
                 if not isinstance(phase_map, dict) or letter not in phase_map:
                     continue
@@ -438,13 +483,13 @@ class FullFrameworkPipeline:
                 inputs = self._input_bundle(self.settings.get("tdb_inputs", {}), name="tdb_inputs")
                 system_overrides = self._system_overrides()
                 self._phase_lattice(tdb, self.settings["phase"], emit=False)
-                allowed = set(tdb.get("primary_elements", [])) | set(tdb.get("secondary_elements", []))
+                _ve = _get_elements(tdb, self.settings.get("elements", {}))
+                allowed = set(_ve["primary"]) | set(_ve["secondary"])
                 for system_name, override in system_overrides.items():
                     unknown = set(_system_elements(system_name)) - allowed
                     if unknown:
                         errors.append(
-                            f"tdb_system_overrides.{system_name}: elements are not in "
-                            f"tdb element pools: {sorted(unknown)}"
+                            f"tdb_system_overrides.{system_name}: elements are not in tdb element pools: {sorted(unknown)}"
                         )
                     self._validate_fixed_sites(override, f"tdb_system_overrides.{system_name}", errors)
                 self._validate_fixed_sites(inputs, "tdb_inputs", errors)
@@ -470,12 +515,8 @@ class FullFrameworkPipeline:
                 phase_grid.get("t_step"),
             )
             if plot_range != grid_range:
-                errors.append(
-                    f"phase_grid: temperature range {grid_range} does not match " f"phase GIF range {plot_range}"
-                )
-            if phase_plots.get("output_folder", "Phase_Diagrams") != phase_grid.get(
-                "phase_diagrams_folder", "Phase_Diagrams"
-            ):
+                errors.append(f"phase_grid: temperature range {grid_range} does not match phase GIF range {plot_range}")
+            if phase_plots.get("output_folder", "Phase_Diagrams") != phase_grid.get("phase_diagrams_folder", "Phase_Diagrams"):
                 errors.append("phase_grid: input folder does not match phase_plots output folder")
         oxidation = self.settings.get("oxidation", {})
         phase_element = oxidation.get("phase_element", "").strip()
@@ -490,15 +531,9 @@ class FullFrameworkPipeline:
                 )
         database = self.settings.get("database", {})
         fixed_elements = {str(item) for item in database.get("fixed_elements", [])}
-        if (
-            self.enabled("database")
-            and self.enabled("oxidation")
-            and phase_element
-            and phase_element not in fixed_elements
-        ):
+        if self.enabled("database") and self.enabled("oxidation") and phase_element and phase_element not in fixed_elements:
             errors.append(
-                f"oxidation: phase_element {phase_element!r} is absent from "
-                f"database.fixed_elements {sorted(fixed_elements)}"
+                f"oxidation: phase_element {phase_element!r} is absent from database.fixed_elements {sorted(fixed_elements)}"
             )
         single = self.settings.get("oxidation_single", {})
         composition = single.get("composition", [])
@@ -585,6 +620,7 @@ class FullFrameworkPipeline:
 
     def run_tdb(self) -> None:
         cfg = self.settings["tdb"]
+        tdb_elems = _get_elements(cfg, self.settings.get("elements", {}))
         phase = self.settings["phase"]
         fit = dict(self.settings["tdb_fit"])
         fit["calculator"] = cfg["mlip"]
@@ -647,12 +683,11 @@ class FullFrameworkPipeline:
             "skip_existing_tdb": cfg["skip_existing_tdb"],
             "refit_existing_tdb": cfg.get("refit_existing_tdb", False),
             "skip_existing_plots": cfg.get("skip_existing_plots", False),
-            "generate_gibbs_energy": self.enabled("tdb_fitting") and cfg.get("generate_gibbs_energy", True),
-            "generate_gibbs_mixing": self.enabled("tdb_fitting") and cfg.get("generate_gibbs_mixing", True),
-            "generate_phase_diagram": self.enabled("tdb_fitting") and cfg.get("generate_phase_diagram", True),
-            "generate_combined_phase_diagram": self.enabled("tdb_fitting")
-            and cfg.get("generate_combined_phase_diagram", True),
-            "generate_contcar_plots": self.enabled("tdb_fitting") and cfg.get("generate_contcar_plots", True),
+            "generate_gibbs_energy": self.enabled("tdb_fitting") and cfg.get("generate_plots", True),
+            "generate_gibbs_mixing": self.enabled("tdb_fitting") and cfg.get("generate_plots", True),
+            "generate_phase_diagram": self.enabled("tdb_fitting") and cfg.get("generate_plots", True),
+            "generate_combined_phase_diagram": self.enabled("tdb_fitting") and cfg.get("generate_plots", True),
+            "generate_contcar_plots": self.enabled("tdb_fitting") and cfg.get("generate_plots", True),
             "mlip": cfg["mlip"],
             "mlip_kwargs": dict(self.settings.get("tdb_mlip_kwargs", {})),
             "tdb_params": fit,
@@ -663,12 +698,12 @@ class FullFrameworkPipeline:
             "fixed_compositions": inputs["fixed_compositions"] or None,
             "system_overrides": system_overrides or None,
             "run_movie": self.enabled("tdb_fitting") and cfg.get("run_movie", False),
-            "primary_elements": list(cfg["primary_elements"]),
-            "secondary_elements": list(cfg.get("secondary_elements", [])),
-            "primary_min": cfg["primary_min"],
-            "primary_max": cfg["primary_max"],
-            "secondary_min": cfg.get("secondary_min", 0),
-            "secondary_max": cfg.get("secondary_max", 0),
+            "primary_elements": tdb_elems["primary"],
+            "secondary_elements": tdb_elems["secondary"],
+            "primary_min": tdb_elems["primary_min"],
+            "primary_max": tdb_elems["primary_max"],
+            "secondary_min": tdb_elems["secondary_min"],
+            "secondary_max": tdb_elems["secondary_max"],
             "phases": phases,
             "phase_list": phase_list,
             "liquid": cfg.get("liquid", False),
@@ -729,6 +764,13 @@ class FullFrameworkPipeline:
 
     def run_database(self) -> None:
         cfg = dict(self.settings["database"])
+        db_elems = _get_elements(cfg, self.settings.get("elements", {}))
+        cfg.setdefault("primary_elements", db_elems["primary"])
+        cfg.setdefault("secondary_elements", db_elems["secondary"])
+        cfg.setdefault("primary_min", db_elems["primary_min"])
+        cfg.setdefault("primary_max", db_elems["primary_max"])
+        cfg.setdefault("secondary_min", db_elems["secondary_min"])
+        cfg.setdefault("secondary_max", db_elems["secondary_max"])
         api_key = _database_api_key(cfg)
         cfg.pop("api_key", None)
         cfg.pop("api_key_env", None)
@@ -737,7 +779,7 @@ class FullFrameworkPipeline:
         cfg["files_dir"] = self.files_dir
         cfg["fixed_elements"] = frozenset(cfg.get("fixed_elements", []))
         cfg["mlip_kwargs"] = dict(self.settings.get("database_mlip_kwargs", {}))
-        cfg["fallback_refs"] = dict(self.settings.get("database_fallback_refs", {}))
+        cfg["fallback_refs"] = _database_fallback_refs
         module = _load_module(
             self.examples_dir / "oxidation" / "database_framework.py",
             "blade_database_framework",
