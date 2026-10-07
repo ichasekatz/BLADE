@@ -1,8 +1,8 @@
 [stages]
-sqs_generation = false
-tdb_fitting = false
-phase_diagrams = false
-oxide_database = false
+sqs_generation = true
+tdb_fitting = true
+phase_diagrams = true
+oxide_database = true
 oxidation_graphs = true
 
 # ── Elements ─────────────────────────────────────────────────────────────────
