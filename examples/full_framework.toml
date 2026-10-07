@@ -27,7 +27,7 @@ scraps_repo = "/Users/chasekatz/Desktop/School/Research/SCRAPS/scraps-perpair"
 
 [tdb]
 sqs_method        = "mcsqs"  # "mcsqs" or "scraps"
-prototype_driver  = "standard"
+prototype_driver  = "multibasis"  # "standard" (tdb_gen_hedb) or "multibasis" (tdb_gen_max)
 level             = 6
 skip_existing_sqs  = true
 skip_existing_tdb  = true
