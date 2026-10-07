@@ -1,0 +1,92 @@
+# full_framework_advanced.toml
+# Advanced settings for full_framework.py. These are rarely changed defaults.
+# Pass this file as a second argument to merge its values into the main config:
+#
+#   uv run --extra workflow python examples/full_framework.py \
+#       examples/full_framework.toml examples/full_framework_advanced.toml
+#
+# Settings here are overridden by any key already present in the main toml.
+
+# ── TDB fitting (advanced) ────────────────────────────────────────────────────
+# prototype_driver selects the stage-runner script used by full_framework.py.
+# "multibasis" uses tdb_gen_max.py (default); "standard" uses tdb_gen_hedb.py.
+# [tdb]
+# prototype_driver = "multibasis"
+
+[tdb_fit]
+verbose          = true
+sro              = false    # short-range order correction
+bv               = 0.001   # Bragg-Williams penalty
+phonon           = false    # include phonon contributions
+open_calphad     = false    # open result in OpenCalphad after fitting
+track_trajectory = false    # write .xyz trajectory files during relaxation
+
+[tdb_sqs]
+cutoff_mode       = "nn"   # "nn" = nearest-neighbour, "manual" = explicit distances
+pair_cutoff       = 5
+triplet_cutoff    = 4
+quadruplet_cutoff = 3
+
+# ── SCRAPS SQS settings ───────────────────────────────────────────────────────
+# Only used when tdb.sqs_method = "scraps".
+[tdb_scraps]
+ranks                     = 10
+auto_budget               = 3
+max_shellnum              = 4
+fix_multibasis_sublattice = false
+
+# ── Phase diagram plot details ─────────────────────────────────────────────────
+[phase_plots]
+gif_t_step               = 10
+gif_fps                  = 20
+n_grid                   = 40
+two_phase_threshold      = 5.0
+pressure                 = 101325.0
+skip_missing_calculations = false
+
+# ── Phase grid video ──────────────────────────────────────────────────────────
+[phase_grid]
+phase_diagrams_folder = "Phase_Diagrams"
+panel_width           = 150
+panel_height          = 130
+fps                   = 20
+background_rgb        = [255, 255, 255]
+header_height         = 40
+colorbar_width        = 60
+t_start               = 200
+t_end                 = 2000
+t_step                = 10
+
+# ── Oxidation database (advanced) ─────────────────────────────────────────────
+[database]
+stable_only           = true
+skip_blade_formulas   = true
+skip_existing_poscars = true
+skip_existing_energies = true
+mlip_label            = "MP+ORB"
+mlip_folder           = "MaterialsProject_Comps_ORB"
+poscar_folder         = "MaterialsProject_Comps_POSCARs"
+blade_comp_folders    = ["Comps"]
+
+# ── Oxidation display settings ─────────────────────────────────────────────────
+[oxidation]
+region_label_mode     = "phases"   # "phases" or "id"
+region_label_fontsize = 7
+slice_axis_priority   = ["Cr", "Hf", "Mo", "Nb", "Ta", "Ti", "V", "W", "Zr"]
+
+# ── Single-composition oxidation ───────────────────────────────────────────────
+# Used when oxidation.mode = "single".
+[oxidation_single]
+system            = "CrHfMoB"
+metals            = ["Cr", "Hf", "Mo"]
+composition       = [0.3333333333333333, 0.3333333333333333, 0.3333333333333333]
+temperature_range = [250, 2000, 10]
+mu_o_range        = [-12.0, -4.0, 0.1]
+scan_temperatures  = [700, 1000, 1273, 1300]
+x_range           = [0.0, 1.0, 0.01]
+skip_if_exists    = true
+run_calculations  = true
+run_plots         = true
+include_0p01_to_0p05_components = true
+rk_order          = 3
+y_step            = 0.01

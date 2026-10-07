@@ -198,6 +198,17 @@ def _database_api_key(database: dict[str, Any]) -> str:
     return ""
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge *override* into *base*, returning a new dict."""
+    result = dict(base)
+    for key, val in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(val, dict):
+            result[key] = _deep_merge(result[key], val)
+        else:
+            result[key] = val
+    return result
+
+
 def _system_key(value: str | list[str]) -> str:
     """Return an order-independent key such as CrHf for a chemical system."""
     if isinstance(value, str):
@@ -221,10 +232,13 @@ def _system_elements(value: str) -> list[str]:
 class FullFrameworkPipeline:
     STAGE_ORDER = ("tdb", "phase_visualization", "database", "oxidation")
 
-    def __init__(self, input_path: Path):
-        self.input_path = input_path.resolve()
+    def __init__(self, input_paths: list[Path]):
+        self.input_path = input_paths[0].resolve()
         with self.input_path.open("rb") as handle:
             self.settings = tomllib.load(handle)
+        for extra in input_paths[1:]:
+            with extra.resolve().open("rb") as handle:
+                self.settings = _deep_merge(self.settings, tomllib.load(handle))
         paths = self.settings.get("paths", {})
         # Auto-detect blade_root as the parent of the examples/ directory.
         # Explicit [paths] blade_root overrides the auto-detected value.
@@ -273,11 +287,12 @@ class FullFrameworkPipeline:
         return method
 
     def _tdb_driver(self) -> Path:
-        mode = str(self.settings.get("tdb", {}).get("prototype_driver", "standard")).lower()
+        # prototype_driver selects the stage-runner script: "multibasis" (default)
+        # uses tdb_gen_max.py; "standard" uses tdb_gen_hedb.py.
+        mode = str(self.settings.get("tdb", {}).get("prototype_driver", "multibasis")).lower()
         drivers = {"standard": "hedb", "multibasis": "max"}
         if mode not in drivers:
             raise ValueError("tdb.prototype_driver must be 'standard' or 'multibasis'")
-        # Legacy module names identify bundled implementations, not chemistry.
         family = drivers[mode]
         suffix = "_scraps" if self._sqs_method() == "scraps" else ""
         return self.examples_dir / "structures" / f"tdb_gen_{family}{suffix}.py"
@@ -678,16 +693,16 @@ class FullFrameworkPipeline:
             "paths": [self.blade_root.parent, self.blade_root, self.sqsdb_dir],
             "level": cfg["level"],
             "run_sqs": self.enabled("sqs_generation"),
-            "skip_existing_sqs": cfg["skip_existing_sqs"],
+            "skip_existing_sqs": cfg.get("skip_existing_sqs", cfg.get("skip_existing", True)),
             "run_tdb": self.enabled("tdb_fitting"),
-            "skip_existing_tdb": cfg["skip_existing_tdb"],
+            "skip_existing_tdb": cfg.get("skip_existing_tdb", cfg.get("skip_existing", True)),
             "refit_existing_tdb": cfg.get("refit_existing_tdb", False),
-            "skip_existing_plots": cfg.get("skip_existing_plots", False),
-            "generate_gibbs_energy": self.enabled("tdb_fitting") and cfg.get("generate_plots", True),
-            "generate_gibbs_mixing": self.enabled("tdb_fitting") and cfg.get("generate_plots", True),
-            "generate_phase_diagram": self.enabled("tdb_fitting") and cfg.get("generate_plots", True),
-            "generate_combined_phase_diagram": self.enabled("tdb_fitting") and cfg.get("generate_plots", True),
-            "generate_contcar_plots": self.enabled("tdb_fitting") and cfg.get("generate_plots", True),
+            "skip_existing_plots": cfg.get("skip_existing_plots", cfg.get("skip_existing", True)),
+            "generate_gibbs_energy": self.enabled("tdb_fitting"),
+            "generate_gibbs_mixing": self.enabled("tdb_fitting"),
+            "generate_phase_diagram": self.enabled("tdb_fitting"),
+            "generate_combined_phase_diagram": self.enabled("tdb_fitting"),
+            "generate_contcar_plots": self.enabled("tdb_fitting"),
             "mlip": cfg["mlip"],
             "mlip_kwargs": dict(self.settings.get("tdb_mlip_kwargs", {})),
             "tdb_params": fit,
@@ -855,14 +870,18 @@ class FullFrameworkPipeline:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("input", nargs="?", type=Path, default=Path(__file__).with_name("full_framework.toml"))
+    parser.add_argument(
+        "inputs", nargs="*", type=Path,
+        help="TOML config files (default: full_framework.toml). Additional files are deep-merged in order.",
+    )
     parser.add_argument("--check", action="store_true", help="validate configuration and dependencies")
     parser.add_argument("--dry-run", action="store_true", help="show enabled stages without running them")
     oxidation_mode = parser.add_mutually_exclusive_group()
     oxidation_mode.add_argument("--oxidation-plot-only", action="store_true", help=argparse.SUPPRESS)
     oxidation_mode.add_argument("--oxidation-onset-only", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
-    pipeline = FullFrameworkPipeline(args.input)
+    input_paths = args.inputs or [Path(__file__).with_name("full_framework.toml")]
+    pipeline = FullFrameworkPipeline(input_paths)
     if args.oxidation_plot_only:
         pipeline.settings["stages"] = {"oxidation": True}
         batch = pipeline.settings.setdefault("oxidation_batch", {})
