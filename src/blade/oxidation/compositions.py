@@ -199,6 +199,21 @@ class OxideCompositions:
             if [el] not in composition_list:
                 composition_list.append([el])
 
+        # Pure-element references for fixed_elements and oxygen_element.
+        for el in sorted(self.fixed_elements):
+            if [el] not in composition_list:
+                composition_list.append([el])
+        if [self.oxygen_element] not in composition_list:
+            composition_list.append([self.oxygen_element])
+
+        # Pure fixed+oxygen compositions (e.g. B-O → B₂O₃) — needed as
+        # competing phases in oxidation stability calculations.
+        if self.include_fixed_oxygen:
+            for el in sorted(self.fixed_elements):
+                pair = sorted([el, self.oxygen_element])
+                if pair not in composition_list:
+                    composition_list.append(pair)
+
         # Build composition table.
         rows: list[dict] = []
         max_len = max(len(comp) for comp in composition_list)
