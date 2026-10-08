@@ -1,0 +1,69 @@
+# borides_hedb.toml — AlB₂-type hexagonal borides (HEDB1 prototype)
+# Single metal sublattice (a), fixed B sublattice.
+# Examples: HfCrB₂, NbVWB₂, TaZrB₂
+#
+# Usage (merge on top of full_framework.toml):
+#   uv run --extra workflow python examples/full_framework.py \
+#       examples/full_framework.toml examples/configs/borides_hedb.toml
+
+# ── Elements ───────────────────────────────────────────────────────────────────
+[elements]
+primary       = ["Zr", "Hf", "Ta", "Cr", "Ti", "V", "Nb", "Mo", "W"]
+secondary     = []
+primary_min   = 2
+primary_max   = 3
+secondary_min = 0
+secondary_max = 0
+
+# ── TDB ────────────────────────────────────────────────────────────────────────
+[tdb]
+level        = 6
+comps_folder = "Comps"
+
+# AlB₂-type: one metal sublattice (a), B fixed on two sites
+tdb_sqs_levels = [
+    { level = 0, compositions = [[1.0, 0.0]],                     letter = ["a"] },
+    { level = 1, compositions = [[0.5, 0.5]],                     letter = ["a"] },
+    { level = 2, compositions = [[0.75, 0.25]],                   letter = ["a"] },
+    { level = 3, compositions = [[0.33333, 0.33333, 0.33333]],    letter = ["a"] },
+    { level = 4, compositions = [[0.5, 0.25, 0.25]],              letter = ["a"] },
+    { level = 5, compositions = [[0.875, 0.125], [0.625, 0.375]], letter = ["a"] },
+    { level = 6, compositions = [[0.75, 0.125, 0.125]],           letter = ["a"] },
+]
+
+# ── Phase prototype ────────────────────────────────────────────────────────────
+[phase]
+key              = "HEDB1"
+generator_name   = "HEDB"
+a                = 3.0624
+b                = 3.0624
+c                = 3.2392
+alpha            = 90
+beta             = 90
+gamma            = 120
+supercell_size   = [4, 3, 2]
+use_average_lattice = true
+vectors = """1 0 0
+0 1 0
+0 0 1
+"""
+coords = """0.000000 0.000000 0.000000 a
+0.333333 0.666667 0.500000 B
+0.666667 0.333333 0.500000 B
+"""
+
+# ── ATAT input files ───────────────────────────────────────────────────────────
+[tdb_inputs.terms_in]
+HEDB1   = "1,0:1,0\n2,2:1,0\n"
+HEDB1_2 = "1,0:1,0\n2,2:1,0\n"
+HEDB1_3 = "1,0:1,0\n2,2:1,0\n3,0:1,0\n"
+
+# ── Phase diagram plots ────────────────────────────────────────────────────────
+[phase_plots]
+fixed_elements = ["B"]
+metal_fraction = 0.3333333333333333
+
+# ── Oxidation ─────────────────────────────────────────────────────────────────
+[oxidation]
+phase_element               = "B"
+phase_element_stoichiometry = 2.0

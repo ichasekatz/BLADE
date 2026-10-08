@@ -1,0 +1,92 @@
+# max_phases.toml — M_{n+1}AX_n hexagonal MAX phases
+# Two mixed sublattices (a = M-site metals, b = A-site metals), C/N fixed.
+# Examples: Ti₂AlC, (TiNbHfZrV)₂AlC, (TiNb)₂SnC
+#
+# Usage (merge on top of full_framework.toml):
+#   uv run --extra workflow python examples/full_framework.py \
+#       examples/full_framework.toml examples/configs/max_phases.toml
+
+# ── Elements ───────────────────────────────────────────────────────────────────
+[elements]
+primary       = ["Zr", "Hf", "Ti", "Nb", "V"]
+secondary     = []
+primary_min   = 2
+primary_max   = 5
+secondary_min = 0
+secondary_max = 0
+
+# ── TDB ────────────────────────────────────────────────────────────────────────
+[tdb]
+level        = 2
+comps_folder = "Comps_MAX"
+
+# MAX: two mixed sublattices (a = M, b = A); both decorated in SQS
+tdb_sqs_levels = [
+    { level = 0, compositions = [[1.0, 0.0]],                     letter = ["a", "b"] },
+    { level = 1, compositions = [[0.5, 0.5]],                     letter = ["a", "b"] },
+    { level = 2, compositions = [[0.75, 0.25]],                   letter = ["a", "b"] },
+    { level = 3, compositions = [[0.33333, 0.33333, 0.33333]],    letter = ["a", "b"] },
+    { level = 4, compositions = [[0.5, 0.25, 0.25]],              letter = ["a", "b"] },
+    { level = 5, compositions = [[0.875, 0.125], [0.625, 0.375]], letter = ["a", "b"] },
+    { level = 6, compositions = [[0.75, 0.125, 0.125]],           letter = ["a", "b"] },
+]
+
+# ── Phase prototype ────────────────────────────────────────────────────────────
+# 211 MAX (M₂AX): 2 M layers per A layer
+[phase]
+key              = "MAX1"
+generator_name   = "MAX"
+a                = 3.13
+b                = 3.13
+c                = 13.906
+alpha            = 90
+beta             = 90
+gamma            = 120
+supercell_size   = [5, 5, 2]
+use_average_lattice = true
+vectors = """1 0 0
+0 1 0
+0 0 1
+"""
+coords = """0.333333 0.666667 0.083333 a
+0.666667 0.333333 0.916667 a
+0.666667 0.333333 0.583333 a
+0.333333 0.666667 0.416667 a
+0.333333 0.666667 0.750000 b
+0.666667 0.333333 0.250000 b
+0.000000 0.000000 0.000000 C
+0.000000 0.000000 0.500000 C
+"""
+
+# ── ATAT input files ───────────────────────────────────────────────────────────
+[tdb_inputs.terms_in]
+MAX1_5 = """1,0:1,0:1,0
+2,2:2,2:1,0
+3,0:2,0:1,0
+"""
+
+[tdb_inputs.mult_in]
+MAX1_5 = "a=2\tb=1\tc=1"
+
+# Fixed site assignments: a = M-metals, b = A-metal (constant)
+[tdb_inputs.sites.MAX1.a]
+elements  = ["Zr", "Hf", "Ti", "Nb", "V"]
+constant  = true
+composition = [0.20, 0.20, 0.20, 0.25, 0.15]
+
+[tdb_inputs.sites.MAX1.b]
+elements  = ["Al", "Sn"]
+constant  = true
+composition = [0.40, 0.60]
+
+# ── Phase diagram plots ────────────────────────────────────────────────────────
+[phase_plots]
+fixed_elements = ["C"]
+metal_fraction = 0.75
+
+# ── SCRAPS SQS (advanced; only needed when tdb.sqs_method = "scraps") ─────────
+[tdb_scraps]
+ranks                     = 10
+auto_budget               = 3
+max_shellnum              = 2
+fix_multibasis_sublattice = true
