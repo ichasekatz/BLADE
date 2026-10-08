@@ -846,6 +846,11 @@ function setLiveSQS(v) {
   const chk = document.getElementById('live-sqs-chk');
   if (lbl) { lbl.style.color = v ? '#A78BFA' : 'var(--text-dim)'; lbl.style.fontWeight = v ? '600' : ''; }
   if (chk) chk.checked = v;
+  // If TDB fitting is active, switch to trajectory tab to show live relaxation
+  if (v && lastStatus && lastStatus.stages && lastStatus.stages.tdb_fitting && lastStatus.stages.tdb_fitting.started) {
+    switchTab('tdb');
+    setLiveMode(true);
+  }
 }
 
 function liveRefresh(sys) {
