@@ -70,12 +70,12 @@ def _build_elem_map(rndstr_path: Path) -> dict[str, str]:
         return {}
     lines = [l.strip() for l in text.strip().splitlines()
              if l.strip() and not l.startswith("#")]
-    if len(lines) < 7:
+    if len(lines) < 5:
         return {}
     mapping: dict[str, str] = {}
     sl_letters = "abcdefghijklmnop"
     sl_idx = 0
-    for line in lines[6:]:
+    for line in lines[4:]:
         parts = line.split()
         if len(parts) < 4:
             continue

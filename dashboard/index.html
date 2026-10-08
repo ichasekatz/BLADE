@@ -551,6 +551,9 @@
           <label id="live-sys-label" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--accent);user-select:none;">
             <input type="checkbox" id="live-sys-chk" checked style="accent-color:var(--accent)"> Sys
           </label>
+          <label id="live-sqs-label" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--mono);font-size:10px;color:#A78BFA;user-select:none;">
+            <input type="checkbox" id="live-sqs-chk" style="accent-color:#A78BFA"> SQS
+          </label>
         </div>
       </div>
     </div>
@@ -617,6 +620,8 @@ let latestSystems = [];
 let liveMode = true;   // legacy alias — controls liveFrame
 let liveFrame = true;  // auto-advance to latest frame within selected system
 let liveSys = true;    // auto-switch to most active system
+let liveSQS = false;   // auto-refresh center with best SQS tile each poll
+let liveSQSPath = null; // currently displayed SQS bestsqs path
 
 // ── Init 3D viewer ─────────────────────────────────────────────────────
 function initTrajViewer() {
@@ -766,6 +771,13 @@ function setLiveSys(v) {
   if (lbl) lbl.style.color = v ? 'var(--accent)' : 'var(--text-dim)';
   if (chk) chk.checked = v;
 }
+function setLiveSQS(v) {
+  liveSQS = v;
+  const lbl = document.getElementById('live-sqs-label');
+  const chk = document.getElementById('live-sqs-chk');
+  if (lbl) lbl.style.color = v ? '#A78BFA' : 'var(--text-dim)';
+  if (chk) chk.checked = v;
+}
 
 function liveRefresh(sys) {
   if (sys.has_trajectory && sys.trajectory_paths && sys.trajectory_paths.length) {
@@ -798,6 +810,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (fchk) fchk.addEventListener('change', e => setLiveMode(e.target.checked));
   const schk = document.getElementById('live-sys-chk');
   if (schk) schk.addEventListener('change', e => setLiveSys(e.target.checked));
+  const sqschk = document.getElementById('live-sqs-chk');
+  if (sqschk) sqschk.addEventListener('change', e => setLiveSQS(e.target.checked));
 });
 
 // Parse multi-frame XYZ into array of single-frame strings
@@ -870,8 +884,10 @@ function selectSystem(sys) {
 
 // ── Load an SQS bestsqs into the center 3D viewer ─────────────────────
 function loadSQSInCenter(path, label) {
+  if (liveSQSPath === path) return; // already showing this one
+  liveSQSPath = path;
   initTrajViewer();
-  document.getElementById('active-name').textContent = label;
+  document.getElementById('active-name').textContent = label || 'SQS structure';
   document.getElementById('active-name').style.color = 'var(--text)';
   document.getElementById('active-substage').textContent = 'SQS';
   document.getElementById('traj-controls').style.display = 'none';
@@ -879,8 +895,9 @@ function loadSQSInCenter(path, label) {
     .then(r => r.json())
     .then(d => {
       if (!d.xyz || !trajViewer) return;
-      trajFrames = [d.xyz];
-      showFrame(0);
+      // Sphere-only: sticks on large SQS supercells draw phantom bonds
+      // across periodic boundaries
+      loadXYZ(trajViewer, d.xyz, { sphere: { radius: 0.4, colorscheme: 'Jmol' } });
     }).catch(() => {});
 }
 
@@ -959,7 +976,11 @@ function renderSQS(sqsDirs) {
         tile.className = 'sqs-tile';
         if (!run.waiting && run.bestsqs_path) {
           tile.style.cursor = 'pointer';
-          tile.addEventListener('click', () => loadSQSInCenter(run.bestsqs_path, `${dirName} / ${run.subdir} #${run.ip}`));
+          tile.addEventListener('click', () => {
+          setLiveSQS(false);
+          liveSQSPath = null; // force reload even if same path
+          loadSQSInCenter(run.bestsqs_path, `${dirName} / ${run.subdir} #${run.ip}`);
+        });
         }
         tile.innerHTML = run.waiting
           ? `<div class="sqs-tile-header"><span class="sqs-tile-id">${dirName}</span></div><div class="sqs-viewer-wrap"><div class="sqs-no-data">waiting…</div></div>`
@@ -1282,6 +1303,20 @@ async function poll() {
           active.tdb_done ? 'TDB done' : active.energy_count > 0 ? `${active.energy_count} energies` : 'queued';
       }
     }
+    // Live SQS: auto-load best-objective SQS tile into center viewer
+    if (liveSQS && sqsRes && sqsRes.length) {
+      let bestRun = null, bestObj = Infinity;
+      sqsRes.forEach(dir => (dir.runs || []).forEach(r => {
+        if (r.bestsqs_path && r.objective != null && r.objective < bestObj) {
+          bestObj = r.objective; bestRun = r;
+        }
+      }));
+      if (bestRun) {
+        const label = `${bestRun.subdir} #${bestRun.ip} (obj ${bestObj.toFixed(4)})`;
+        loadSQSInCenter(bestRun.bestsqs_path, label);
+      }
+    }
+
     // Live frame: refresh trajectory/CONTCAR for selected system and jump to latest frame
     if (liveFrame && selectedSystem) {
       const fresh = latestSystems.find(s => s.name === selectedSystem.name) || selectedSystem;
