@@ -605,7 +605,7 @@
 // ── State ──────────────────────────────────────────────────────────────
 const POLL_MS = 2000;
 let trajViewer = null;
-let sqsViewers = {};
+let sqsDrawn = {};  // viewKey → true once canvas rendered
 let energyChart = null;
 let trajFrames = [];
 let trajIdx = 0;
@@ -628,12 +628,48 @@ function initTrajViewer() {
   });
 }
 
-function initSqsViewer(tile, ip) {
-  const wrap = tile.querySelector('.sqs-viewer');
-  if (!wrap || sqsViewers[ip]) return;
-  sqsViewers[ip] = $3Dmol.createViewer(wrap, {
-    backgroundColor: '#060B10',
-    antialias: false,
+// ── 2D canvas SQS renderer (no WebGL — avoids context limit) ───────────
+const _JMOL = {
+  H:'#FFFFFF',He:'#D9FFFF',Li:'#CC80FF',Be:'#C2FF00',B:'#FFB5B5',
+  C:'#909090',N:'#3050F8',O:'#FF0D0D',F:'#90E050',Ne:'#B3E3F5',
+  Na:'#AB5CF2',Mg:'#8AFF00',Al:'#BFA6A6',Si:'#F0C8A0',P:'#FF8000',
+  S:'#FFFF30',Cl:'#1FF01F',K:'#8F40D4',Ca:'#3DFF00',Ti:'#BFC2C7',
+  V:'#A6A6AB',Cr:'#8A99C7',Mn:'#9C7AC7',Fe:'#E06633',Co:'#F090A0',
+  Ni:'#50D050',Cu:'#C88033',Zn:'#7D80B0',Zr:'#94DBFF',Mo:'#54B5B5',
+  Hf:'#4DC2FF',Ta:'#4DA6FF',W:'#2194D6',Re:'#267DAB',La:'#70D4FF',
+  Y:'#94FFFF',Nb:'#73C2C9',Ru:'#248F8F',Pd:'#006985',Ir:'#175487',
+};
+
+function drawXYZ(canvas, xyzText) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#060B10';
+  ctx.fillRect(0, 0, W, H);
+  const lines = xyzText.trim().split('\n');
+  if (lines.length < 3) return;
+  const atoms = [];
+  for (let i = 2; i < lines.length; i++) {
+    const p = lines[i].trim().split(/\s+/);
+    if (p.length < 4) continue;
+    atoms.push({ e: p[0], x: +p[1], y: +p[2], z: +p[3] });
+  }
+  if (!atoms.length) return;
+  const xs = atoms.map(a => a.x), ys = atoms.map(a => a.y);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const span = Math.max(x1 - x0, y1 - y0) || 1;
+  const pad = 10;
+  const sc = (Math.min(W, H) - 2 * pad) / span;
+  const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+  const r = Math.max(1.5, Math.min(4, sc * 0.35));
+  atoms.sort((a, b) => a.z - b.z);
+  atoms.forEach(({ e, x, y }) => {
+    const px = W / 2 + (x - mx) * sc;
+    const py = H / 2 - (y - my) * sc;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fillStyle = _JMOL[e] || '#FF69B4';
+    ctx.fill();
   });
 }
 
@@ -832,6 +868,22 @@ function selectSystem(sys) {
     }).catch(() => {});
 }
 
+// ── Load an SQS bestsqs into the center 3D viewer ─────────────────────
+function loadSQSInCenter(path, label) {
+  initTrajViewer();
+  document.getElementById('active-name').textContent = label;
+  document.getElementById('active-name').style.color = 'var(--text)';
+  document.getElementById('active-substage').textContent = 'SQS';
+  document.getElementById('traj-controls').style.display = 'none';
+  fetch(`/api/structure?path=${encodeURIComponent(path)}`)
+    .then(r => r.json())
+    .then(d => {
+      if (!d.xyz || !trajViewer) return;
+      trajFrames = [d.xyz];
+      showFrame(0);
+    }).catch(() => {});
+}
+
 // ── Render SQS tiles ───────────────────────────────────────────────────
 function sanitizeId(s) {
   return String(s).replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -905,6 +957,10 @@ function renderSQS(sqsDirs) {
         tile = document.createElement('div');
         tile.id = tileId;
         tile.className = 'sqs-tile';
+        if (!run.waiting && run.bestsqs_path) {
+          tile.style.cursor = 'pointer';
+          tile.addEventListener('click', () => loadSQSInCenter(run.bestsqs_path, `${dirName} / ${run.subdir} #${run.ip}`));
+        }
         tile.innerHTML = run.waiting
           ? `<div class="sqs-tile-header"><span class="sqs-tile-id">${dirName}</span></div><div class="sqs-viewer-wrap"><div class="sqs-no-data">waiting…</div></div>`
           : `<div class="sqs-tile-header">
@@ -912,7 +968,9 @@ function renderSQS(sqsDirs) {
               <span class="sqs-obj" id="${objId}">—</span>
              </div>
              <div class="sqs-viewer-wrap">
-               ${run.bestsqs_path ? `<div class="sqs-viewer" id="${viewerId}"></div>` : `<div class="sqs-no-data">waiting…</div>`}
+               ${run.bestsqs_path
+                 ? `<canvas id="${viewerId}" style="width:100%;height:100%;display:block"></canvas>`
+                 : `<div class="sqs-no-data">waiting…</div>`}
              </div>`;
         grid.appendChild(tile);
       }
@@ -923,23 +981,19 @@ function renderSQS(sqsDirs) {
         const objEl = document.getElementById(objId);
         if (objEl && run.objective != null) objEl.textContent = run.objective.toFixed(4);
 
-        if (run.bestsqs_path && !sqsViewers[viewKey]) {
-          sqsViewers[viewKey] = true; // claim slot to prevent duplicate init
+        if (run.bestsqs_path && !sqsDrawn[viewKey]) {
+          sqsDrawn[viewKey] = true;
           const vpath = run.bestsqs_path;
-          requestAnimationFrame(() => {
-            const viewWrap = document.getElementById(viewerId);
-            if (!viewWrap) return;
-            const v = $3Dmol.createViewer(viewWrap, { backgroundColor: '#060B10', antialias: false });
-            sqsViewers[viewKey] = v;
-            fetch(`/api/structure?path=${encodeURIComponent(vpath)}`)
-              .then(r => r.json())
-              .then(d => {
-                if (d.xyz && sqsViewers[viewKey] && sqsViewers[viewKey] !== true) {
-                  loadXYZ(sqsViewers[viewKey], d.xyz, { sphere: { radius: 0.4, colorscheme: 'Jmol' } });
-                  sqsViewers[viewKey].resize();
-                }
-              }).catch(() => {});
-          });
+          fetch(`/api/structure?path=${encodeURIComponent(vpath)}`)
+            .then(r => r.json())
+            .then(d => {
+              if (!d.xyz) return;
+              const cvs = document.getElementById(viewerId);
+              if (!cvs) return;
+              cvs.width = cvs.offsetWidth || 148;
+              cvs.height = cvs.offsetHeight || 90;
+              drawXYZ(cvs, d.xyz);
+            }).catch(() => {});
         }
       }
     });
