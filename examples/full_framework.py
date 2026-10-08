@@ -803,6 +803,9 @@ class FullFrameworkPipeline:
             os.environ["MP_API_KEY"] = api_key
         cfg["files_dir"] = self.files_dir
         cfg["fixed_elements"] = frozenset(cfg.get("fixed_elements", []))
+        _mlip_upper = cfg.get("mlip", "orb").upper()
+        cfg.setdefault("mlip_label", f"MP+{_mlip_upper}")
+        cfg.setdefault("mlip_folder", f"MaterialsProject_Comps_{_mlip_upper}")
         _shared = self.settings.get("mlip_kwargs", {})
         cfg["mlip_kwargs"] = {**_shared, **self.settings.get("database_mlip_kwargs", _shared)}
         cfg["fallback_refs"] = _database_fallback_refs
