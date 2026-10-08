@@ -72,14 +72,16 @@ t_step                = 10
 
 # ── Oxidation database (advanced) ─────────────────────────────────────────────
 [database]
-stable_only           = true
-skip_blade_formulas   = true
-skip_existing_poscars = true
+stable_only            = true
+skip_blade_formulas    = true
+skip_existing_poscars  = true
 skip_existing_energies = true
-mlip_label            = "MP+ORB"
-mlip_folder           = "MaterialsProject_Comps_ORB"
-poscar_folder         = "MaterialsProject_Comps_POSCARs"
-blade_comp_folders    = ["Comps"]
+# mlip_label and mlip_folder are auto-derived from database.mlip (e.g. "orb" → "MP+ORB").
+# Override here only if you need a custom name:
+# mlip_label  = "MP+ORB"
+# mlip_folder = "MaterialsProject_Comps_ORB"
+poscar_folder          = "MaterialsProject_Comps_POSCARs"
+blade_comp_folders     = ["Comps"]
 
 # ── Oxidation display settings ─────────────────────────────────────────────────
 [oxidation]
