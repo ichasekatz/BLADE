@@ -587,9 +587,8 @@
       </label>
       <button onclick="collapsePanel('right')" title="Collapse" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:12px;padding:0 10px;line-height:1" id="btn-collapse-right">▶</button>
     </div>
-    <div id="tab-content-sqs" class="tab-content" style="padding:10px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">
-      <div>SQS grid shown in center panel.</div>
-      <div id="sqs-right-info" style="margin-top:6px"></div>
+    <div id="tab-content-sqs" class="tab-content" style="overflow-y:auto;padding:0">
+      <div id="sqs-dir-list" style="padding:6px 0"></div>
     </div>
     <div id="tab-content-tdb" class="tab-content" hidden>
       <div id="tdb-list"></div>
@@ -622,6 +621,7 @@ const POLL_MS = 2000;
 let trajViewer = null;
 let sqsDrawn = {};  // viewKey → true once canvas rendered
 let selectedSQSSubdir = null; // currently selected composition chip key "dirName|subdir"
+let selectedSQSDir = null;    // currently selected dir name (right panel)
 let energyChart = null;
 let trajFrames = [];
 let trajIdx = 0;
@@ -674,21 +674,38 @@ function drawXYZ(canvas, xyzText) {
   }
   if (!atoms.length) return;
   const colorMap = buildElemColors(atoms.map(a => a.e));
-  const xs = atoms.map(a => a.x), ys = atoms.map(a => a.y);
-  const x0 = Math.min(...xs), x1 = Math.max(...xs);
-  const y0 = Math.min(...ys), y1 = Math.max(...ys);
-  const span = Math.max(x1 - x0, y1 - y0) || 1;
+  const cx = atoms.reduce((s,a) => s+a.x, 0)/atoms.length;
+  const cy = atoms.reduce((s,a) => s+a.y, 0)/atoms.length;
+  const cz = atoms.reduce((s,a) => s+a.z, 0)/atoms.length;
+  // isometric projection
+  const cos30 = Math.sqrt(3)/2, sin30 = 0.5;
+  const proj = atoms.map(a => {
+    const dx = a.x-cx, dy = a.y-cy, dz = a.z-cz;
+    return { e: a.e, sx: (dx-dy)*cos30, sy: -(dx+dy)*sin30+dz, depth: dx+dy-2*dz };
+  });
+  const sxs = proj.map(a => a.sx), sys = proj.map(a => a.sy);
+  const spanX = Math.max(...sxs)-Math.min(...sxs) || 1;
+  const spanY = Math.max(...sys)-Math.min(...sys) || 1;
   const pad = 10;
-  const sc = (Math.min(W, H) - 2 * pad) / span;
-  const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
-  const r = Math.max(1.5, Math.min(4, sc * 0.35));
-  atoms.sort((a, b) => a.z - b.z);
-  atoms.forEach(({ e, x, y }) => {
-    const px = W / 2 + (x - mx) * sc;
-    const py = H / 2 - (y - my) * sc;
+  const sc = Math.min((W-2*pad)/spanX, (H-2*pad)/spanY);
+  const midSX = (Math.min(...sxs)+Math.max(...sxs))/2;
+  const midSY = (Math.min(...sys)+Math.max(...sys))/2;
+  const r = Math.max(2, Math.min(6, sc*0.4));
+  proj.sort((a,b) => b.depth-a.depth);
+  proj.forEach(({e, sx, sy}) => {
+    const px = W/2+(sx-midSX)*sc;
+    const py = H/2-(sy-midSY)*sc;
+    const base = colorMap[e] || '#FF69B4';
     ctx.beginPath();
-    ctx.arc(px, py, r, 0, Math.PI * 2);
-    ctx.fillStyle = colorMap[e] || '#FF69B4';
+    ctx.arc(px, py, r, 0, Math.PI*2);
+    ctx.fillStyle = base;
+    ctx.fill();
+    const g = ctx.createRadialGradient(px-r*0.3, py-r*0.35, r*0.05, px, py, r);
+    g.addColorStop(0, 'rgba(255,255,255,0.45)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI*2);
+    ctx.fillStyle = g;
     ctx.fill();
   });
 }
@@ -986,11 +1003,58 @@ function selectSQSComp(gk, label) {
   });
 }
 
+function renderSQSDirList(sqsDirs) {
+  const list = document.getElementById('sqs-dir-list');
+  if (!list) return;
+  const names = sqsDirs.map(d => d.name);
+  // auto-select first dir if none selected or selection gone
+  if (!selectedSQSDir || !names.includes(selectedSQSDir)) {
+    selectedSQSDir = names[0] || null;
+    selectedSQSSubdir = null; // reset composition when dir changes
+  }
+  // rebuild if set changed
+  const existing = new Set([...list.querySelectorAll('.sqs-dir-row')].map(r => r.dataset.name));
+  if (names.some(n => !existing.has(n)) || existing.size !== names.length) {
+    list.innerHTML = '';
+    names.forEach(name => {
+      const row = document.createElement('div');
+      row.className = 'sqs-dir-row';
+      row.dataset.name = name;
+      row.style.cssText = 'padding:6px 14px;cursor:pointer;font-family:var(--mono);font-size:11px;border-left:2px solid transparent;transition:background 0.1s;';
+      row.textContent = name;
+      row.addEventListener('click', () => {
+        if (selectedSQSDir !== name) {
+          selectedSQSDir = name;
+          selectedSQSSubdir = null; // reset composition
+          sqsShowPicker();
+        }
+        list.querySelectorAll('.sqs-dir-row').forEach(r => {
+          const sel = r.dataset.name === selectedSQSDir;
+          r.style.borderLeftColor = sel ? 'var(--teal)' : 'transparent';
+          r.style.background = sel ? 'var(--surface)' : '';
+          r.style.color = sel ? 'var(--text)' : 'var(--text-dim)';
+        });
+      });
+      list.appendChild(row);
+    });
+  }
+  // sync highlight
+  list.querySelectorAll('.sqs-dir-row').forEach(r => {
+    const sel = r.dataset.name === selectedSQSDir;
+    r.style.borderLeftColor = sel ? 'var(--teal)' : 'transparent';
+    r.style.background = sel ? 'var(--surface)' : '';
+    r.style.color = sel ? 'var(--text)' : 'var(--text-dim)';
+  });
+}
+
 function renderSQS(sqsDirs) {
+  renderSQSDirList(sqsDirs);
+  // filter to selected dir only
+  const filteredDirs = selectedSQSDir ? sqsDirs.filter(d => d.name === selectedSQSDir) : sqsDirs;
   const grid = document.getElementById('sqs-grid');
   const picker = document.getElementById('sqs-center-picker');
 
-  if (!sqsDirs.length) {
+  if (!filteredDirs.length) {
     picker.innerHTML = '<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:60px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">No active SQS runs</div>';
     picker.hidden = false;
     document.getElementById('sqs-center-tiles').hidden = true;
@@ -998,11 +1062,11 @@ function renderSQS(sqsDirs) {
     return;
   }
 
-  const activeNames = sqsDirs.filter(d => d.runs.length).map(d => d.name);
-  document.getElementById('sqs-dir-label').textContent = activeNames.length ? activeNames.join(', ') : sqsDirs[sqsDirs.length-1].name;
+  const activeNames = filteredDirs.filter(d => d.runs.length).map(d => d.name);
+  document.getElementById('sqs-dir-label').textContent = activeNames.length ? activeNames.join(', ') : filteredDirs[filteredDirs.length-1].name;
 
   const allRuns = [];
-  sqsDirs.forEach(dir => {
+  filteredDirs.forEach(dir => {
     if (dir.runs.length) {
       dir.runs.forEach(r => allRuns.push({...r, dirName: dir.name}));
     } else {
@@ -1011,7 +1075,7 @@ function renderSQS(sqsDirs) {
   });
 
   if (!allRuns.length) {
-    picker.innerHTML = `<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:80px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">${sqsDirs[0].name} — waiting…</div>`;
+    picker.innerHTML = `<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:80px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">${filteredDirs[0].name} — waiting…</div>`;
     picker.hidden = false;
     document.getElementById('sqs-center-tiles').hidden = true;
     return;
