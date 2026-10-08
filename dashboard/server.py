@@ -93,15 +93,23 @@ def _build_elem_map(rndstr_path: Path) -> dict[str, str]:
     return mapping
 
 
+# One element per letter A-Z, in periodic-table order for visual variety.
+# Used when rndstr.in is unavailable or missing a component.
+_ALPHA_ELEMS = [
+    "Al", "B",  "Ca", "Cr", "Cu", "Fe", "Ga", "Hf", "In", "Ir",
+    "K",  "La", "Mn", "N",  "O",  "P",  "Pt", "Re", "S",  "Ti",
+    "U",  "V",  "W",  "Xe", "Y",  "Zr",
+]  # A→Al, B→B, C→Ca, D→Cr, E→Cu, F→Fe, G→Ga, H→Hf, ...
+
+
 def _atat_species(raw: str, elem_map: dict[str, str] | None = None) -> str:
-    """Map ATAT alloy notation 'a_A' → real element using rndstr.in map."""
+    """Map ATAT alloy notation 'a_A' → real element (rndstr.in map, else alphabet fallback)."""
     if elem_map and raw in elem_map:
         return elem_map[raw]
-    # Fallback: strip prefix and use position-based placeholder
     m = re.match(r"^[a-z]_([A-Z])$", raw)
     if m:
-        _fallback = {"A": "Hf", "B": "Cr", "C": "Zr", "D": "Mo", "E": "Ti"}
-        return _fallback.get(m.group(1), "Fe")
+        idx = ord(m.group(1)) - ord("A")
+        return _ALPHA_ELEMS[idx] if idx < len(_ALPHA_ELEMS) else "Fe"
     return raw
 
 
