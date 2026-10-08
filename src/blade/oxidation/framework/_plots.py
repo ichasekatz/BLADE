@@ -50,7 +50,8 @@ def _plot_muO_T(
     import matplotlib as mpl
     import matplotlib.patches as mpatches
     import matplotlib.pyplot as plt
-    from thermodynamics import (
+
+    from .thermodynamics import (
         add_region_annotation,
         format_phase_detail_line,
         grid_edges,

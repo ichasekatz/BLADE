@@ -138,7 +138,7 @@ def _plot_region_map_png(
     import matplotlib.pyplot as plt
 
     _ensure_imports()
-    from thermodynamics import (
+    from .thermodynamics import (
         add_region_annotation,
         format_phase_detail_line,
         grid_edges,

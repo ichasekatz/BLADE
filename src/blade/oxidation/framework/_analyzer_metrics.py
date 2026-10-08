@@ -36,7 +36,7 @@ def _solve_metrics(config, pd_data, comp, T, mu_o, phase_G):
         All numeric fields are ``np.nan`` when the LP is infeasible.
     """
     _ensure_imports()
-    from thermodynamics import KB, build_assemblage_labels, solve_grand_lp  # noqa: F401
+    from .thermodynamics import KB, build_assemblage_labels, solve_grand_lp  # noqa: F401
 
     phase_O = pd_data["phase_O"]
     n_fixed = pd_data["n_fixed"]
