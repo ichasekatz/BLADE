@@ -102,14 +102,29 @@ _ALPHA_ELEMS = [
 ]  # A→Al, B→Ba, C→Ca, D→Cr … avoids collision with real element symbols
 
 
-def _atat_species(raw: str, elem_map: dict[str, str] | None = None) -> str:
-    """Map ATAT alloy notation 'a_A' → real element (rndstr.in map, else alphabet fallback)."""
+def _atat_species(
+    raw: str,
+    elem_map: dict[str, str] | None = None,
+    used: set[str] | None = None,
+) -> str:
+    """Map ATAT alloy notation 'a_A' → real element.
+
+    Priority: elem_map → alphabet fallback (skipping symbols already in *used*).
+    *used* is the set of pure-site element symbols already seen in the structure.
+    """
     if elem_map and raw in elem_map:
         return elem_map[raw]
     m = re.match(r"^[a-z]_([A-Z])$", raw)
     if m:
         idx = ord(m.group(1)) - ord("A")
-        return _ALPHA_ELEMS[idx] if idx < len(_ALPHA_ELEMS) else "Fe"
+        candidate = _ALPHA_ELEMS[idx] if idx < len(_ALPHA_ELEMS) else "Fe"
+        if used and candidate in used:
+            # Pick the next unused entry from _ALPHA_ELEMS
+            for alt in _ALPHA_ELEMS:
+                if alt not in used:
+                    return alt
+            return "Xe"  # last resort
+        return candidate
     return raw
 
 
@@ -125,7 +140,23 @@ def parse_atat_structure(text: str, elem_map: dict[str, str] | None = None) -> s
         for i in range(3):
             lat.append([float(x) for x in lines[i].split()[:3]])
 
-        # Parse atoms (remaining lines: x y z species)
+        # First pass: collect real (non-ATAT-notation) element symbols so fallback
+        # can avoid collisions (e.g. don't use 'B' if Boron is a pure site).
+        _atat_pat = re.compile(r"^[a-z]_[A-Z]$")
+        real_elems: set[str] = set()
+        for line in lines[6:]:
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            try:
+                float(parts[0])
+                raw = parts[3]
+            except ValueError:
+                raw = parts[0]
+            if not _atat_pat.match(raw) and (not elem_map or raw not in elem_map):
+                real_elems.add(raw)
+
+        # Second pass: parse atoms with collision-aware fallback
         atoms: list[tuple[str, list[float]]] = []
         for line in lines[6:]:
             parts = line.split()
@@ -134,10 +165,10 @@ def parse_atat_structure(text: str, elem_map: dict[str, str] | None = None) -> s
             # Some ATAT files: x y z species; others: species x y z
             try:
                 frac = [float(parts[0]), float(parts[1]), float(parts[2])]
-                species = _atat_species(parts[3], elem_map)
+                species = _atat_species(parts[3], elem_map, real_elems)
             except ValueError:
                 # species first format
-                species = _atat_species(parts[0], elem_map)
+                species = _atat_species(parts[0], elem_map, real_elems)
                 frac = [float(parts[1]), float(parts[2]), float(parts[3])]
 
             # Convert fractional → Cartesian
