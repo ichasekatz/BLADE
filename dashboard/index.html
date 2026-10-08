@@ -1540,6 +1540,11 @@ async function poll() {
       }));
       if (bestRun) {
         const label = `#${bestRun.ip} — ${bestRun.subdir} (obj ${bestObj.toFixed(4)})`;
+        // force redraw if mtime changed (file updated on disk)
+        if (bestRun.mtime !== window._liveSQSMtime) {
+          window._liveSQSMtime = bestRun.mtime;
+          sqsPreviewPath = null;
+        }
         sqsPreviewTile(bestRun.bestsqs_path, label);
       }
     }
