@@ -924,17 +924,22 @@ function renderSQS(sqsDirs) {
         if (objEl && run.objective != null) objEl.textContent = run.objective.toFixed(4);
 
         if (run.bestsqs_path && !sqsViewers[viewKey]) {
-          const viewWrap = document.getElementById(viewerId);
-          if (viewWrap) {
-            sqsViewers[viewKey] = $3Dmol.createViewer(viewWrap, { backgroundColor: '#060B10', antialias: false });
-            fetch(`/api/structure?path=${encodeURIComponent(run.bestsqs_path)}`)
+          sqsViewers[viewKey] = true; // claim slot to prevent duplicate init
+          const vpath = run.bestsqs_path;
+          requestAnimationFrame(() => {
+            const viewWrap = document.getElementById(viewerId);
+            if (!viewWrap) return;
+            const v = $3Dmol.createViewer(viewWrap, { backgroundColor: '#060B10', antialias: false });
+            sqsViewers[viewKey] = v;
+            fetch(`/api/structure?path=${encodeURIComponent(vpath)}`)
               .then(r => r.json())
               .then(d => {
-                if (d.xyz && sqsViewers[viewKey]) {
+                if (d.xyz && sqsViewers[viewKey] && sqsViewers[viewKey] !== true) {
                   loadXYZ(sqsViewers[viewKey], d.xyz, { sphere: { radius: 0.4, colorscheme: 'Jmol' } });
+                  sqsViewers[viewKey].resize();
                 }
               }).catch(() => {});
-          }
+          });
         }
       }
     });
