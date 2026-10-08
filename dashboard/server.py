@@ -58,6 +58,20 @@ def _resolve_paths(cfg: dict, toml_path: Path) -> tuple[Path, Path]:
 # ATAT bestsqs.out → XYZ parser
 # ---------------------------------------------------------------------------
 
+# ATAT alloy component notation X_Y → placeholder element for 3Dmol visualization.
+# The real element identity comes from the TOML config; these are stand-ins that render.
+_ATAT_COMPONENT = {
+    "A": "Hf", "B": "Cr", "C": "Zr", "D": "Mo", "E": "Ti", "F": "V",
+}
+
+
+def _atat_species(raw: str) -> str:
+    """Map ATAT alloy notation 'a_A' → a renderable element symbol."""
+    import re as _re
+    m = _re.match(r"^[a-z]_([A-Z])$", raw)
+    return _ATAT_COMPONENT.get(m.group(1), "Fe") if m else raw
+
+
 def parse_atat_structure(text: str) -> str | None:
     """Convert ATAT str.out / bestsqs.out text to XYZ format string."""
     lines = [l.strip() for l in text.strip().splitlines() if l.strip() and not l.startswith("#")]
@@ -65,9 +79,9 @@ def parse_atat_structure(text: str) -> str | None:
         return None
     try:
         # bestsqs.out format: lines 0-2 = parent lattice, lines 3-5 = supercell vectors.
-        # Atom fractional coords are in the supercell basis, so use lines 3-5 for the transform.
+        # Atom fractional coords are in the PARENT lattice basis (lines 0-2).
         lat = []
-        for i in range(3, 6):
+        for i in range(3):
             lat.append([float(x) for x in lines[i].split()[:3]])
 
         # Parse atoms (remaining lines: x y z species)
@@ -79,10 +93,10 @@ def parse_atat_structure(text: str) -> str | None:
             # Some ATAT files: x y z species; others: species x y z
             try:
                 frac = [float(parts[0]), float(parts[1]), float(parts[2])]
-                species = parts[3]
+                species = _atat_species(parts[3])
             except ValueError:
                 # species first format
-                species = parts[0]
+                species = _atat_species(parts[0])
                 frac = [float(parts[1]), float(parts[2]), float(parts[3])]
 
             # Convert fractional → Cartesian
