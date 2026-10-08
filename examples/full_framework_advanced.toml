@@ -7,6 +7,16 @@
 #
 # Settings here are overridden by any key already present in the main toml.
 
+# ── Per-stage MLIP overrides ──────────────────────────────────────────────────
+# Override [mlip_kwargs] for a specific stage only.
+# [tdb_mlip_kwargs]
+# steps  = 1000
+# device = "cpu"
+
+# [database_mlip_kwargs]
+# steps  = 1000
+# device = "cpu"
+
 # ── TDB fitting (advanced) ────────────────────────────────────────────────────
 # prototype_driver selects the stage-runner script used by full_framework.py.
 # "multibasis" uses tdb_gen_max.py (default); "standard" uses tdb_gen_hedb.py.

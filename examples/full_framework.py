@@ -639,11 +639,12 @@ class FullFrameworkPipeline:
         phase = self.settings["phase"]
         fit = dict(self.settings["tdb_fit"])
         fit["calculator"] = cfg["mlip"]
-        fit["calculator_kwargs"] = dict(self.settings.get("tdb_mlip_kwargs", {}))
+        _shared_mlip = self.settings.get("mlip_kwargs", {})
+        fit["calculator_kwargs"] = {**_shared_mlip, **self.settings.get("tdb_mlip_kwargs", _shared_mlip)}
         sqs = dict(self.settings["tdb_sqs"])
-        sqs["2"] = sqs.pop("pair_cutoff")
-        sqs["3"] = sqs.pop("triplet_cutoff")
-        sqs["4"] = sqs.pop("quadruplet_cutoff")
+        sqs["2"] = sqs.pop("pair_cutoff", 5)
+        sqs["3"] = sqs.pop("triplet_cutoff", 4)
+        sqs["4"] = sqs.pop("quadruplet_cutoff", 3)
         phase_key = phase["key"]
         lattice = self._phase_lattice(cfg, phase)
         phases = {
@@ -704,7 +705,7 @@ class FullFrameworkPipeline:
             "generate_combined_phase_diagram": self.enabled("tdb_fitting"),
             "generate_contcar_plots": self.enabled("tdb_fitting"),
             "mlip": cfg["mlip"],
-            "mlip_kwargs": dict(self.settings.get("tdb_mlip_kwargs", {})),
+            "mlip_kwargs": {**_shared_mlip, **self.settings.get("tdb_mlip_kwargs", _shared_mlip)},
             "tdb_params": fit,
             "terms_in": inputs["terms_in"] or None,
             "mult_in": inputs["mult_in"] or None,
@@ -793,7 +794,8 @@ class FullFrameworkPipeline:
             os.environ["MP_API_KEY"] = api_key
         cfg["files_dir"] = self.files_dir
         cfg["fixed_elements"] = frozenset(cfg.get("fixed_elements", []))
-        cfg["mlip_kwargs"] = dict(self.settings.get("database_mlip_kwargs", {}))
+        _shared = self.settings.get("mlip_kwargs", {})
+        cfg["mlip_kwargs"] = {**_shared, **self.settings.get("database_mlip_kwargs", _shared)}
         cfg["fallback_refs"] = _database_fallback_refs
         module = _load_module(
             self.examples_dir / "oxidation" / "database_framework.py",
