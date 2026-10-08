@@ -307,6 +307,7 @@
 
   .sqs-tile:hover { border-color: var(--border2); }
   .sqs-tile.best  { border-color: var(--teal); }
+  .sqs-tile.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 
   .sqs-tile-header {
     display: flex;
@@ -332,7 +333,7 @@
   }
 
   .sqs-viewer-wrap {
-    height: 90px;
+    height: 120px;
     position: relative;
     background: #060B10;
   }
@@ -663,7 +664,7 @@ function buildElemColors(elements) {
   return map;
 }
 
-function drawXYZ(canvas, xyzText) {
+function drawXYZ(canvas, xyzText, rotX=0, rotY=0) {
   const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
   ctx.fillStyle = '#060B10';
@@ -681,11 +682,17 @@ function drawXYZ(canvas, xyzText) {
   const cx = atoms.reduce((s,a) => s+a.x, 0)/atoms.length;
   const cy = atoms.reduce((s,a) => s+a.y, 0)/atoms.length;
   const cz = atoms.reduce((s,a) => s+a.z, 0)/atoms.length;
-  // isometric projection
-  const cos30 = Math.sqrt(3)/2, sin30 = 0.5;
+  const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+  const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
   const proj = atoms.map(a => {
-    const dx = a.x-cx, dy = a.y-cy, dz = a.z-cz;
-    return { e: a.e, sx: (dx-dy)*cos30, sy: -(dx+dy)*sin30+dz, depth: dx+dy-2*dz };
+    let dx = a.x-cx, dy = a.y-cy, dz = a.z-cz;
+    // rotate around Y axis
+    const dx2 = dx*cosY + dz*sinY, dz2 = -dx*sinY + dz*cosY;
+    // rotate around X axis
+    const dy3 = dy*cosX - dz2*sinX, dz3 = dy*sinX + dz2*cosX;
+    // isometric-style projection
+    const cos30 = Math.sqrt(3)/2, sin30 = 0.5;
+    return { e: a.e, sx: (dx2-dy3)*cos30, sy: -(dx2+dy3)*sin30+dz3, depth: dx2+dy3-2*dz3 };
   });
   const sxs = proj.map(a => a.sx), sys = proj.map(a => a.sy);
   const spanX = Math.max(...sxs)-Math.min(...sxs) || 1;
@@ -711,6 +718,22 @@ function drawXYZ(canvas, xyzText) {
     ctx.arc(px, py, r, 0, Math.PI*2);
     ctx.fillStyle = g;
     ctx.fill();
+  });
+}
+
+function initPreviewDrag(cvs) {
+  if (cvs._dragInit) return;
+  cvs._dragInit = true;
+  cvs.style.cursor = 'grab';
+  let dragging = false, lx = 0, ly = 0;
+  cvs.addEventListener('mousedown', e => { dragging = true; lx = e.clientX; ly = e.clientY; cvs.style.cursor = 'grabbing'; });
+  window.addEventListener('mouseup', () => { dragging = false; cvs.style.cursor = 'grab'; });
+  window.addEventListener('mousemove', e => {
+    if (!dragging || !cvs._xyzData) return;
+    cvs._rotY = (cvs._rotY || 0) + (e.clientX - lx) * 0.01;
+    cvs._rotX = (cvs._rotX || 0) + (e.clientY - ly) * 0.01;
+    lx = e.clientX; ly = e.clientY;
+    drawXYZ(cvs, cvs._xyzData, cvs._rotX, cvs._rotY);
   });
 }
 
@@ -929,7 +952,7 @@ function sqsPreviewTile(path, label) {
   if (lbl) lbl.textContent = label || path;
   // Highlight active tile
   document.querySelectorAll('.sqs-tile').forEach(t => {
-    t.style.outline = t.dataset.path === path ? '2px solid var(--teal)' : '';
+    t.classList.toggle('selected', t.dataset.path === path);
   });
   fetch(`/api/structure?path=${encodeURIComponent(path)}`)
     .then(r => r.json())
@@ -939,7 +962,11 @@ function sqsPreviewTile(path, label) {
       if (!cvs) return;
       cvs.width = cvs.offsetWidth || 600;
       cvs.height = cvs.offsetHeight || 220;
-      drawXYZ(cvs, d.xyz);
+      cvs._xyzData = d.xyz;
+      cvs._rotX = cvs._rotX || 0;
+      cvs._rotY = cvs._rotY || 0;
+      drawXYZ(cvs, d.xyz, cvs._rotX, cvs._rotY);
+      initPreviewDrag(cvs);
     }).catch(() => {});
 }
 
@@ -1534,6 +1561,7 @@ async function poll() {
 // ── Boot ───────────────────────────────────────────────────────────────
 initTrajViewer();
 initEnergyChart();
+switchTab('sqs');
 poll();
 setInterval(poll, POLL_MS);
 </script>
