@@ -292,19 +292,6 @@
     overflow: hidden;
   }
 
-  #sqs-grid {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 8px;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-    align-content: start;
-    scrollbar-width: thin;
-    scrollbar-color: var(--border2) transparent;
-  }
-
   .sqs-tile {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -551,9 +538,6 @@
           <label id="live-sys-label" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--accent);user-select:none;">
             <input type="checkbox" id="live-sys-chk" checked style="accent-color:var(--accent)"> Sys
           </label>
-          <label id="live-sqs-label" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--mono);font-size:10px;color:#A78BFA;user-select:none;">
-            <input type="checkbox" id="live-sqs-chk" style="accent-color:#A78BFA"> SQS
-          </label>
         </div>
       </div>
     </div>
@@ -575,11 +559,20 @@
       <button class="stage-tab active" id="tab-sqs" onclick="switchTab('sqs')">SQS</button>
       <button class="stage-tab" id="tab-tdb" onclick="switchTab('tdb')">TDB</button>
       <button class="stage-tab" id="tab-plots" onclick="switchTab('plots')">Plots</button>
-      <span id="sqs-dir-label" style="color:var(--text-dim);font-family:var(--mono);font-size:10px;margin-left:auto;padding-right:12px">—</span>
+      <label id="live-sqs-label" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--text-dim);user-select:none;margin-left:auto;padding:0 10px;">
+        <input type="checkbox" id="live-sqs-chk" style="accent-color:#A78BFA"> Live
+      </label>
+      <span id="sqs-dir-label" style="color:var(--text-dim);font-family:var(--mono);font-size:10px;padding-right:12px">—</span>
     </div>
     <div id="tab-content-sqs" class="tab-content">
-      <div id="sqs-comp-bar" style="display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px 4px;border-bottom:1px solid var(--border);min-height:0;flex-shrink:0"></div>
-      <div id="sqs-grid"></div>
+      <div id="sqs-comp-picker" style="flex:1;min-height:0;overflow-y:auto;padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;align-content:start"></div>
+      <div id="sqs-tile-view" hidden style="display:flex;flex-direction:column;flex:1;min-height:0">
+        <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-bottom:1px solid var(--border);flex-shrink:0">
+          <button id="sqs-back-btn" onclick="sqsShowPicker()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text-dim);padding:2px 8px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">← back</button>
+          <span id="sqs-selected-label" style="font-family:var(--mono);font-size:10px;color:var(--text-dim)"></span>
+        </div>
+        <div id="sqs-grid" style="flex:1;min-height:0;overflow-y:auto;padding:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;align-content:start;scrollbar-width:thin;scrollbar-color:var(--border2) transparent"></div>
+      </div>
     </div>
     <div id="tab-content-tdb" class="tab-content" hidden>
       <div id="tdb-list"></div>
@@ -636,11 +629,16 @@ function initTrajViewer() {
 }
 
 // ── 2D canvas SQS renderer (no WebGL — avoids context limit) ───────────
-// Rainbow color by first letter of element symbol: A=red, cycling 360°/26
-function elemColor(e) {
-  const idx = (e && e.length) ? (e[0].toUpperCase().charCodeAt(0) - 65) : 0;
-  const hue = Math.max(0, idx) * (360 / 26);
-  return `hsl(${hue.toFixed(1)},88%,62%)`;
+// Assign evenly-spaced rainbow hues to unique elements; A-first ordering
+function buildElemColors(elements) {
+  const sorted = [...new Set(elements)].sort();
+  const n = sorted.length || 1;
+  const map = {};
+  sorted.forEach((e, i) => {
+    const hue = (i / n) * 360;
+    map[e] = `hsl(${hue.toFixed(1)},88%,62%)`;
+  });
+  return map;
 }
 
 function drawXYZ(canvas, xyzText) {
@@ -657,6 +655,7 @@ function drawXYZ(canvas, xyzText) {
     atoms.push({ e: p[0], x: +p[1], y: +p[2], z: +p[3] });
   }
   if (!atoms.length) return;
+  const colorMap = buildElemColors(atoms.map(a => a.e));
   const xs = atoms.map(a => a.x), ys = atoms.map(a => a.y);
   const x0 = Math.min(...xs), x1 = Math.max(...xs);
   const y0 = Math.min(...ys), y1 = Math.max(...ys);
@@ -671,7 +670,7 @@ function drawXYZ(canvas, xyzText) {
     const py = H / 2 - (y - my) * sc;
     ctx.beginPath();
     ctx.arc(px, py, r, 0, Math.PI * 2);
-    ctx.fillStyle = elemColor(e);
+    ctx.fillStyle = colorMap[e] || '#FF69B4';
     ctx.fill();
   });
 }
@@ -773,7 +772,7 @@ function setLiveSQS(v) {
   liveSQS = v;
   const lbl = document.getElementById('live-sqs-label');
   const chk = document.getElementById('live-sqs-chk');
-  if (lbl) lbl.style.color = v ? '#A78BFA' : 'var(--text-dim)';
+  if (lbl) { lbl.style.color = v ? '#A78BFA' : 'var(--text-dim)'; lbl.style.fontWeight = v ? '600' : ''; }
   if (chk) chk.checked = v;
 }
 
@@ -904,14 +903,20 @@ function sanitizeId(s) {
   return String(s).replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-function selectSQSComp(gk) {
+function sqsShowPicker() {
+  document.getElementById('sqs-comp-picker').hidden = false;
+  document.getElementById('sqs-tile-view').hidden = true;
+  selectedSQSSubdir = null;
+}
+
+function selectSQSComp(gk, label) {
   selectedSQSSubdir = gk;
-  document.querySelectorAll('.sqs-comp-chip').forEach(c => {
-    c.style.background = c.dataset.gk === gk ? 'var(--teal)' : 'var(--surface2)';
-    c.style.color = c.dataset.gk === gk ? '#fff' : 'var(--text-dim)';
-    c.style.borderColor = c.dataset.gk === gk ? 'var(--teal)' : 'var(--border)';
-  });
-  // Hide all tiles and headers; show only selected group
+  document.getElementById('sqs-comp-picker').hidden = true;
+  const tv = document.getElementById('sqs-tile-view');
+  tv.hidden = false;
+  tv.style.display = 'flex';
+  const lbl = document.getElementById('sqs-selected-label');
+  if (lbl) lbl.textContent = label || gk;
   document.querySelectorAll('.sqs-tile, .sqs-group-hdr').forEach(el => {
     el.hidden = el.dataset.gk !== gk;
   });
@@ -919,11 +924,12 @@ function selectSQSComp(gk) {
 
 function renderSQS(sqsDirs) {
   const grid = document.getElementById('sqs-grid');
-  const compBar = document.getElementById('sqs-comp-bar');
+  const picker = document.getElementById('sqs-comp-picker');
 
   if (!sqsDirs.length) {
-    grid.innerHTML = '<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:60px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">No active SQS runs</div>';
-    compBar.innerHTML = '';
+    picker.innerHTML = '<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:60px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">No active SQS runs</div>';
+    picker.hidden = false;
+    document.getElementById('sqs-tile-view').hidden = true;
     document.getElementById('sqs-dir-label').textContent = '—';
     return;
   }
@@ -942,8 +948,9 @@ function renderSQS(sqsDirs) {
   });
 
   if (!allRuns.length) {
-    grid.innerHTML = `<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:80px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">${sqsDirs[0].name} — waiting for mcsqs output…</div>`;
-    compBar.innerHTML = '';
+    picker.innerHTML = `<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:80px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">${sqsDirs[0].name} — waiting for mcsqs output…</div>`;
+    picker.hidden = false;
+    document.getElementById('sqs-tile-view').hidden = true;
     return;
   }
 
@@ -965,117 +972,109 @@ function renderSQS(sqsDirs) {
     groups[gk].runs.push(r);
   });
 
-  // Auto-select first group if nothing selected or selection gone
-  if (!selectedSQSSubdir || !groups[selectedSQSSubdir]) {
-    selectedSQSSubdir = groupOrder[0];
-  }
-
-  // Rebuild composition bar chips if group set changed
-  const existingChipKeys = new Set([...compBar.querySelectorAll('.sqs-comp-chip')].map(c => c.dataset.gk));
+  // Rebuild picker cards if group set changed
+  const existingCards = new Set([...picker.querySelectorAll('.sqs-comp-card')].map(c => c.dataset.gk));
   const currentKeys = new Set(groupOrder);
-  if ([...currentKeys].some(k => !existingChipKeys.has(k)) || existingChipKeys.size !== currentKeys.size) {
-    compBar.innerHTML = '';
+  if ([...currentKeys].some(k => !existingCards.has(k)) || existingCards.size !== currentKeys.size) {
+    picker.innerHTML = '';
     groupOrder.forEach(gk => {
       const { dirName, subdir } = groups[gk];
       const label = subdir || dirName;
-      const chip = document.createElement('button');
-      chip.className = 'sqs-comp-chip';
-      chip.dataset.gk = gk;
-      chip.textContent = label;
-      chip.style.cssText = 'font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;border:1px solid var(--border);background:var(--surface2);color:var(--text-dim);cursor:pointer;white-space:nowrap;';
-      chip.addEventListener('click', () => selectSQSComp(gk));
-      compBar.appendChild(chip);
+      const best = bestByGroup[gk];
+      const card = document.createElement('div');
+      card.className = 'sqs-comp-card';
+      card.dataset.gk = gk;
+      card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px 10px;cursor:pointer;transition:border-color 0.15s;';
+      card.innerHTML = `<div style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--text);margin-bottom:4px">${label}</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim)">${dirName}</div>
+        <div id="card-obj-${sanitizeId(gk)}" style="font-family:var(--mono);font-size:9px;color:var(--teal);margin-top:4px">${best != null && isFinite(best) ? `best obj: ${best.toFixed(4)}` : 'running…'}</div>`;
+      card.addEventListener('mouseenter', () => { card.style.borderColor = 'var(--border2)'; });
+      card.addEventListener('mouseleave', () => { card.style.borderColor = selectedSQSSubdir === gk ? 'var(--teal)' : 'var(--border)'; });
+      card.addEventListener('click', () => selectSQSComp(gk, label));
+      picker.appendChild(card);
+    });
+  } else {
+    // Update card objective values
+    groupOrder.forEach(gk => {
+      const el = document.getElementById(`card-obj-${sanitizeId(gk)}`);
+      const best = bestByGroup[gk];
+      if (el) el.textContent = best != null && isFinite(best) ? `best obj: ${best.toFixed(4)}` : 'running…';
     });
   }
 
-  // Render tiles grouped, hidden if not selected group
-  groupOrder.forEach(gk => {
-    const { dirName, subdir, runs } = groups[gk];
-    const hdrid = `sqs-hdr-${sanitizeId(gk)}`;
-    const isSelected = gk === selectedSQSSubdir;
+  // If live SQS is active, auto-select if no composition chosen yet
+  if (!selectedSQSSubdir && groupOrder.length === 1) {
+    selectSQSComp(groupOrder[0], groups[groupOrder[0]].subdir || groups[groupOrder[0]].dirName);
+  }
 
-    // Section header
-    let hdr = document.getElementById(hdrid);
-    if (!hdr) {
-      hdr = document.createElement('div');
-      hdr.id = hdrid;
-      hdr.className = 'sqs-group-hdr';
-      hdr.dataset.gk = gk;
-      hdr.style.cssText = 'grid-column:1/-1;font-family:var(--mono);font-size:9px;color:var(--text-dim);padding:4px 4px 2px;letter-spacing:0.04em;border-top:1px solid var(--border);margin-top:2px;';
-      hdr.textContent = subdir || dirName;
-      grid.appendChild(hdr);
+  if (!selectedSQSSubdir) return; // show picker, don't render tiles yet
+
+  const gk = selectedSQSSubdir;
+  if (!groups[gk]) return;
+  const { dirName, subdir, runs } = groups[gk];
+
+  // Show tile view
+  picker.hidden = true;
+  document.getElementById('sqs-tile-view').hidden = false;
+  document.getElementById('sqs-tile-view').style.display = 'flex';
+
+  runs.forEach(run => {
+    const safeKey = sanitizeId(`${run.dirName}-${run.subdir}-${run.ip}`);
+    const tileId = `sqs-tile-${safeKey}`;
+    const viewerId = `sqs-v-${safeKey}`;
+    const objId = `obj-${safeKey}`;
+    const viewKey = safeKey;
+
+    let tile = document.getElementById(tileId);
+    if (!tile) {
+      tile = document.createElement('div');
+      tile.id = tileId;
+      tile.className = 'sqs-tile';
+      tile.dataset.gk = gk;
+      if (!run.waiting && run.bestsqs_path) {
+        tile.style.cursor = 'pointer';
+        tile.addEventListener('click', () => {
+          setLiveSQS(false);
+          liveSQSPath = null;
+          loadSQSInCenter(run.bestsqs_path, `${dirName} / ${run.subdir} #${run.ip}`);
+        });
+      }
+      tile.innerHTML = run.waiting
+        ? `<div class="sqs-tile-header"><span class="sqs-tile-id">${dirName}</span></div><div class="sqs-viewer-wrap"><div class="sqs-no-data">waiting…</div></div>`
+        : `<div class="sqs-tile-header">
+            <span class="sqs-tile-id">#${run.ip}</span>
+            <span class="sqs-obj" id="${objId}">—</span>
+           </div>
+           <div class="sqs-viewer-wrap">
+             ${run.bestsqs_path
+               ? `<canvas id="${viewerId}" style="width:100%;height:100%;display:block"></canvas>`
+               : `<div class="sqs-no-data">waiting…</div>`}
+           </div>`;
+      grid.appendChild(tile);
     }
-    hdr.hidden = !isSelected;
 
-    runs.forEach(run => {
-      const safeKey = sanitizeId(`${run.dirName}-${run.subdir}-${run.ip}`);
-      const tileId = `sqs-tile-${safeKey}`;
-      const viewerId = `sqs-v-${safeKey}`;
-      const objId = `obj-${safeKey}`;
-      const viewKey = safeKey;
+    if (!run.waiting) {
+      const isBest = isFinite(bestByGroup[gk] ?? Infinity) && run.objective === bestByGroup[gk];
+      tile.className = `sqs-tile${isBest ? ' best' : ''}`;
+      tile.dataset.gk = gk;
+      const objEl = document.getElementById(objId);
+      if (objEl && run.objective != null) objEl.textContent = run.objective.toFixed(4);
 
-      let tile = document.getElementById(tileId);
-      if (!tile) {
-        tile = document.createElement('div');
-        tile.id = tileId;
-        tile.className = 'sqs-tile';
-        tile.dataset.gk = gk;
-        if (!run.waiting && run.bestsqs_path) {
-          tile.style.cursor = 'pointer';
-          tile.addEventListener('click', () => {
-            setLiveSQS(false);
-            liveSQSPath = null;
-            loadSQSInCenter(run.bestsqs_path, `${dirName} / ${run.subdir} #${run.ip}`);
-          });
-        }
-        tile.innerHTML = run.waiting
-          ? `<div class="sqs-tile-header"><span class="sqs-tile-id">${dirName}</span></div><div class="sqs-viewer-wrap"><div class="sqs-no-data">waiting…</div></div>`
-          : `<div class="sqs-tile-header">
-              <span class="sqs-tile-id">#${run.ip}</span>
-              <span class="sqs-obj" id="${objId}">—</span>
-             </div>
-             <div class="sqs-viewer-wrap">
-               ${run.bestsqs_path
-                 ? `<canvas id="${viewerId}" style="width:100%;height:100%;display:block"></canvas>`
-                 : `<div class="sqs-no-data">waiting…</div>`}
-             </div>`;
-        grid.appendChild(tile);
+      if (run.bestsqs_path && !sqsDrawn[viewKey]) {
+        sqsDrawn[viewKey] = true;
+        const vpath = run.bestsqs_path;
+        fetch(`/api/structure?path=${encodeURIComponent(vpath)}`)
+          .then(r => r.json())
+          .then(d => {
+            if (!d.xyz) return;
+            const cvs = document.getElementById(viewerId);
+            if (!cvs) return;
+            cvs.width = cvs.offsetWidth || 148;
+            cvs.height = cvs.offsetHeight || 90;
+            drawXYZ(cvs, d.xyz);
+          }).catch(() => {});
       }
-
-      tile.hidden = !isSelected;
-
-      if (!run.waiting) {
-        const isBest = isFinite(bestByGroup[gk] ?? Infinity) && run.objective === bestByGroup[gk];
-        tile.className = `sqs-tile${isBest ? ' best' : ''}`;
-        tile.dataset.gk = gk;
-        tile.hidden = !isSelected;
-        const objEl = document.getElementById(objId);
-        if (objEl && run.objective != null) objEl.textContent = run.objective.toFixed(4);
-
-        if (run.bestsqs_path && !sqsDrawn[viewKey]) {
-          sqsDrawn[viewKey] = true;
-          const vpath = run.bestsqs_path;
-          fetch(`/api/structure?path=${encodeURIComponent(vpath)}`)
-            .then(r => r.json())
-            .then(d => {
-              if (!d.xyz) return;
-              const cvs = document.getElementById(viewerId);
-              if (!cvs) return;
-              cvs.width = cvs.offsetWidth || 148;
-              cvs.height = cvs.offsetHeight || 90;
-              drawXYZ(cvs, d.xyz);
-            }).catch(() => {});
-        }
-      }
-    });
-  });
-
-  // Apply chip highlight state
-  document.querySelectorAll('.sqs-comp-chip').forEach(c => {
-    const sel = c.dataset.gk === selectedSQSSubdir;
-    c.style.background = sel ? 'var(--teal)' : 'var(--surface2)';
-    c.style.color = sel ? '#fff' : 'var(--text-dim)';
-    c.style.borderColor = sel ? 'var(--teal)' : 'var(--border)';
+    }
   });
 }
 
