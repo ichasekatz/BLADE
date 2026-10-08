@@ -578,6 +578,7 @@
       <span id="sqs-dir-label" style="color:var(--text-dim);font-family:var(--mono);font-size:10px;margin-left:auto;padding-right:12px">—</span>
     </div>
     <div id="tab-content-sqs" class="tab-content">
+      <div id="sqs-comp-bar" style="display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px 4px;border-bottom:1px solid var(--border);min-height:0;flex-shrink:0"></div>
       <div id="sqs-grid"></div>
     </div>
     <div id="tab-content-tdb" class="tab-content" hidden>
@@ -609,6 +610,7 @@
 const POLL_MS = 2000;
 let trajViewer = null;
 let sqsDrawn = {};  // viewKey → true once canvas rendered
+let selectedSQSSubdir = null; // currently selected composition chip key "dirName|subdir"
 let energyChart = null;
 let trajFrames = [];
 let trajIdx = 0;
@@ -634,16 +636,12 @@ function initTrajViewer() {
 }
 
 // ── 2D canvas SQS renderer (no WebGL — avoids context limit) ───────────
-const _JMOL = {
-  H:'#FFFFFF',He:'#D9FFFF',Li:'#CC80FF',Be:'#C2FF00',B:'#FFB5B5',
-  C:'#909090',N:'#3050F8',O:'#FF0D0D',F:'#90E050',Ne:'#B3E3F5',
-  Na:'#AB5CF2',Mg:'#8AFF00',Al:'#BFA6A6',Si:'#F0C8A0',P:'#FF8000',
-  S:'#FFFF30',Cl:'#1FF01F',K:'#8F40D4',Ca:'#3DFF00',Ti:'#BFC2C7',
-  V:'#A6A6AB',Cr:'#8A99C7',Mn:'#9C7AC7',Fe:'#E06633',Co:'#F090A0',
-  Ni:'#50D050',Cu:'#C88033',Zn:'#7D80B0',Zr:'#94DBFF',Mo:'#54B5B5',
-  Hf:'#4DC2FF',Ta:'#4DA6FF',W:'#2194D6',Re:'#267DAB',La:'#70D4FF',
-  Y:'#94FFFF',Nb:'#73C2C9',Ru:'#248F8F',Pd:'#006985',Ir:'#175487',
-};
+// Rainbow color by first letter of element symbol: A=red, cycling 360°/26
+function elemColor(e) {
+  const idx = (e && e.length) ? (e[0].toUpperCase().charCodeAt(0) - 65) : 0;
+  const hue = Math.max(0, idx) * (360 / 26);
+  return `hsl(${hue.toFixed(1)},88%,62%)`;
+}
 
 function drawXYZ(canvas, xyzText) {
   const ctx = canvas.getContext('2d');
@@ -673,7 +671,7 @@ function drawXYZ(canvas, xyzText) {
     const py = H / 2 - (y - my) * sc;
     ctx.beginPath();
     ctx.arc(px, py, r, 0, Math.PI * 2);
-    ctx.fillStyle = _JMOL[e] || '#FF69B4';
+    ctx.fillStyle = elemColor(e);
     ctx.fill();
   });
 }
@@ -906,10 +904,26 @@ function sanitizeId(s) {
   return String(s).replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+function selectSQSComp(gk) {
+  selectedSQSSubdir = gk;
+  document.querySelectorAll('.sqs-comp-chip').forEach(c => {
+    c.style.background = c.dataset.gk === gk ? 'var(--teal)' : 'var(--surface2)';
+    c.style.color = c.dataset.gk === gk ? '#fff' : 'var(--text-dim)';
+    c.style.borderColor = c.dataset.gk === gk ? 'var(--teal)' : 'var(--border)';
+  });
+  // Hide all tiles and headers; show only selected group
+  document.querySelectorAll('.sqs-tile, .sqs-group-hdr').forEach(el => {
+    el.hidden = el.dataset.gk !== gk;
+  });
+}
+
 function renderSQS(sqsDirs) {
   const grid = document.getElementById('sqs-grid');
+  const compBar = document.getElementById('sqs-comp-bar');
+
   if (!sqsDirs.length) {
     grid.innerHTML = '<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:60px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">No active SQS runs</div>';
+    compBar.innerHTML = '';
     document.getElementById('sqs-dir-label').textContent = '—';
     return;
   }
@@ -917,7 +931,7 @@ function renderSQS(sqsDirs) {
   const activeNames = sqsDirs.filter(d => d.runs.length).map(d => d.name);
   document.getElementById('sqs-dir-label').textContent = activeNames.length ? activeNames.join(', ') : sqsDirs[sqsDirs.length-1].name;
 
-  // Collect all runs, tag with dirName; group by subdir within each dir
+  // Collect all runs tagged with dirName
   const allRuns = [];
   sqsDirs.forEach(dir => {
     if (dir.runs.length) {
@@ -929,6 +943,7 @@ function renderSQS(sqsDirs) {
 
   if (!allRuns.length) {
     grid.innerHTML = `<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:80px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">${sqsDirs[0].name} — waiting for mcsqs output…</div>`;
+    compBar.innerHTML = '';
     return;
   }
 
@@ -941,26 +956,56 @@ function renderSQS(sqsDirs) {
     }
   });
 
-  // Group runs by (dirName, subdir) to render section headers
+  // Group runs by (dirName, subdir)
   const groups = {};
+  const groupOrder = [];
   allRuns.forEach(r => {
     const gk = `${r.dirName}|${r.subdir}`;
-    if (!groups[gk]) groups[gk] = { dirName: r.dirName, subdir: r.subdir, runs: [] };
+    if (!groups[gk]) { groups[gk] = { dirName: r.dirName, subdir: r.subdir, runs: [] }; groupOrder.push(gk); }
     groups[gk].runs.push(r);
   });
 
-  Object.values(groups).forEach(({ dirName, subdir, runs }) => {
-    const gk = `${dirName}|${subdir}`;
-    const hdrid = `sqs-hdr-${sanitizeId(gk)}`;
+  // Auto-select first group if nothing selected or selection gone
+  if (!selectedSQSSubdir || !groups[selectedSQSSubdir]) {
+    selectedSQSSubdir = groupOrder[0];
+  }
 
-    // Section header (full-width): shows composition fraction
-    if (!document.getElementById(hdrid)) {
-      const hdr = document.createElement('div');
+  // Rebuild composition bar chips if group set changed
+  const existingChipKeys = new Set([...compBar.querySelectorAll('.sqs-comp-chip')].map(c => c.dataset.gk));
+  const currentKeys = new Set(groupOrder);
+  if ([...currentKeys].some(k => !existingChipKeys.has(k)) || existingChipKeys.size !== currentKeys.size) {
+    compBar.innerHTML = '';
+    groupOrder.forEach(gk => {
+      const { dirName, subdir } = groups[gk];
+      const label = subdir || dirName;
+      const chip = document.createElement('button');
+      chip.className = 'sqs-comp-chip';
+      chip.dataset.gk = gk;
+      chip.textContent = label;
+      chip.style.cssText = 'font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;border:1px solid var(--border);background:var(--surface2);color:var(--text-dim);cursor:pointer;white-space:nowrap;';
+      chip.addEventListener('click', () => selectSQSComp(gk));
+      compBar.appendChild(chip);
+    });
+  }
+
+  // Render tiles grouped, hidden if not selected group
+  groupOrder.forEach(gk => {
+    const { dirName, subdir, runs } = groups[gk];
+    const hdrid = `sqs-hdr-${sanitizeId(gk)}`;
+    const isSelected = gk === selectedSQSSubdir;
+
+    // Section header
+    let hdr = document.getElementById(hdrid);
+    if (!hdr) {
+      hdr = document.createElement('div');
       hdr.id = hdrid;
+      hdr.className = 'sqs-group-hdr';
+      hdr.dataset.gk = gk;
       hdr.style.cssText = 'grid-column:1/-1;font-family:var(--mono);font-size:9px;color:var(--text-dim);padding:4px 4px 2px;letter-spacing:0.04em;border-top:1px solid var(--border);margin-top:2px;';
       hdr.textContent = subdir || dirName;
       grid.appendChild(hdr);
     }
+    hdr.hidden = !isSelected;
 
     runs.forEach(run => {
       const safeKey = sanitizeId(`${run.dirName}-${run.subdir}-${run.ip}`);
@@ -974,13 +1019,14 @@ function renderSQS(sqsDirs) {
         tile = document.createElement('div');
         tile.id = tileId;
         tile.className = 'sqs-tile';
+        tile.dataset.gk = gk;
         if (!run.waiting && run.bestsqs_path) {
           tile.style.cursor = 'pointer';
           tile.addEventListener('click', () => {
-          setLiveSQS(false);
-          liveSQSPath = null; // force reload even if same path
-          loadSQSInCenter(run.bestsqs_path, `${dirName} / ${run.subdir} #${run.ip}`);
-        });
+            setLiveSQS(false);
+            liveSQSPath = null;
+            loadSQSInCenter(run.bestsqs_path, `${dirName} / ${run.subdir} #${run.ip}`);
+          });
         }
         tile.innerHTML = run.waiting
           ? `<div class="sqs-tile-header"><span class="sqs-tile-id">${dirName}</span></div><div class="sqs-viewer-wrap"><div class="sqs-no-data">waiting…</div></div>`
@@ -996,9 +1042,13 @@ function renderSQS(sqsDirs) {
         grid.appendChild(tile);
       }
 
+      tile.hidden = !isSelected;
+
       if (!run.waiting) {
         const isBest = isFinite(bestByGroup[gk] ?? Infinity) && run.objective === bestByGroup[gk];
         tile.className = `sqs-tile${isBest ? ' best' : ''}`;
+        tile.dataset.gk = gk;
+        tile.hidden = !isSelected;
         const objEl = document.getElementById(objId);
         if (objEl && run.objective != null) objEl.textContent = run.objective.toFixed(4);
 
@@ -1018,6 +1068,14 @@ function renderSQS(sqsDirs) {
         }
       }
     });
+  });
+
+  // Apply chip highlight state
+  document.querySelectorAll('.sqs-comp-chip').forEach(c => {
+    const sel = c.dataset.gk === selectedSQSSubdir;
+    c.style.background = sel ? 'var(--teal)' : 'var(--surface2)';
+    c.style.color = sel ? '#fff' : 'var(--text-dim)';
+    c.style.borderColor = sel ? 'var(--teal)' : 'var(--border)';
   });
 }
 
