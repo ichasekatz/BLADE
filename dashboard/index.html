@@ -721,6 +721,12 @@ function renderSQS(sqsDirs) {
   const runs = active.runs.length ? active.runs : [];
   const grid = document.getElementById('sqs-grid');
 
+  if (!runs.length) {
+    grid.innerHTML = `<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:80px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">
+      <span>${active.name} — waiting for mcsqs output…</span></div>`;
+    return;
+  }
+
   // Find best (lowest objective)
   const bestObj = Math.min(...runs.map(r => r.objective ?? Infinity).filter(isFinite));
 
