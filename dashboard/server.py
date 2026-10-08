@@ -298,7 +298,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
         if path == "/" or path == "/index.html":
             html = Path(__file__).parent / "index.html"
-            self._serve_file(html, "text/html")
+            self._serve_file(html, "text/html; charset=utf-8")
 
         elif path == "/api/status":
             self._json({

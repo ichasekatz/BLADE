@@ -453,6 +453,53 @@
   @media (prefers-reduced-motion: reduce) {
     .stage-pill.running .dot { animation: none; }
   }
+
+  /* ── Right panel tabs ────────────────────────────────────── */
+  .stage-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    padding: 0 14px;
+    height: 36px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .stage-tab:hover { color: var(--text); }
+  .stage-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .tab-content { display: flex; flex-direction: column; overflow-y: auto; flex: 1; min-height: 0; }
+
+  #tdb-list { display: flex; flex-direction: column; gap: 1px; padding: 6px; }
+  .tdb-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; border-radius: 4px;
+    background: var(--surface); font-family: var(--mono); font-size: 10px;
+    cursor: pointer; transition: background 0.12s;
+  }
+  .tdb-row:hover { background: var(--surface2); }
+  .tdb-row .tdb-name { flex: 1; color: var(--text); }
+  .tdb-badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; }
+  .tdb-badge.done    { background: #1A3A2A; color: var(--green); }
+  .tdb-badge.running { background: #2A1F0A; color: var(--accent); }
+  .tdb-badge.queued  { background: var(--surface2); color: var(--text-dim); }
+
+  #plots-strip-right {
+    display: flex; flex-direction: column; gap: 6px; padding: 8px; overflow-y: auto;
+  }
+  .plot-thumb-right {
+    cursor: pointer; border-radius: 4px; overflow: hidden;
+    border: 1px solid var(--border); transition: border-color 0.15s;
+  }
+  .plot-thumb-right:hover { border-color: var(--accent-dim); }
+  .plot-thumb-right img { width: 100%; display: block; }
+  .plot-thumb-right .plot-name {
+    font-family: var(--mono); font-size: 9px; color: var(--text-dim); padding: 3px 6px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
 </style>
 
 <!-- Header -->
@@ -491,12 +538,15 @@
       <div id="active-name" style="color:var(--text-muted)">No active system</div>
       <div id="active-substage"></div>
       <div style="margin-left:auto; display:flex; gap:8px; align-items:center">
-        <div id="traj-controls" style="display:none; gap:6px">
-          <button onclick="trajStep(-10)" style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">◀◀</button>
-          <button onclick="trajStep(-1)"  style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">◀</button>
-          <button onclick="trajPlay()"    style="background:var(--surface2);border:1px solid var(--border2);color:var(--accent);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer" id="play-btn">▶</button>
-          <button onclick="trajStep(1)"   style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">▶</button>
-          <button onclick="trajStep(10)"  style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">▶▶</button>
+        <div id="traj-controls" style="display:none; gap:6px; align-items:center">
+          <button onclick="trajStep(-10)" style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">&lt;&lt;</button>
+          <button onclick="trajStep(-1)"  style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">&lt;</button>
+          <button onclick="trajPlay()"    style="background:var(--surface2);border:1px solid var(--border2);color:var(--accent);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer" id="play-btn">&#9654;</button>
+          <button onclick="trajStep(1)"   style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">&gt;</button>
+          <button onclick="trajStep(10)"  style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">&gt;&gt;</button>
+          <label id="live-label" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--teal);user-select:none;margin-left:4px">
+            <input type="checkbox" id="live-chk" checked style="accent-color:var(--teal)"> Live
+          </label>
         </div>
       </div>
     </div>
@@ -512,13 +562,23 @@
     </div>
   </div>
 
-  <!-- Right: SQS run tiles -->
+  <!-- Right: stage tabs -->
   <div id="panel-right">
-    <div class="panel-header">
-      <span>SQS Parallel Runs</span>
-      <span id="sqs-dir-label" style="color:var(--text-dim)">—</span>
+    <div class="panel-header" style="padding:0; gap:0; border-bottom:1px solid var(--border);">
+      <button class="stage-tab active" id="tab-sqs" onclick="switchTab('sqs')">SQS</button>
+      <button class="stage-tab" id="tab-tdb" onclick="switchTab('tdb')">TDB</button>
+      <button class="stage-tab" id="tab-plots" onclick="switchTab('plots')">Plots</button>
+      <span id="sqs-dir-label" style="color:var(--text-dim);font-family:var(--mono);font-size:10px;margin-left:auto;padding-right:12px">—</span>
     </div>
-    <div id="sqs-grid"></div>
+    <div id="tab-content-sqs" class="tab-content">
+      <div id="sqs-grid"></div>
+    </div>
+    <div id="tab-content-tdb" class="tab-content" hidden>
+      <div id="tdb-list"></div>
+    </div>
+    <div id="tab-content-plots" class="tab-content" hidden>
+      <div id="plots-strip-right"></div>
+    </div>
   </div>
 
 </div>
@@ -550,6 +610,7 @@ let trajInterval = null;
 let selectedSystem = null;
 let lastStatus = null;
 let latestSystems = [];
+let liveMode = true;
 
 // ── Init 3D viewer ─────────────────────────────────────────────────────
 function initTrajViewer() {
@@ -584,15 +645,16 @@ function initEnergyChart() {
       fill: { target: 'origin', above: 'rgba(232,160,48,0.05)' },
     }]},
     options: {
-      responsive: false,
+      responsive: true,
+      maintainAspectRatio: false,
       animation: false,
       plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      layout: { padding: { left: 4 } },
+      layout: { padding: { left: 8, right: 4, top: 4, bottom: 2 } },
       scales: {
         x: { display: false },
         y: {
           grid: { color: '#1E2A3E', lineWidth: 0.5 },
-          ticks: { color: '#5A6880', font: { family: 'JetBrains Mono', size: 9 }, maxTicksLimit: 4, padding: 4 },
+          ticks: { color: '#5A6880', font: { family: 'JetBrains Mono', size: 9 }, maxTicksLimit: 4, padding: 8 },
           border: { display: false },
         },
       },
@@ -623,6 +685,7 @@ function showFrame(idx) {
 }
 
 function trajStep(delta) {
+  setLiveMode(false);
   showFrame(trajIdx + delta);
 }
 
@@ -630,7 +693,7 @@ function trajPlay() {
   if (trajPlaying) {
     clearInterval(trajInterval);
     trajPlaying = false;
-    document.getElementById('play-btn').textContent = '▶';
+    document.getElementById('play-btn').innerHTML = '&#9654;';
   } else {
     trajPlaying = true;
     document.getElementById('play-btn').textContent = '⏹';
@@ -640,6 +703,45 @@ function trajPlay() {
     }, 120);
   }
 }
+
+function setLiveMode(v) {
+  liveMode = v;
+  const lbl = document.getElementById('live-label');
+  const chk = document.getElementById('live-chk');
+  if (lbl) lbl.style.color = v ? 'var(--teal)' : 'var(--text-dim)';
+  if (chk) chk.checked = v;
+}
+
+function liveRefresh(sys) {
+  if (sys.has_trajectory && sys.trajectory_paths && sys.trajectory_paths.length) {
+    fetch(`/api/trajectory?path=${encodeURIComponent(sys.trajectory_paths[0])}`)
+      .then(r => r.json())
+      .then(d => {
+        if (!d.xyz) return;
+        const frames = splitXYZ(d.xyz);
+        if (!trajViewer) { initTrajViewer(); }
+        if (!trajFrames.length) { document.getElementById('traj-controls').style.display = 'flex'; }
+        trajFrames = frames;
+        showFrame(frames.length - 1);
+      }).catch(() => {});
+  } else if (sys.contcar_paths && sys.contcar_paths.length) {
+    fetch(`/api/structure?path=${encodeURIComponent(sys.contcar_paths[0])}`)
+      .then(r => r.json())
+      .then(d => {
+        if (!d.xyz) return;
+        if (!trajFrames.length || trajFrames[0] !== d.xyz) {
+          trajFrames = [d.xyz];
+          if (!trajViewer) initTrajViewer();
+          showFrame(0);
+        }
+      }).catch(() => {});
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const chk = document.getElementById('live-chk');
+  if (chk) chk.addEventListener('change', e => setLiveMode(e.target.checked));
+});
 
 // Parse multi-frame XYZ into array of single-frame strings
 function splitXYZ(text) {
@@ -661,6 +763,7 @@ function splitXYZ(text) {
 // ── Select a system to display in center panel ─────────────────────────
 function selectSystem(sys) {
   selectedSystem = sys;
+  setLiveMode(false);
   document.querySelectorAll('.system-row').forEach(r =>
     r.classList.toggle('active', r.dataset.name === sys.name));
   document.getElementById('active-name').textContent = sys.name;
@@ -902,6 +1005,52 @@ function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+// ── Stage tabs ─────────────────────────────────────────────────────────
+function switchTab(name) {
+  ['sqs', 'tdb', 'plots'].forEach(t => {
+    document.getElementById(`tab-${t}`).classList.toggle('active', t === name);
+    document.getElementById(`tab-content-${t}`).hidden = t !== name;
+  });
+}
+
+// ── TDB tab ────────────────────────────────────────────────────────────
+function renderTDB(systems) {
+  const list = document.getElementById('tdb-list');
+  if (!list) return;
+  list.innerHTML = '';
+  (systems || []).forEach(sys => {
+    const row = document.createElement('div');
+    row.className = 'tdb-row';
+    const badge = sys.tdb_done
+      ? `<span class="tdb-badge done">done</span>`
+      : sys.energy_count > 0
+        ? `<span class="tdb-badge running">${sys.energy_count}E</span>`
+        : `<span class="tdb-badge queued">queued</span>`;
+    row.innerHTML = `<span class="tdb-name">${escHtml(sys.name)}</span>${badge}`;
+    row.addEventListener('click', () => {
+      const current = latestSystems.find(s => s.name === sys.name) || sys;
+      selectSystem(current);
+    });
+    list.appendChild(row);
+  });
+}
+
+// ── Plots tab (right panel) ────────────────────────────────────────────
+function renderPlotsRight(plots) {
+  const strip = document.getElementById('plots-strip-right');
+  if (!strip) return;
+  (plots || []).slice(0, 30).forEach(plot => {
+    const id = `rthumb-${plot.path.replace(/\W/g, '_')}`;
+    if (document.getElementById(id)) return;
+    const div = document.createElement('div');
+    div.id = id;
+    div.className = 'plot-thumb-right';
+    div.innerHTML = `<img src="/api/image?path=${encodeURIComponent(plot.path)}" loading="lazy" onerror="this.style.display='none'"><div class="plot-name">${escHtml(plot.rel || plot.name || '')}</div>`;
+    div.addEventListener('click', () => openModal(plot.path));
+    strip.appendChild(div);
+  });
+}
+
 // ── Poll ───────────────────────────────────────────────────────────────
 async function poll() {
   try {
@@ -915,9 +1064,29 @@ async function poll() {
     lastStatus = statusRes;
     updateStages(statusRes.stages, null);
     renderSystems(statusRes.systems || []);
+    renderTDB(statusRes.systems || []);
     renderSQS(sqsRes || []);
     renderPlots(plotsRes || []);
+    renderPlotsRight(plotsRes || []);
     renderLog(logRes.lines || []);
+    // Live mode: auto-select most active system and jump to latest frame
+    if (liveMode) {
+      const active = (statusRes.systems || []).find(s => s.energy_count > 0 && !s.tdb_done)
+        || (statusRes.systems || []).find(s => !s.tdb_done)
+        || (statusRes.systems || [])[0];
+      if (active) {
+        if (!selectedSystem || selectedSystem.name !== active.name) {
+          selectedSystem = active;
+          document.querySelectorAll('.system-row').forEach(r =>
+            r.classList.toggle('active', r.dataset.name === active.name));
+          document.getElementById('active-name').textContent = active.name;
+          document.getElementById('active-name').style.color = 'var(--text)';
+          document.getElementById('active-substage').textContent =
+            active.tdb_done ? 'TDB done' : active.energy_count > 0 ? `${active.energy_count} energies` : 'queued';
+        }
+        liveRefresh(active);
+      }
+    }
 
     const now = new Date();
     document.getElementById('refresh-badge').textContent =
