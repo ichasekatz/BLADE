@@ -1063,12 +1063,12 @@ function renderSQS(sqsDirs) {
     picker.innerHTML = '<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:60px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">No active SQS runs</div>';
     picker.hidden = false;
     document.getElementById('sqs-center-tiles').hidden = true;
-    document.getElementById('sqs-dir-label').textContent = '—';
+    const dl = document.getElementById('sqs-dir-label'); if (dl) dl.textContent = '—';
     return;
   }
 
   const activeNames = filteredDirs.filter(d => d.runs.length).map(d => d.name);
-  document.getElementById('sqs-dir-label').textContent = activeNames.length ? activeNames.join(', ') : filteredDirs[filteredDirs.length-1].name;
+  const dl2 = document.getElementById('sqs-dir-label'); if (dl2) dl2.textContent = activeNames.length ? activeNames.join(', ') : filteredDirs[filteredDirs.length-1].name;
 
   const allRuns = [];
   filteredDirs.forEach(dir => {
