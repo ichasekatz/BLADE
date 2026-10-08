@@ -40,7 +40,7 @@ comps_folder       = "Comps"
 
 [mlip_kwargs]
 steps  = 1000
-device = "cpu"   # "cuda" for GPU — applies to both TDB and database stages
+device = "cuda"  # "cpu" if no GPU available — applies to both TDB and database stages
 
 [tdb_fit]
 fmax  = 0.001
@@ -140,6 +140,7 @@ t_start        = 200
 t_end          = 2000
 t_step         = 200
 make_gif       = true
+gif_t_step     = 10
 fixed_elements = ["B"]
 metal_fraction = 0.3333333333333333
 
@@ -174,7 +175,7 @@ fixed_phases_subdir         = "ORB"
 run_calculations          = true
 run_plots                 = true
 run_scan                  = true
-run_muO_x_map             = false
+run_muO_x_map             = true
 run_onset                 = true
 run_3d_onset              = true
 run_animations            = true
