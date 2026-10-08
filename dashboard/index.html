@@ -1534,13 +1534,23 @@ async function poll() {
     if (liveSQS && sqsRes && sqsRes.length) {
       let bestRun = null, bestObj = Infinity;
       sqsRes.forEach(dir => (dir.runs || []).forEach(r => {
+        // if a composition is selected, limit to that group; else search all
+        const gk = `${dir.name}|${r.subdir}`;
+        if (selectedSQSSubdir && gk !== selectedSQSSubdir) return;
         if (r.bestsqs_path && r.objective != null && r.objective < bestObj) {
           bestObj = r.objective; bestRun = r;
         }
       }));
+      // fallback: no match in selection, search all
+      if (!bestRun) {
+        sqsRes.forEach(dir => (dir.runs || []).forEach(r => {
+          if (r.bestsqs_path && r.objective != null && r.objective < bestObj) {
+            bestObj = r.objective; bestRun = r;
+          }
+        }));
+      }
       if (bestRun) {
         const label = `#${bestRun.ip} — ${bestRun.subdir} (obj ${bestObj.toFixed(4)})`;
-        // force redraw if mtime changed (file updated on disk)
         if (bestRun.mtime !== window._liveSQSMtime) {
           window._liveSQSMtime = bestRun.mtime;
           sqsPreviewPath = null;
