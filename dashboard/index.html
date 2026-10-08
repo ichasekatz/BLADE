@@ -833,6 +833,10 @@ function selectSystem(sys) {
 }
 
 // ── Render SQS tiles ───────────────────────────────────────────────────
+function sanitizeId(s) {
+  return String(s).replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
 function renderSQS(sqsDirs) {
   const grid = document.getElementById('sqs-grid');
   if (!sqsDirs.length) {
@@ -841,18 +845,16 @@ function renderSQS(sqsDirs) {
     return;
   }
 
-  // Show all dirs simultaneously — label shows count
   const activeNames = sqsDirs.filter(d => d.runs.length).map(d => d.name);
   document.getElementById('sqs-dir-label').textContent = activeNames.length ? activeNames.join(', ') : sqsDirs[sqsDirs.length-1].name;
 
-  // Collect all runs across all dirs, tag with dir name
+  // Collect all runs, tag with dirName; group by subdir within each dir
   const allRuns = [];
   sqsDirs.forEach(dir => {
     if (dir.runs.length) {
       dir.runs.forEach(r => allRuns.push({...r, dirName: dir.name}));
     } else {
-      // waiting placeholder: add one synthetic entry
-      allRuns.push({ip: `wait_${dir.name}`, dirName: dir.name, waiting: true, bestsqs_path: null, objective: null});
+      allRuns.push({ip: 0, dirName: dir.name, subdir: '', waiting: true, bestsqs_path: null, objective: null});
     }
   });
 
@@ -861,58 +863,81 @@ function renderSQS(sqsDirs) {
     return;
   }
 
-  // Best objective per dir
-  const bestByDir = {};
-  sqsDirs.forEach(dir => {
-    const objs = dir.runs.map(r => r.objective ?? Infinity).filter(isFinite);
-    bestByDir[dir.name] = objs.length ? Math.min(...objs) : Infinity;
+  // Best objective per (dirName, subdir) group
+  const bestByGroup = {};
+  allRuns.forEach(r => {
+    const gk = `${r.dirName}|${r.subdir}`;
+    if (r.objective != null && isFinite(r.objective)) {
+      bestByGroup[gk] = Math.min(bestByGroup[gk] ?? Infinity, r.objective);
+    }
   });
 
-  allRuns.forEach(run => {
-    const isBest = isFinite(bestByDir[run.dirName]) && run.objective === bestByDir[run.dirName];
-    const tileId = `sqs-tile-${run.dirName}-${run.ip}`;
-    const viewerId = `sqs-v-${run.dirName}-${run.ip}`;
-    let tile = document.getElementById(tileId);
-    if (!tile) {
-      tile = document.createElement('div');
-      tile.id = tileId;
-      tile.className = 'sqs-tile';
-      tile.innerHTML = run.waiting
-        ? `<div class="sqs-tile-header"><span class="sqs-tile-id">${run.dirName}</span></div><div class="sqs-viewer-wrap"><div class="sqs-no-data">waiting…</div></div>`
-        : `<div class="sqs-tile-header">
-            <span class="sqs-tile-id">${run.dirName} #${run.ip}</span>
-            <span class="sqs-obj" id="obj-${run.dirName}-${run.ip}">—</span>
-           </div>
-           <div class="sqs-viewer-wrap">
-             ${run.bestsqs_path ? `<div class="sqs-viewer" id="${viewerId}"></div>` : `<div class="sqs-no-data">waiting…</div>`}
-           </div>`;
-      grid.appendChild(tile);
+  // Group runs by (dirName, subdir) to render section headers
+  const groups = {};
+  allRuns.forEach(r => {
+    const gk = `${r.dirName}|${r.subdir}`;
+    if (!groups[gk]) groups[gk] = { dirName: r.dirName, subdir: r.subdir, runs: [] };
+    groups[gk].runs.push(r);
+  });
+
+  Object.values(groups).forEach(({ dirName, subdir, runs }) => {
+    const gk = `${dirName}|${subdir}`;
+    const hdrid = `sqs-hdr-${sanitizeId(gk)}`;
+
+    // Section header (full-width): shows composition fraction
+    if (!document.getElementById(hdrid)) {
+      const hdr = document.createElement('div');
+      hdr.id = hdrid;
+      hdr.style.cssText = 'grid-column:1/-1;font-family:var(--mono);font-size:9px;color:var(--text-dim);padding:4px 4px 2px;letter-spacing:0.04em;border-top:1px solid var(--border);margin-top:2px;';
+      hdr.textContent = subdir || dirName;
+      grid.appendChild(hdr);
     }
 
-    if (!run.waiting) {
-      tile.className = `sqs-tile${isBest ? ' best' : ''}`;
-      const objEl = document.getElementById(`obj-${run.dirName}-${run.ip}`);
-      if (objEl && run.objective != null) objEl.textContent = run.objective.toFixed(4);
+    runs.forEach(run => {
+      const safeKey = sanitizeId(`${run.dirName}-${run.subdir}-${run.ip}`);
+      const tileId = `sqs-tile-${safeKey}`;
+      const viewerId = `sqs-v-${safeKey}`;
+      const objId = `obj-${safeKey}`;
+      const viewKey = safeKey;
 
-      const viewKey = `${run.dirName}-${run.ip}`;
-      if (run.bestsqs_path && !sqsViewers[viewKey]) {
-        const viewWrap = document.getElementById(viewerId);
-        if (viewWrap) {
-          sqsViewers[viewKey] = $3Dmol.createViewer(viewWrap, { backgroundColor: '#060B10', antialias: false });
-          fetch(`/api/structure?path=${encodeURIComponent(run.bestsqs_path)}`)
-            .then(r => r.json())
-            .then(d => {
-              if (d.xyz && sqsViewers[viewKey]) {
-                // Sphere-only: sticks on large supercells produce bonds across
-                // periodic boundaries that render incorrectly
-                loadXYZ(sqsViewers[viewKey], d.xyz, {
-                  sphere: { radius: 0.4, colorscheme: 'Jmol' },
-                });
-              }
-            }).catch(() => {});
+      let tile = document.getElementById(tileId);
+      if (!tile) {
+        tile = document.createElement('div');
+        tile.id = tileId;
+        tile.className = 'sqs-tile';
+        tile.innerHTML = run.waiting
+          ? `<div class="sqs-tile-header"><span class="sqs-tile-id">${dirName}</span></div><div class="sqs-viewer-wrap"><div class="sqs-no-data">waiting…</div></div>`
+          : `<div class="sqs-tile-header">
+              <span class="sqs-tile-id">#${run.ip}</span>
+              <span class="sqs-obj" id="${objId}">—</span>
+             </div>
+             <div class="sqs-viewer-wrap">
+               ${run.bestsqs_path ? `<div class="sqs-viewer" id="${viewerId}"></div>` : `<div class="sqs-no-data">waiting…</div>`}
+             </div>`;
+        grid.appendChild(tile);
+      }
+
+      if (!run.waiting) {
+        const isBest = isFinite(bestByGroup[gk] ?? Infinity) && run.objective === bestByGroup[gk];
+        tile.className = `sqs-tile${isBest ? ' best' : ''}`;
+        const objEl = document.getElementById(objId);
+        if (objEl && run.objective != null) objEl.textContent = run.objective.toFixed(4);
+
+        if (run.bestsqs_path && !sqsViewers[viewKey]) {
+          const viewWrap = document.getElementById(viewerId);
+          if (viewWrap) {
+            sqsViewers[viewKey] = $3Dmol.createViewer(viewWrap, { backgroundColor: '#060B10', antialias: false });
+            fetch(`/api/structure?path=${encodeURIComponent(run.bestsqs_path)}`)
+              .then(r => r.json())
+              .then(d => {
+                if (d.xyz && sqsViewers[viewKey]) {
+                  loadXYZ(sqsViewers[viewKey], d.xyz, { sphere: { radius: 0.4, colorscheme: 'Jmol' } });
+                }
+              }).catch(() => {});
+          }
         }
       }
-    }
+    });
   });
 }
 
