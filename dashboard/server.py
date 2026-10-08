@@ -61,17 +61,18 @@ def _resolve_paths(cfg: dict, toml_path: Path) -> tuple[Path, Path]:
 def parse_atat_structure(text: str) -> str | None:
     """Convert ATAT str.out / bestsqs.out text to XYZ format string."""
     lines = [l.strip() for l in text.strip().splitlines() if l.strip() and not l.startswith("#")]
-    if len(lines) < 4:
+    if len(lines) < 7:
         return None
     try:
-        # Parse lattice vectors (first 3 lines: ax ay az)
+        # bestsqs.out format: lines 0-2 = parent lattice, lines 3-5 = supercell vectors.
+        # Atom fractional coords are in the supercell basis, so use lines 3-5 for the transform.
         lat = []
-        for i in range(3):
+        for i in range(3, 6):
             lat.append([float(x) for x in lines[i].split()[:3]])
 
         # Parse atoms (remaining lines: x y z species)
         atoms: list[tuple[str, list[float]]] = []
-        for line in lines[3:]:
+        for line in lines[6:]:
             parts = line.split()
             if len(parts) < 4:
                 continue

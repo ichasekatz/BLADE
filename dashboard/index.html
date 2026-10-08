@@ -549,6 +549,7 @@ let trajPlaying = false;
 let trajInterval = null;
 let selectedSystem = null;
 let lastStatus = null;
+let latestSystems = [];
 
 // ── Init 3D viewer ─────────────────────────────────────────────────────
 function initTrajViewer() {
@@ -586,11 +587,12 @@ function initEnergyChart() {
       responsive: false,
       animation: false,
       plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      layout: { padding: { left: 4 } },
       scales: {
         x: { display: false },
         y: {
           grid: { color: '#1E2A3E', lineWidth: 0.5 },
-          ticks: { color: '#5A6880', font: { family: 'JetBrains Mono', size: 9 }, maxTicksLimit: 4 },
+          ticks: { color: '#5A6880', font: { family: 'JetBrains Mono', size: 9 }, maxTicksLimit: 4, padding: 4 },
           border: { display: false },
         },
       },
@@ -800,6 +802,7 @@ function updateStages(stages, cfgStages) {
 
 // ── Render system list ─────────────────────────────────────────────────
 function renderSystems(systems) {
+  latestSystems = systems;
   const list = document.getElementById('systems-list');
   document.getElementById('sys-count').textContent = `${systems.filter(s => s.tdb_done).length}/${systems.length}`;
 
@@ -814,7 +817,11 @@ function renderSystems(systems) {
       row.innerHTML = `
         <span class="system-name">${sys.name}</span>
         <span class="system-badge" id="badge-${sys.name}"></span>`;
-      row.addEventListener('click', () => selectSystem(sys));
+      // Always look up current data by name so clicks after new CONTCAR/trajectory appear work correctly
+      row.addEventListener('click', () => {
+        const current = latestSystems.find(s => s.name === sys.name) || sys;
+        selectSystem(current);
+      });
       list.appendChild(row);
     }
     // Update badge
