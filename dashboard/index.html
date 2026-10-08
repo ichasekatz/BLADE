@@ -1034,6 +1034,7 @@ function sqsShowPicker() {
 
 function selectSQSComp(gk, label) {
   selectedSQSSubdir = gk;
+  sqsPreviewPath = null; // reset so auto-preview triggers for new composition
   document.getElementById('sqs-center-picker').hidden = true;
   const tv = document.getElementById('sqs-center-tiles');
   tv.hidden = false;
@@ -1185,6 +1186,11 @@ function renderSQS(sqsDirs) {
   document.getElementById('sqs-center-tiles').hidden = false;
   document.getElementById('sqs-center-tiles').style.display = 'flex';
 
+  // Remove tiles from previous composition
+  Array.from(grid.querySelectorAll('.sqs-tile')).forEach(t => {
+    if (t.dataset.gk !== gk) t.remove();
+  });
+
   runs.forEach(run => {
     const safeKey = sanitizeId(`${run.dirName}-${run.subdir}-${run.ip}`);
     const tileId = `sqs-tile-${safeKey}`;
@@ -1222,7 +1228,8 @@ function renderSQS(sqsDirs) {
 
     if (!run.waiting) {
       const isBest = isFinite(bestByGroup[gk] ?? Infinity) && run.objective === bestByGroup[gk];
-      tile.className = `sqs-tile${isBest ? ' best' : ''}`;
+      const isSelected = tile.dataset.path === sqsPreviewPath;
+      tile.className = `sqs-tile${isBest ? ' best' : ''}${isSelected ? ' selected' : ''}`;
       tile.dataset.gk = gk;
       const objEl = document.getElementById(objId);
       if (objEl && run.objective != null) objEl.textContent = run.objective.toFixed(4);
@@ -1243,6 +1250,15 @@ function renderSQS(sqsDirs) {
       }
     }
   });
+
+  // Auto-preview best tile when first entering a composition
+  if (!sqsPreviewPath) {
+    const bestRun = runs.reduce((b, r) => {
+      if (!r.bestsqs_path || r.objective == null) return b;
+      return (!b || r.objective < b.objective) ? r : b;
+    }, null);
+    if (bestRun) sqsPreviewTile(bestRun.bestsqs_path, `#${bestRun.ip} — ${bestRun.subdir}`);
+  }
 }
 
 // ── Update stage pills ─────────────────────────────────────────────────
