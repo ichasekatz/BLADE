@@ -88,7 +88,8 @@ def run_scan(
     import matplotlib as mpl
     import matplotlib.pyplot as plt
     import pandas as pd
-    from thermodynamics import (
+
+    from .thermodynamics import (
         KB,
         _phase_comp_label,
         _short_label,
@@ -235,7 +236,8 @@ def run_muO_T_map(
         Path to the muO_T_phase_map output directory.
     """
     from framework._run import _build_region_details
-    from thermodynamics import (
+
+    from .thermodynamics import (
         KB,
         assign_region_ids,
         build_assemblage_labels,
@@ -469,7 +471,8 @@ def run_muO_x_map(
         Path to the muO_x_phase_map/T<int(T)> output directory.
     """
     from framework._run import _build_region_details
-    from thermodynamics import (
+
+    from .thermodynamics import (
         KB,
         assign_region_ids,
         build_assemblage_labels,

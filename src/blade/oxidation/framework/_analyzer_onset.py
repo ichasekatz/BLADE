@@ -35,7 +35,7 @@ def _composition_grid_for_onset(config, n_metals: int):
         arrays and *step* is the final step size used.
     """
     _ensure_imports()
-    from thermodynamics import simplex_grid_nd
+    from .thermodynamics import simplex_grid_nd
 
     cfg = config
     step = (
@@ -69,10 +69,9 @@ def _run_onset_auc_diagrams(config, sys_cfg, pd_data) -> None:
     import pandas as pd
 
     _ensure_imports()
-    from thermodynamics import KB
-
     from ._analyzer_cache import _onset_cache_matches
     from ._analyzer_metrics import _load_reusable_scalar_states, _solve_metrics, _state_key
+    from .thermodynamics import KB
 
     cfg = config
     metals = sys_cfg.metals
