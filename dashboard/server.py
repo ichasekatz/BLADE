@@ -146,15 +146,17 @@ def scan_sqs(files_dir: Path) -> list[dict]:
         for parent_dir, corr_files in sorted(by_parent.items()):
             rel = parent_dir.relative_to(sqs_dir)
             for bestcorr in sorted(corr_files):
-                ip = re.sub(r"\D", "", bestcorr.stem.replace("bestcorr", "")) or "0"
+                ip_str = re.sub(r"\D", "", bestcorr.stem.replace("bestcorr", ""))
+                ip = int(ip_str) if ip_str else 0
                 obj = None
                 try:
                     obj = parse_bestcorr(bestcorr.read_text(errors="ignore"))
                 except OSError:
                     pass
-                bestsqs = parent_dir / f"bestsqs{ip}.out"
+                # mcsqs with no -ip writes "bestsqs.out"; with -ip=N writes "bestsqs1.out"..."bestsqsN.out"
+                bestsqs = parent_dir / f"bestsqs{ip_str}.out"
                 runs.append({
-                    "ip": int(ip) if ip.isdigit() else ip,
+                    "ip": ip,
                     "subdir": str(rel),
                     "bestcorr_path": str(bestcorr),
                     "bestsqs_path": str(bestsqs) if bestsqs.exists() else None,
