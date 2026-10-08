@@ -14,10 +14,27 @@ set DATA_ROOT = None and specify M1, M2 directly, or let the script infer them
 from existing CSV column names.
 """
 
-import sys
 from pathlib import Path
 
 import numpy as np
+
+from .system_config import SystemConfig, prepare_tables
+from .thermodynamics import (
+    KB,
+    assign_region_ids,
+    build_assemblage_labels,
+    format_exact_phase_fraction_line,
+    format_phase_detail_line,
+    grid_edges,
+    ideal_mixing_nd,
+    load_phase_data,
+    log10_po2_from_mu_o,
+    mu_o_from_log10_po2,
+    muggianu_energy_nd,
+    plot_region_map,
+    solve_grand_lp,
+    solve_grand_lp_batch,
+)
 
 # ============================================================
 # CONFIG — edit this block
@@ -128,25 +145,6 @@ BOUNDARY_LW = 0.8
 # ============================================================
 # END CONFIG
 # ============================================================
-
-sys.path.insert(0, str(Path(__file__).parent))
-from system_config import SystemConfig, prepare_tables  # noqa: E402
-from thermodynamics import (  # noqa: E402
-    KB,
-    assign_region_ids,
-    build_assemblage_labels,
-    format_exact_phase_fraction_line,
-    format_phase_detail_line,
-    grid_edges,
-    ideal_mixing_nd,
-    load_phase_data,
-    log10_po2_from_mu_o,
-    mu_o_from_log10_po2,
-    muggianu_energy_nd,
-    plot_region_map,
-    solve_grand_lp,
-    solve_grand_lp_batch,
-)
 
 # ------------------------------------------------------------------
 # System setup
