@@ -121,7 +121,12 @@ def parse_bestcorr(text: str) -> float | None:
 # ---------------------------------------------------------------------------
 
 def scan_sqs(files_dir: Path) -> list[dict]:
-    """Scan Files/SQS/ for active mcsqs runs."""
+    """Scan Files/SQS/ for active mcsqs runs.
+
+    mcsqs writes bestcorr<N>.out / bestsqs<N>.out into the directory it is
+    spawned from, which may be a per-composition subdir (sqsdb_lev=*) rather
+    than the top-level lattice dir.  We collect runs from any depth.
+    """
     sqs_root = files_dir / "SQS"
     results = []
     if not sqs_root.exists():
@@ -130,32 +135,49 @@ def scan_sqs(files_dir: Path) -> list[dict]:
     for sqs_dir in sorted(sqs_root.iterdir()):
         if not sqs_dir.is_dir():
             continue
-        runs = []
-        for bestcorr in sorted(sqs_dir.glob("bestcorr*.out")):
-            ip = re.sub(r"\D", "", bestcorr.stem.replace("bestcorr", "")) or "0"
-            obj = None
-            try:
-                obj = parse_bestcorr(bestcorr.read_text(errors="ignore"))
-            except OSError:
-                pass
-            bestsqs = sqs_dir / f"bestsqs{ip}.out"
-            runs.append({
-                "ip": int(ip) if ip.isdigit() else 0,
-                "bestcorr_path": str(bestcorr),
-                "bestsqs_path": str(bestsqs) if bestsqs.exists() else None,
-                "objective": obj,
-                "mtime": bestcorr.stat().st_mtime if bestcorr.exists() else None,
-            })
 
-        # Check for final bestsqs.out (after mcsqs -best)
+        # Group bestcorr files by the directory they live in (could be subdir)
+        by_parent: dict[Path, list] = {}
+        for bestcorr in sorted(sqs_dir.rglob("bestcorr*.out")):
+            by_parent.setdefault(bestcorr.parent, []).append(bestcorr)
+
+        # Flatten: collect all runs across all subdirs
+        runs = []
+        for parent_dir, corr_files in sorted(by_parent.items()):
+            rel = parent_dir.relative_to(sqs_dir)
+            for bestcorr in sorted(corr_files):
+                ip = re.sub(r"\D", "", bestcorr.stem.replace("bestcorr", "")) or "0"
+                obj = None
+                try:
+                    obj = parse_bestcorr(bestcorr.read_text(errors="ignore"))
+                except OSError:
+                    pass
+                bestsqs = parent_dir / f"bestsqs{ip}.out"
+                runs.append({
+                    "ip": int(ip) if ip.isdigit() else ip,
+                    "subdir": str(rel),
+                    "bestcorr_path": str(bestcorr),
+                    "bestsqs_path": str(bestsqs) if bestsqs.exists() else None,
+                    "objective": obj,
+                    "mtime": bestcorr.stat().st_mtime,
+                })
+
         final = sqs_dir / "bestsqs.out"
         done = final.exists()
+
+        # Active composition: the subdir with the most-recently-modified bestcorr
+        active_comp = None
+        if runs:
+            latest = max(runs, key=lambda r: r["mtime"])
+            active_comp = latest["subdir"]
+
         results.append({
             "name": sqs_dir.name,
             "path": str(sqs_dir),
             "runs": runs,
             "done": done,
             "final_path": str(final) if done else None,
+            "active_comp": active_comp,
         })
     return results
 

@@ -544,8 +544,11 @@
           <button onclick="trajPlay()"    style="background:var(--surface2);border:1px solid var(--border2);color:var(--accent);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer" id="play-btn">&#9654;</button>
           <button onclick="trajStep(1)"   style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">&gt;</button>
           <button onclick="trajStep(10)"  style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">&gt;&gt;</button>
-          <label id="live-label" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--teal);user-select:none;margin-left:4px">
-            <input type="checkbox" id="live-chk" checked style="accent-color:var(--teal)"> Live
+          <label id="live-frame-label" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--teal);user-select:none;margin-left:4px">
+            <input type="checkbox" id="live-frame-chk" checked style="accent-color:var(--teal)"> Frame
+          </label>
+          <label id="live-sys-label" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--accent);user-select:none;">
+            <input type="checkbox" id="live-sys-chk" checked style="accent-color:var(--accent)"> Sys
           </label>
         </div>
       </div>
@@ -610,7 +613,9 @@ let trajInterval = null;
 let selectedSystem = null;
 let lastStatus = null;
 let latestSystems = [];
-let liveMode = true;
+let liveMode = true;   // legacy alias — controls liveFrame
+let liveFrame = true;  // auto-advance to latest frame within selected system
+let liveSys = true;    // auto-switch to most active system
 
 // ── Init 3D viewer ─────────────────────────────────────────────────────
 function initTrajViewer() {
@@ -651,7 +656,13 @@ function initEnergyChart() {
       plugins: { legend: { display: false }, tooltip: { enabled: false } },
       layout: { padding: { left: 8, right: 4, top: 4, bottom: 2 } },
       scales: {
-        x: { display: false },
+        x: {
+          display: true,
+          ticks: { color: '#5A6880', font: { family: 'JetBrains Mono', size: 8 }, maxTicksLimit: 8 },
+          grid: { display: false },
+          border: { display: false },
+          title: { display: true, text: 'step', color: '#3A4860', font: { family: 'JetBrains Mono', size: 8 } },
+        },
         y: {
           grid: { color: '#1E2A3E', lineWidth: 0.5 },
           ticks: { color: '#5A6880', font: { family: 'JetBrains Mono', size: 9 }, maxTicksLimit: 4, padding: 8 },
@@ -705,10 +716,17 @@ function trajPlay() {
 }
 
 function setLiveMode(v) {
-  liveMode = v;
-  const lbl = document.getElementById('live-label');
-  const chk = document.getElementById('live-chk');
+  liveMode = v; liveFrame = v;
+  const lbl = document.getElementById('live-frame-label');
+  const chk = document.getElementById('live-frame-chk');
   if (lbl) lbl.style.color = v ? 'var(--teal)' : 'var(--text-dim)';
+  if (chk) chk.checked = v;
+}
+function setLiveSys(v) {
+  liveSys = v;
+  const lbl = document.getElementById('live-sys-label');
+  const chk = document.getElementById('live-sys-chk');
+  if (lbl) lbl.style.color = v ? 'var(--accent)' : 'var(--text-dim)';
   if (chk) chk.checked = v;
 }
 
@@ -739,8 +757,10 @@ function liveRefresh(sys) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const chk = document.getElementById('live-chk');
-  if (chk) chk.addEventListener('change', e => setLiveMode(e.target.checked));
+  const fchk = document.getElementById('live-frame-chk');
+  if (fchk) fchk.addEventListener('change', e => setLiveMode(e.target.checked));
+  const schk = document.getElementById('live-sys-chk');
+  if (schk) schk.addEventListener('change', e => setLiveSys(e.target.checked));
 });
 
 // Parse multi-frame XYZ into array of single-frame strings
@@ -882,9 +902,10 @@ function renderSQS(sqsDirs) {
             .then(r => r.json())
             .then(d => {
               if (d.xyz && sqsViewers[viewKey]) {
+                // Sphere-only: sticks on large supercells produce bonds across
+                // periodic boundaries that render incorrectly
                 loadXYZ(sqsViewers[viewKey], d.xyz, {
-                  sphere: { radius: 0.28, colorscheme: 'Jmol' },
-                  stick: { radius: 0.06, colorscheme: 'Jmol' },
+                  sphere: { radius: 0.4, colorscheme: 'Jmol' },
                 });
               }
             }).catch(() => {});
@@ -1161,23 +1182,25 @@ async function poll() {
     renderPlots(plotsRes || []);
     renderPlotsRight(plotsRes || []);
     renderLog(logRes.lines || []);
-    // Live mode: auto-select most active system and jump to latest frame
-    if (liveMode) {
+    // Live sys: auto-switch to the most active system
+    if (liveSys) {
       const active = (statusRes.systems || []).find(s => s.energy_count > 0 && !s.tdb_done)
         || (statusRes.systems || []).find(s => !s.tdb_done)
         || (statusRes.systems || [])[0];
-      if (active) {
-        if (!selectedSystem || selectedSystem.name !== active.name) {
-          selectedSystem = active;
-          document.querySelectorAll('.system-row').forEach(r =>
-            r.classList.toggle('active', r.dataset.name === active.name));
-          document.getElementById('active-name').textContent = active.name;
-          document.getElementById('active-name').style.color = 'var(--text)';
-          document.getElementById('active-substage').textContent =
-            active.tdb_done ? 'TDB done' : active.energy_count > 0 ? `${active.energy_count} energies` : 'queued';
-        }
-        liveRefresh(active);
+      if (active && (!selectedSystem || selectedSystem.name !== active.name)) {
+        selectedSystem = active;
+        document.querySelectorAll('.system-row').forEach(r =>
+          r.classList.toggle('active', r.dataset.name === active.name));
+        document.getElementById('active-name').textContent = active.name;
+        document.getElementById('active-name').style.color = 'var(--text)';
+        document.getElementById('active-substage').textContent =
+          active.tdb_done ? 'TDB done' : active.energy_count > 0 ? `${active.energy_count} energies` : 'queued';
       }
+    }
+    // Live frame: refresh trajectory/CONTCAR for selected system and jump to latest frame
+    if (liveFrame && selectedSystem) {
+      const fresh = latestSystems.find(s => s.name === selectedSystem.name) || selectedSystem;
+      liveRefresh(fresh);
     }
 
     const now = new Date();
