@@ -20,7 +20,7 @@ secondary_max = 0
 # blade_root is auto-detected as the parent of the examples/ directory.
 # Only set these if your layout differs from the defaults.
 [paths]
-sqsdb_dir  = "/Users/chasekatz/Desktop/School/Research/PhaseForge/PhaseForge/atat/data/sqsdb"
+sqsdb_dir  = "/path/to/atat/data/sqsdb"
 # scraps_repo = "/path/to/SCRAPS/scraps-perpair"   # required only when tdb.sqs_method = "scraps"
 
 # ── TDB fitting ───────────────────────────────────────────────────────────────
@@ -38,9 +38,9 @@ comps_folder       = "Comps"
 # primary_min = 2
 # primary_max = 3
 
-[tdb_mlip_kwargs]
+[mlip_kwargs]
 steps  = 1000
-device = "cpu"   # "cuda" for GPU
+device = "cpu"   # "cuda" for GPU — applies to both TDB and database stages
 
 [tdb_fit]
 fmax  = 0.001
@@ -160,10 +160,6 @@ run_download           = true
 run_energies           = true
 run_database           = true
 api_key_env            = "MP_API_KEY"   # name of env var holding your Materials Project key
-
-[database_mlip_kwargs]
-steps  = 1000
-device = "cpu"   # "cuda" for GPU
 
 # ── Oxidation calculations ────────────────────────────────────────────────────
 [oxidation]
