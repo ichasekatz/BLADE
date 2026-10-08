@@ -51,7 +51,7 @@ BLADE is managed with [uv](https://docs.astral.sh/uv/). Clone the repository and
 ```bash
 git clone https://github.com/ichasekatz/BLADE.git
 cd BLADE
-uv sync
+uv sync --extra workflow
 ```
 
 ### ATAT binaries
@@ -72,7 +72,7 @@ which mcsqs sqs2tdb corrdump
 Configure your element pool and paths once in `examples/full_framework.toml`, then run:
 
 ```bash
-uv run python examples/full_framework.py examples/full_framework.toml
+uv run --extra workflow python examples/full_framework.py examples/full_framework.toml
 ```
 
 Enable or disable stages with boolean flags — set a stage to `false` to skip it and resume from where a previous run left off:

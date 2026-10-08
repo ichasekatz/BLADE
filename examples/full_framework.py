@@ -490,7 +490,12 @@ class FullFrameworkPipeline:
             errors.append(f"oxidation: missing bundled framework under {self.oxidation_framework_dir}")
 
         tdb = self.settings.get("tdb", {})
-        levels = {entry.get("level") for entry in self.settings.get("tdb_sqs_levels", [])}
+        _sqs_levels = (
+            self.settings.get("tdb_sqs_levels")
+            or self.settings.get("tdb_sqs", {}).get("tdb_sqs_levels")
+            or self.settings.get("tdb", {}).get("tdb_sqs_levels", [])
+        )
+        levels = {entry.get("level") for entry in _sqs_levels}
         if self.enabled("tdb") and tdb.get("level") not in levels:
             errors.append(f"tdb: selected level {tdb.get('level')} is absent from tdb_sqs_levels")
         if self.enabled("tdb"):
@@ -676,7 +681,11 @@ class FullFrameworkPipeline:
                 "letter": list(entry["letter"]),
                 "compositions": [list(values) for values in entry["compositions"]],
             }
-            for entry in self.settings["tdb_sqs_levels"]
+            for entry in (
+                self.settings.get("tdb_sqs_levels")
+                or self.settings.get("tdb_sqs", {}).get("tdb_sqs_levels")
+                or self.settings.get("tdb", {}).get("tdb_sqs_levels", [])
+            )
         ]
         selected_level = next(entry for entry in sqsgen_levels if entry["level"] == cfg["level"])
         for override in system_overrides.values():
