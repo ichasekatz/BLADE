@@ -303,6 +303,9 @@
     overflow: hidden;
     cursor: pointer;
     transition: border-color 0.15s;
+    aspect-ratio: 1;
+    display: flex;
+    flex-direction: column;
   }
 
   .sqs-tile:hover { border-color: var(--border2); }
@@ -333,7 +336,8 @@
   }
 
   .sqs-viewer-wrap {
-    height: 120px;
+    flex: 1;
+    min-height: 0;
     position: relative;
     background: #060B10;
   }
@@ -563,7 +567,7 @@
     <!-- SQS center view — shown when SQS tab active -->
     <div id="sqs-center" hidden style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
       <div id="sqs-center-picker" style="flex:1;min-height:0;overflow-y:auto;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;align-content:start"></div>
-      <div id="sqs-center-tiles" hidden style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
+      <div id="sqs-center-tiles" hidden style="flex:1;min-height:0;display:flex;flex-direction:column;overflow-y:auto">
         <!-- Tile-view header -->
         <div style="display:flex;align-items:center;gap:8px;padding:5px 12px;border-bottom:1px solid var(--border);flex-shrink:0">
           <button onclick="sqsShowPicker()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text-dim);padding:2px 9px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">← comps</button>
@@ -576,7 +580,7 @@
           <div id="sqs-preview-label" style="position:absolute;bottom:6px;left:10px;font-family:var(--mono);font-size:9px;color:var(--text-dim);pointer-events:none">click a tile to preview</div>
         </div>
         <!-- 10-tile mini grid (collapsible) -->
-        <div id="sqs-grid" style="flex:1;min-height:0;overflow-y:auto;padding:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;align-content:start;scrollbar-width:thin;scrollbar-color:var(--border2) transparent"></div>
+        <div id="sqs-grid" style="padding:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;align-content:start"></div>
       </div>
     </div>
   </div>
@@ -726,15 +730,21 @@ function initPreviewDrag(cvs) {
   cvs._dragInit = true;
   cvs.style.cursor = 'grab';
   let dragging = false, lx = 0, ly = 0;
-  cvs.addEventListener('mousedown', e => { dragging = true; lx = e.clientX; ly = e.clientY; cvs.style.cursor = 'grabbing'; });
-  window.addEventListener('mouseup', () => { dragging = false; cvs.style.cursor = 'grab'; });
-  window.addEventListener('mousemove', e => {
+  const onDown = (x, y) => { dragging = true; lx = x; ly = y; cvs.style.cursor = 'grabbing'; };
+  const onUp = () => { dragging = false; cvs.style.cursor = 'grab'; };
+  const onMove = (x, y) => {
     if (!dragging || !cvs._xyzData) return;
-    cvs._rotY = (cvs._rotY || 0) + (e.clientX - lx) * 0.01;
-    cvs._rotX = (cvs._rotX || 0) + (e.clientY - ly) * 0.01;
-    lx = e.clientX; ly = e.clientY;
+    cvs._rotY = (cvs._rotY || 0) + (x - lx) * 0.02;
+    cvs._rotX = (cvs._rotX || 0) + (y - ly) * 0.02;
+    lx = x; ly = y;
     drawXYZ(cvs, cvs._xyzData, cvs._rotX, cvs._rotY);
-  });
+  };
+  cvs.addEventListener('mousedown', e => { e.preventDefault(); onDown(e.clientX, e.clientY); });
+  window.addEventListener('mouseup', onUp);
+  window.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
+  cvs.addEventListener('touchstart', e => { e.preventDefault(); onDown(e.touches[0].clientX, e.touches[0].clientY); }, {passive:false});
+  window.addEventListener('touchend', onUp);
+  window.addEventListener('touchmove', e => { if(dragging) { e.preventDefault(); onMove(e.touches[0].clientX, e.touches[0].clientY); } }, {passive:false});
 }
 
 // ── Energy chart ────────────────────────────────────────────────────────
@@ -963,9 +973,9 @@ function sqsPreviewTile(path, label) {
       cvs.width = cvs.offsetWidth || 600;
       cvs.height = cvs.offsetHeight || 220;
       cvs._xyzData = d.xyz;
-      cvs._rotX = cvs._rotX || 0;
-      cvs._rotY = cvs._rotY || 0;
-      drawXYZ(cvs, d.xyz, cvs._rotX, cvs._rotY);
+      cvs._rotX = 0;
+      cvs._rotY = 0;
+      drawXYZ(cvs, d.xyz, 0, 0);
       initPreviewDrag(cvs);
     }).catch(() => {});
 }
