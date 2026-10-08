@@ -27,12 +27,11 @@
 refit_existing_tdb = false   # refit from existing energies without re-relaxing structures
 
 [tdb_fit]
-verbose          = true
-sro              = false    # short-range order correction
-bv               = 0.001   # Bragg-Williams penalty
-phonon           = false    # include phonon contributions
-open_calphad     = false    # open result in OpenCalphad after fitting
-track_trajectory = false    # write .xyz trajectory files during relaxation
+verbose      = true
+sro          = false    # short-range order correction
+bv           = 0.001   # Bragg-Williams penalty
+phonon       = false    # include phonon contributions
+open_calphad = false    # open result in OpenCalphad after fitting
 
 [tdb_sqs]
 cutoff_mode       = "nn"   # "nn" = nearest-neighbour, "manual" = explicit distances
