@@ -398,7 +398,7 @@ def _build_region_details(
 ):
     from collections import Counter, defaultdict
 
-    from thermodynamics import (
+    from .thermodynamics import (
         _phase_comp_range_label,
         _phase_component_signature,
         _short_label,
@@ -604,7 +604,8 @@ def _plot_scan(sum_df, long_df, cfg: SystemConfig, oxygen_label: str) -> None:
 
     mpl.use("Agg")
     import matplotlib.pyplot as plt
-    from thermodynamics import _phase_comp_label
+
+    from .thermodynamics import _phase_comp_label
 
     M1 = cfg.metals[0]
     sys_str = "–".join(cfg.metals + ([cfg.phase_element] if cfg.phase_element else []))
@@ -1132,7 +1133,8 @@ def _plot_muO_T(
     mpl.use("Agg")
     import matplotlib.patches as mpatches
     import matplotlib.pyplot as plt
-    from thermodynamics import (
+
+    from .thermodynamics import (
         add_region_annotation,
         region_annotation_text,
         separate_region_annotations,
