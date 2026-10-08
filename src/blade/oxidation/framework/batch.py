@@ -7,15 +7,10 @@ BatchRunner  : translates BatchConfig → internal Config, calls _batch_internal
 
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
-
-_FW = Path(__file__).parent
-if str(_FW) not in sys.path:
-    sys.path.insert(0, str(_FW))
 
 
 @dataclass

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 import traceback
 from dataclasses import replace
 from pathlib import Path
@@ -35,14 +34,7 @@ class BatchRunner:
     def __init__(self, config: Config):
         self.config = config
 
-    def _ensure_imports(self):
-        framework_dir = str(Path(__file__).parent)
-        if framework_dir in sys.path:
-            sys.path.remove(framework_dir)
-        sys.path.insert(0, framework_dir)
-
     def _detect_metals(self, system_dir: Path) -> list[str] | None:
-        self._ensure_imports()
         from .system_config import SystemConfig
 
         try:
@@ -130,7 +122,6 @@ class BatchRunner:
         cfg = self.config
         cfg.tables_dir.mkdir(parents=True, exist_ok=True)
         cfg.figures_dir.mkdir(parents=True, exist_ok=True)
-        self._ensure_imports()
         import pandas as pd
 
         from .system_config import SystemConfig, prepare_tables

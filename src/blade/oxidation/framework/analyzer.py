@@ -46,7 +46,6 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -85,15 +84,8 @@ class SystemAnalyzer:
 
     # ---------------------------------------------------------------- setup
 
-    def _ensure_imports(self):
-        root = Path(__file__).parent
-        for p in [str(root), str(root / "python")]:
-            if p not in sys.path:
-                sys.path.insert(0, p)
-
     def prepare(self, metals: list[str]) -> bool:
         """Load SystemConfig and prepare tables. Returns False on failure."""
-        self._ensure_imports()
         from .system_config import SystemConfig, prepare_tables
 
         try:
@@ -116,7 +108,6 @@ class SystemAnalyzer:
 
     def load_phases(self):
         """Load pd_data from tables. Must call prepare() first."""
-        self._ensure_imports()
         from ._run import load_phases as _load_phases
 
         return _load_phases(self._sys_cfg)
@@ -371,7 +362,7 @@ class SystemAnalyzer:
 
     def _coarse_family_label(self, phase_ids, phase_kinds, values, phase_y_nd, metals):
         """Region key from compounds present above the configured raw amount."""
-        from thermodynamics import _phase_component_signature
+        from .thermodynamics import _phase_component_signature
 
         threshold = 0.01 if self.config.include_0p01_to_0p05_components else 0.05
         active = values >= threshold - 1e-12 if self.config.include_0p01_to_0p05_components else values > threshold + 1e-12
@@ -485,8 +476,7 @@ class SystemAnalyzer:
         return result.ravel().tolist()
 
     def _solve_metrics(self, pd_data, comp, T, mu_o, phase_G):
-        self._ensure_imports()
-        from thermodynamics import KB, build_assemblage_labels, solve_grand_lp  # noqa
+        from .thermodynamics import KB, build_assemblage_labels, solve_grand_lp  # noqa
 
         phase_O = pd_data["phase_O"]
         n_fixed = pd_data["n_fixed"]
@@ -612,8 +602,7 @@ class SystemAnalyzer:
         import matplotlib.patches as mpatches
         import matplotlib.pyplot as plt
 
-        self._ensure_imports()
-        from thermodynamics import (
+        from .thermodynamics import (
             add_region_annotation,
             format_phase_detail_line,
             grid_edges,
@@ -883,9 +872,7 @@ class SystemAnalyzer:
     def _run_composition_slice_maps(self, sys_cfg, pd_data) -> None:
         import pandas as pd
 
-        self._ensure_imports()
-
-        from thermodynamics import KB, assign_region_ids, format_phase_fraction_summary_line
+        from .thermodynamics import KB, assign_region_ids, format_phase_fraction_summary_line
 
         cfg = self.config
         metals = sys_cfg.metals
@@ -1083,7 +1070,7 @@ class SystemAnalyzer:
     def _phase_fraction_summary(fracs, phase_ids, phase_kinds, metals, phase_suffix=""):
         from collections import defaultdict
 
-        from thermodynamics import _phase_comp_label, _short_label
+        from .thermodynamics import _phase_comp_label, _short_label
 
         totals = defaultdict(float)
         min_frac = 1e-12
@@ -1124,7 +1111,7 @@ class SystemAnalyzer:
     def _build_region_details_from_csv(self, df, region_ids, phase_ids, phase_kinds, metals, phase_suffix=""):
         from collections import Counter, defaultdict
 
-        from thermodynamics import _phase_comp_label, _short_label
+        from .thermodynamics import _phase_comp_label, _short_label
 
         details = {}
         min_frac = 1e-12
@@ -1188,8 +1175,7 @@ class SystemAnalyzer:
         """
         import pandas as pd
 
-        self._ensure_imports()
-        from thermodynamics import KB, assign_region_ids, format_phase_fraction_summary_line
+        from .thermodynamics import KB, assign_region_ids, format_phase_fraction_summary_line
 
         cfg = self.config
         metals = sys_cfg.metals
@@ -1353,8 +1339,7 @@ class SystemAnalyzer:
                     )
 
     def _composition_grid_for_onset(self, n_metals: int):
-        self._ensure_imports()
-        from thermodynamics import simplex_grid_nd
+        from .thermodynamics import simplex_grid_nd
 
         cfg = self.config
         step = (
@@ -1424,8 +1409,7 @@ class SystemAnalyzer:
     def _run_onset_auc_diagrams(self, sys_cfg, pd_data) -> None:
         import pandas as pd
 
-        self._ensure_imports()
-        from thermodynamics import KB
+        from .thermodynamics import KB
 
         cfg = self.config
         metals = sys_cfg.metals

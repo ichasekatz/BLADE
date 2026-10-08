@@ -7,7 +7,6 @@ All skip checks and per-T caching live here.
 from __future__ import annotations
 
 import shutil
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -39,14 +38,7 @@ class MapsRunner:
 
     # ------------------------------------------------------------------ setup
 
-    def _ensure_path(self) -> None:
-        root = Path(__file__).parent.parent
-        for p in [str(root), str(root / "python")]:
-            if p not in sys.path:
-                sys.path.insert(0, p)
-
     def _run_module(self):
-        self._ensure_path()
         from . import _run as _r
 
         return _r
