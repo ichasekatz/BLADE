@@ -555,11 +555,19 @@
     <div id="sqs-center" hidden style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
       <div id="sqs-center-picker" style="flex:1;min-height:0;overflow-y:auto;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;align-content:start"></div>
       <div id="sqs-center-tiles" hidden style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border);flex-shrink:0">
+        <!-- Tile-view header -->
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 12px;border-bottom:1px solid var(--border);flex-shrink:0">
           <button onclick="sqsShowPicker()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text-dim);padding:2px 9px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">← comps</button>
-          <span id="sqs-center-label" style="font-family:var(--mono);font-size:10px;color:var(--text-dim)"></span>
+          <span id="sqs-center-label" style="font-family:var(--mono);font-size:10px;color:var(--text-dim);flex:1"></span>
+          <button id="sqs-grid-toggle" onclick="sqsToggleGrid()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text-dim);padding:2px 8px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">▾ tiles</button>
         </div>
-        <div id="sqs-grid" style="flex:1;min-height:0;overflow-y:auto;padding:10px;display:grid;grid-template-columns:repeat(5,1fr);gap:8px;align-content:start;scrollbar-width:thin;scrollbar-color:var(--border2) transparent"></div>
+        <!-- Large preview canvas for selected/live structure -->
+        <div id="sqs-preview-wrap" style="flex:0 0 220px;background:#060B10;border-bottom:1px solid var(--border);position:relative;display:flex;align-items:center;justify-content:center">
+          <canvas id="sqs-preview-canvas" style="width:100%;height:100%;display:block"></canvas>
+          <div id="sqs-preview-label" style="position:absolute;bottom:6px;left:10px;font-family:var(--mono);font-size:9px;color:var(--text-dim);pointer-events:none">click a tile to preview</div>
+        </div>
+        <!-- 10-tile mini grid (collapsible) -->
+        <div id="sqs-grid" style="flex:1;min-height:0;overflow-y:auto;padding:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;align-content:start;scrollbar-width:thin;scrollbar-color:var(--border2) transparent"></div>
       </div>
     </div>
   </div>
@@ -884,23 +892,43 @@ function selectSystem(sys) {
     }).catch(() => {});
 }
 
-// ── Load an SQS bestsqs into the center 3D viewer ─────────────────────
-function loadSQSInCenter(path, label) {
-  if (liveSQSPath === path) return; // already showing this one
-  liveSQSPath = path;
-  initTrajViewer();
-  document.getElementById('active-name').textContent = label || 'SQS structure';
-  document.getElementById('active-name').style.color = 'var(--text)';
-  document.getElementById('active-substage').textContent = 'SQS';
-  document.getElementById('traj-controls').style.display = 'none';
+// ── SQS in-panel preview canvas ────────────────────────────────────────
+let sqsPreviewPath = null;
+
+function sqsPreviewTile(path, label) {
+  if (sqsPreviewPath === path) return;
+  sqsPreviewPath = path;
+  liveSQSPath = path; // keep in sync for live-SQS dedup
+  const lbl = document.getElementById('sqs-preview-label');
+  if (lbl) lbl.textContent = label || path;
+  // Highlight active tile
+  document.querySelectorAll('.sqs-tile').forEach(t => {
+    t.style.outline = t.dataset.path === path ? '2px solid var(--teal)' : '';
+  });
   fetch(`/api/structure?path=${encodeURIComponent(path)}`)
     .then(r => r.json())
     .then(d => {
-      if (!d.xyz || !trajViewer) return;
-      // Sphere-only: sticks on large SQS supercells draw phantom bonds
-      // across periodic boundaries
-      loadXYZ(trajViewer, d.xyz, { sphere: { radius: 0.4, colorscheme: 'Jmol' } });
+      if (!d.xyz) return;
+      const cvs = document.getElementById('sqs-preview-canvas');
+      if (!cvs) return;
+      cvs.width = cvs.offsetWidth || 600;
+      cvs.height = cvs.offsetHeight || 220;
+      drawXYZ(cvs, d.xyz);
     }).catch(() => {});
+}
+
+function sqsToggleGrid() {
+  const grid = document.getElementById('sqs-grid');
+  const btn = document.getElementById('sqs-grid-toggle');
+  if (!grid) return;
+  const collapsed = grid.hidden;
+  grid.hidden = !collapsed;
+  if (btn) btn.textContent = collapsed ? '▾ tiles' : '▸ tiles';
+}
+
+// Keep loadSQSInCenter for non-SQS-tab context (TDB/trajectory tab)
+function loadSQSInCenter(path, label) {
+  sqsPreviewTile(path, label);
 }
 
 // ── Render SQS tiles ───────────────────────────────────────────────────
@@ -987,12 +1015,12 @@ function renderSQS(sqsDirs) {
       card.className = 'sqs-comp-card';
       card.dataset.gk = gk;
       card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:14px 12px;cursor:pointer;transition:border-color 0.15s;';
-      card.innerHTML = `<div style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text);margin-bottom:5px">${label}</div>
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim)">${dirName}</div>
-        <div id="card-obj-${sanitizeId(gk)}" style="font-family:var(--mono);font-size:9px;color:var(--teal);margin-top:6px">${best != null && isFinite(best) ? `best: ${best.toFixed(4)}` : 'running…'}</div>`;
+      card.innerHTML = `<div style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text);margin-bottom:3px">${dirName}</div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--accent);margin-bottom:4px">${subdir || '—'}</div>
+        <div id="card-obj-${sanitizeId(gk)}" style="font-family:var(--mono);font-size:9px;color:var(--teal)">${best != null && isFinite(best) ? `best: ${best.toFixed(4)}` : 'running…'}</div>`;
       card.addEventListener('mouseenter', () => { card.style.borderColor = 'var(--border2)'; });
       card.addEventListener('mouseleave', () => { card.style.borderColor = selectedSQSSubdir === gk ? 'var(--teal)' : 'var(--border)'; });
-      card.addEventListener('click', () => selectSQSComp(gk, label));
+      card.addEventListener('click', () => selectSQSComp(gk, `${dirName} / ${subdir || ''}`.trim()));
       picker.appendChild(card);
     });
   } else {
@@ -1033,11 +1061,12 @@ function renderSQS(sqsDirs) {
       tile.id = tileId;
       tile.className = 'sqs-tile';
       tile.dataset.gk = gk;
+      if (run.bestsqs_path) tile.dataset.path = run.bestsqs_path;
       if (!run.waiting && run.bestsqs_path) {
         tile.addEventListener('click', () => {
           setLiveSQS(false);
-          liveSQSPath = null;
-          loadSQSInCenter(run.bestsqs_path, `${dirName} / ${run.subdir} #${run.ip}`);
+          sqsPreviewPath = null; // force redraw
+          sqsPreviewTile(run.bestsqs_path, `#${run.ip} — ${run.subdir}`);
         });
       }
       tile.innerHTML = run.waiting
@@ -1374,7 +1403,7 @@ async function poll() {
           active.tdb_done ? 'TDB done' : active.energy_count > 0 ? `${active.energy_count} energies` : 'queued';
       }
     }
-    // Live SQS: auto-load best-objective SQS tile into center viewer
+    // Live SQS: auto-preview best-objective tile each poll
     if (liveSQS && sqsRes && sqsRes.length) {
       let bestRun = null, bestObj = Infinity;
       sqsRes.forEach(dir => (dir.runs || []).forEach(r => {
@@ -1383,8 +1412,8 @@ async function poll() {
         }
       }));
       if (bestRun) {
-        const label = `${bestRun.subdir} #${bestRun.ip} (obj ${bestObj.toFixed(4)})`;
-        loadSQSInCenter(bestRun.bestsqs_path, label);
+        const label = `#${bestRun.ip} — ${bestRun.subdir} (obj ${bestObj.toFixed(4)})`;
+        sqsPreviewTile(bestRun.bestsqs_path, label);
       }
     }
 
