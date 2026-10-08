@@ -551,6 +551,17 @@
       <div id="energy-label">Energy convergence (eV/atom)</div>
       <canvas id="energy-chart"></canvas>
     </div>
+    <!-- SQS center view — shown when SQS tab active -->
+    <div id="sqs-center" hidden style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
+      <div id="sqs-center-picker" style="flex:1;min-height:0;overflow-y:auto;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;align-content:start"></div>
+      <div id="sqs-center-tiles" hidden style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border);flex-shrink:0">
+          <button onclick="sqsShowPicker()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text-dim);padding:2px 9px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">← comps</button>
+          <span id="sqs-center-label" style="font-family:var(--mono);font-size:10px;color:var(--text-dim)"></span>
+        </div>
+        <div id="sqs-grid" style="flex:1;min-height:0;overflow-y:auto;padding:10px;display:grid;grid-template-columns:repeat(5,1fr);gap:8px;align-content:start;scrollbar-width:thin;scrollbar-color:var(--border2) transparent"></div>
+      </div>
+    </div>
   </div>
 
   <!-- Right: stage tabs -->
@@ -564,15 +575,9 @@
       </label>
       <span id="sqs-dir-label" style="color:var(--text-dim);font-family:var(--mono);font-size:10px;padding-right:12px">—</span>
     </div>
-    <div id="tab-content-sqs" class="tab-content">
-      <div id="sqs-comp-picker" style="flex:1;min-height:0;overflow-y:auto;padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;align-content:start"></div>
-      <div id="sqs-tile-view" hidden style="display:flex;flex-direction:column;flex:1;min-height:0">
-        <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-bottom:1px solid var(--border);flex-shrink:0">
-          <button id="sqs-back-btn" onclick="sqsShowPicker()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text-dim);padding:2px 8px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">← back</button>
-          <span id="sqs-selected-label" style="font-family:var(--mono);font-size:10px;color:var(--text-dim)"></span>
-        </div>
-        <div id="sqs-grid" style="flex:1;min-height:0;overflow-y:auto;padding:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;align-content:start;scrollbar-width:thin;scrollbar-color:var(--border2) transparent"></div>
-      </div>
+    <div id="tab-content-sqs" class="tab-content" style="padding:10px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">
+      <div>SQS grid shown in center panel.</div>
+      <div id="sqs-right-info" style="margin-top:6px"></div>
     </div>
     <div id="tab-content-tdb" class="tab-content" hidden>
       <div id="tdb-list"></div>
@@ -904,32 +909,32 @@ function sanitizeId(s) {
 }
 
 function sqsShowPicker() {
-  document.getElementById('sqs-comp-picker').hidden = false;
-  document.getElementById('sqs-tile-view').hidden = true;
+  document.getElementById('sqs-center-picker').hidden = false;
+  document.getElementById('sqs-center-tiles').hidden = true;
   selectedSQSSubdir = null;
 }
 
 function selectSQSComp(gk, label) {
   selectedSQSSubdir = gk;
-  document.getElementById('sqs-comp-picker').hidden = true;
-  const tv = document.getElementById('sqs-tile-view');
+  document.getElementById('sqs-center-picker').hidden = true;
+  const tv = document.getElementById('sqs-center-tiles');
   tv.hidden = false;
   tv.style.display = 'flex';
-  const lbl = document.getElementById('sqs-selected-label');
+  const lbl = document.getElementById('sqs-center-label');
   if (lbl) lbl.textContent = label || gk;
-  document.querySelectorAll('.sqs-tile, .sqs-group-hdr').forEach(el => {
+  document.querySelectorAll('.sqs-tile').forEach(el => {
     el.hidden = el.dataset.gk !== gk;
   });
 }
 
 function renderSQS(sqsDirs) {
   const grid = document.getElementById('sqs-grid');
-  const picker = document.getElementById('sqs-comp-picker');
+  const picker = document.getElementById('sqs-center-picker');
 
   if (!sqsDirs.length) {
     picker.innerHTML = '<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:60px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">No active SQS runs</div>';
     picker.hidden = false;
-    document.getElementById('sqs-tile-view').hidden = true;
+    document.getElementById('sqs-center-tiles').hidden = true;
     document.getElementById('sqs-dir-label').textContent = '—';
     return;
   }
@@ -937,7 +942,6 @@ function renderSQS(sqsDirs) {
   const activeNames = sqsDirs.filter(d => d.runs.length).map(d => d.name);
   document.getElementById('sqs-dir-label').textContent = activeNames.length ? activeNames.join(', ') : sqsDirs[sqsDirs.length-1].name;
 
-  // Collect all runs tagged with dirName
   const allRuns = [];
   sqsDirs.forEach(dir => {
     if (dir.runs.length) {
@@ -948,13 +952,12 @@ function renderSQS(sqsDirs) {
   });
 
   if (!allRuns.length) {
-    picker.innerHTML = `<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:80px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">${sqsDirs[0].name} — waiting for mcsqs output…</div>`;
+    picker.innerHTML = `<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:80px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">${sqsDirs[0].name} — waiting…</div>`;
     picker.hidden = false;
-    document.getElementById('sqs-tile-view').hidden = true;
+    document.getElementById('sqs-center-tiles').hidden = true;
     return;
   }
 
-  // Best objective per (dirName, subdir) group
   const bestByGroup = {};
   allRuns.forEach(r => {
     const gk = `${r.dirName}|${r.subdir}`;
@@ -963,7 +966,6 @@ function renderSQS(sqsDirs) {
     }
   });
 
-  // Group runs by (dirName, subdir)
   const groups = {};
   const groupOrder = [];
   allRuns.forEach(r => {
@@ -972,7 +974,7 @@ function renderSQS(sqsDirs) {
     groups[gk].runs.push(r);
   });
 
-  // Rebuild picker cards if group set changed
+  // Always rebuild/update picker cards (even if hidden) so new compositions appear
   const existingCards = new Set([...picker.querySelectorAll('.sqs-comp-card')].map(c => c.dataset.gk));
   const currentKeys = new Set(groupOrder);
   if ([...currentKeys].some(k => !existingCards.has(k)) || existingCards.size !== currentKeys.size) {
@@ -984,39 +986,39 @@ function renderSQS(sqsDirs) {
       const card = document.createElement('div');
       card.className = 'sqs-comp-card';
       card.dataset.gk = gk;
-      card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px 10px;cursor:pointer;transition:border-color 0.15s;';
-      card.innerHTML = `<div style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--text);margin-bottom:4px">${label}</div>
+      card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:14px 12px;cursor:pointer;transition:border-color 0.15s;';
+      card.innerHTML = `<div style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text);margin-bottom:5px">${label}</div>
         <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim)">${dirName}</div>
-        <div id="card-obj-${sanitizeId(gk)}" style="font-family:var(--mono);font-size:9px;color:var(--teal);margin-top:4px">${best != null && isFinite(best) ? `best obj: ${best.toFixed(4)}` : 'running…'}</div>`;
+        <div id="card-obj-${sanitizeId(gk)}" style="font-family:var(--mono);font-size:9px;color:var(--teal);margin-top:6px">${best != null && isFinite(best) ? `best: ${best.toFixed(4)}` : 'running…'}</div>`;
       card.addEventListener('mouseenter', () => { card.style.borderColor = 'var(--border2)'; });
       card.addEventListener('mouseleave', () => { card.style.borderColor = selectedSQSSubdir === gk ? 'var(--teal)' : 'var(--border)'; });
       card.addEventListener('click', () => selectSQSComp(gk, label));
       picker.appendChild(card);
     });
   } else {
-    // Update card objective values
     groupOrder.forEach(gk => {
       const el = document.getElementById(`card-obj-${sanitizeId(gk)}`);
       const best = bestByGroup[gk];
-      if (el) el.textContent = best != null && isFinite(best) ? `best obj: ${best.toFixed(4)}` : 'running…';
+      if (el) el.textContent = best != null && isFinite(best) ? `best: ${best.toFixed(4)}` : 'running…';
+      const card = picker.querySelector(`.sqs-comp-card[data-gk="${gk}"]`);
+      if (card) card.style.borderColor = selectedSQSSubdir === gk ? 'var(--teal)' : 'var(--border)';
     });
   }
 
-  // If live SQS is active, auto-select if no composition chosen yet
+  // Auto-select if only one composition
   if (!selectedSQSSubdir && groupOrder.length === 1) {
     selectSQSComp(groupOrder[0], groups[groupOrder[0]].subdir || groups[groupOrder[0]].dirName);
   }
 
-  if (!selectedSQSSubdir) return; // show picker, don't render tiles yet
+  if (!selectedSQSSubdir) return;
 
   const gk = selectedSQSSubdir;
-  if (!groups[gk]) return;
+  if (!groups[gk]) { sqsShowPicker(); return; }
   const { dirName, subdir, runs } = groups[gk];
 
-  // Show tile view
   picker.hidden = true;
-  document.getElementById('sqs-tile-view').hidden = false;
-  document.getElementById('sqs-tile-view').style.display = 'flex';
+  document.getElementById('sqs-center-tiles').hidden = false;
+  document.getElementById('sqs-center-tiles').style.display = 'flex';
 
   runs.forEach(run => {
     const safeKey = sanitizeId(`${run.dirName}-${run.subdir}-${run.ip}`);
@@ -1032,7 +1034,6 @@ function renderSQS(sqsDirs) {
       tile.className = 'sqs-tile';
       tile.dataset.gk = gk;
       if (!run.waiting && run.bestsqs_path) {
-        tile.style.cursor = 'pointer';
         tile.addEventListener('click', () => {
           setLiveSQS(false);
           liveSQSPath = null;
@@ -1069,8 +1070,8 @@ function renderSQS(sqsDirs) {
             if (!d.xyz) return;
             const cvs = document.getElementById(viewerId);
             if (!cvs) return;
-            cvs.width = cvs.offsetWidth || 148;
-            cvs.height = cvs.offsetHeight || 90;
+            cvs.width = cvs.offsetWidth || 160;
+            cvs.height = cvs.offsetHeight || 120;
             drawXYZ(cvs, d.xyz);
           }).catch(() => {});
       }
@@ -1287,6 +1288,19 @@ function switchTab(name) {
     document.getElementById(`tab-${t}`).classList.toggle('active', t === name);
     document.getElementById(`tab-content-${t}`).hidden = t !== name;
   });
+  const sqsCenter = document.getElementById('sqs-center');
+  const viewerTraj = document.getElementById('viewer-traj');
+  const energyWrap = document.getElementById('energy-chart-wrap');
+  if (name === 'sqs') {
+    sqsCenter.hidden = false;
+    sqsCenter.style.display = 'flex';
+    viewerTraj.hidden = true;
+    energyWrap.hidden = true;
+  } else {
+    sqsCenter.hidden = true;
+    viewerTraj.hidden = false;
+    energyWrap.hidden = false;
+  }
 }
 
 // ── TDB tab ────────────────────────────────────────────────────────────
