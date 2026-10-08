@@ -23,13 +23,13 @@ the same TOML config as `full_framework.py` and watches the output filesystem.
 cd ~/BLADE/BLADE
 
 # Pass the same TOML you give full_framework.py
-python dashboard/server.py examples/full_framework.toml --port 8080 --log nohup.out &
+python3 dashboard/server.py examples/full_framework.toml --port 8080 --log nohup.out &
 ```
 
 Multiple config files (same multi-toml syntax as `full_framework.py`):
 
 ```bash
-python dashboard/server.py examples/full_framework.toml examples/configs/borides_hedb.toml --port 8080 --log nohup.out &
+python3 dashboard/server.py examples/full_framework.toml examples/configs/borides_hedb.toml --port 8080 --log nohup.out &
 ```
 
 ### 2. Open an SSH tunnel on your laptop
