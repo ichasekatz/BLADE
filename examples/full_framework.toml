@@ -28,7 +28,6 @@ sqsdb_dir  = "/path/to/atat/data/sqsdb"
 sqs_method         = "mcsqs"   # "mcsqs" or "scraps"
 level              = 6
 skip_existing      = true      # skip SQS, TDB, and plots when outputs already exist
-refit_existing_tdb = false     # refit from existing energies without re-relaxing structures
 run_movie          = false     # generate MP4 trajectory videos (requires FFmpeg)
 mlip               = "orb"
 liquid             = false
