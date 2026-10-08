@@ -507,6 +507,9 @@
 </div>
 
 <!-- Main 3-column grid -->
+<button id="edge-left" hidden onclick="collapsePanel('left')" title="Expand" style="position:fixed;left:0;top:50%;transform:translateY(-50%);z-index:200;background:var(--surface2);border:1px solid var(--border);border-left:none;border-radius:0 5px 5px 0;color:var(--text-dim);cursor:pointer;padding:10px 5px;font-size:11px;line-height:1">▶</button>
+<button id="edge-right" hidden onclick="collapsePanel('right')" title="Expand" style="position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:200;background:var(--surface2);border:1px solid var(--border);border-right:none;border-radius:5px 0 0 5px;color:var(--text-dim);cursor:pointer;padding:10px 5px;font-size:11px;line-height:1">◀</button>
+
 <div id="main">
 
   <!-- Left: system list + log -->
@@ -958,13 +961,14 @@ function collapsePanel(which) {
     r.style.setProperty('--col-left', c ? '0px' : '240px');
     const btn = document.getElementById('btn-collapse-left');
     if (btn) btn.textContent = c ? '▶' : '◀';
-    // show expand button on center edge when collapsed
     document.getElementById('panel-left').style.overflow = 'hidden';
+    document.getElementById('edge-left').hidden = !c;
   } else if (which === 'right') {
     r.style.setProperty('--col-right', c ? '0px' : '320px');
     const btn = document.getElementById('btn-collapse-right');
     if (btn) btn.textContent = c ? '◀' : '▶';
     document.getElementById('panel-right').style.overflow = 'hidden';
+    document.getElementById('edge-right').hidden = !c;
   } else if (which === 'bottom') {
     const newH = c ? '32px' : '150px';
     r.style.setProperty('--row-bottom', newH);
