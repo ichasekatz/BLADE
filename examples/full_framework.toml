@@ -143,6 +143,12 @@ make_gif       = true
 fixed_elements = ["B"]
 metal_fraction = 0.3333333333333333
 
+# ── Phase grid video ──────────────────────────────────────────────────────────
+[phase_grid]
+t_start = 200
+t_end   = 2000
+t_step  = 10
+
 # ── Oxidation database ────────────────────────────────────────────────────────
 [database]
 # Inherits element pool from [elements] by default.
