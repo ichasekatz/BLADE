@@ -58,21 +58,54 @@ def _resolve_paths(cfg: dict, toml_path: Path) -> tuple[Path, Path]:
 # ATAT bestsqs.out → XYZ parser
 # ---------------------------------------------------------------------------
 
-# ATAT alloy component notation X_Y → placeholder element for 3Dmol visualization.
-# The real element identity comes from the TOML config; these are stand-ins that render.
-_ATAT_COMPONENT = {
-    "A": "Hf", "B": "Cr", "C": "Zr", "D": "Mo", "E": "Ti", "F": "V",
-}
+def _build_elem_map(rndstr_path: Path) -> dict[str, str]:
+    """Parse rndstr.in → ATAT component label → real element.
+
+    Returns e.g. {'a_A': 'Hf', 'a_B': 'Cr'}.  Pure sites (no '=') are skipped
+    because they appear as the element symbol directly in bestsqs.out.
+    """
+    try:
+        text = rndstr_path.read_text(errors="ignore")
+    except OSError:
+        return {}
+    lines = [l.strip() for l in text.strip().splitlines()
+             if l.strip() and not l.startswith("#")]
+    if len(lines) < 7:
+        return {}
+    mapping: dict[str, str] = {}
+    sl_letters = "abcdefghijklmnop"
+    sl_idx = 0
+    for line in lines[6:]:
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        try:
+            float(parts[0])
+        except ValueError:
+            continue
+        spec = parts[3]
+        if "=" in spec:
+            sl = sl_letters[sl_idx] if sl_idx < len(sl_letters) else f"s{sl_idx}"
+            for ci, token in enumerate(spec.split(",")):
+                elem = token.split("=")[0].strip()
+                mapping[f"{sl}_{chr(ord('A') + ci)}"] = elem
+            sl_idx += 1
+    return mapping
 
 
-def _atat_species(raw: str) -> str:
-    """Map ATAT alloy notation 'a_A' → a renderable element symbol."""
-    import re as _re
-    m = _re.match(r"^[a-z]_([A-Z])$", raw)
-    return _ATAT_COMPONENT.get(m.group(1), "Fe") if m else raw
+def _atat_species(raw: str, elem_map: dict[str, str] | None = None) -> str:
+    """Map ATAT alloy notation 'a_A' → real element using rndstr.in map."""
+    if elem_map and raw in elem_map:
+        return elem_map[raw]
+    # Fallback: strip prefix and use position-based placeholder
+    m = re.match(r"^[a-z]_([A-Z])$", raw)
+    if m:
+        _fallback = {"A": "Hf", "B": "Cr", "C": "Zr", "D": "Mo", "E": "Ti"}
+        return _fallback.get(m.group(1), "Fe")
+    return raw
 
 
-def parse_atat_structure(text: str) -> str | None:
+def parse_atat_structure(text: str, elem_map: dict[str, str] | None = None) -> str | None:
     """Convert ATAT str.out / bestsqs.out text to XYZ format string."""
     lines = [l.strip() for l in text.strip().splitlines() if l.strip() and not l.startswith("#")]
     if len(lines) < 7:
@@ -93,10 +126,10 @@ def parse_atat_structure(text: str) -> str | None:
             # Some ATAT files: x y z species; others: species x y z
             try:
                 frac = [float(parts[0]), float(parts[1]), float(parts[2])]
-                species = _atat_species(parts[3])
+                species = _atat_species(parts[3], elem_map)
             except ValueError:
                 # species first format
-                species = _atat_species(parts[0])
+                species = _atat_species(parts[0], elem_map)
                 frac = [float(parts[1]), float(parts[2]), float(parts[3])]
 
             # Convert fractional → Cartesian
@@ -382,7 +415,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not p.exists():
                 self._json({"error": "not found"}, 404)
                 return
-            xyz = parse_atat_structure(p.read_text(errors="ignore"))
+            elem_map = _build_elem_map(p.parent / "rndstr.in")
+            xyz = parse_atat_structure(p.read_text(errors="ignore"), elem_map)
             self._json({"xyz": xyz, "path": str(p)})
 
         elif path == "/api/trajectory":
