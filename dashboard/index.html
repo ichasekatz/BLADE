@@ -106,13 +106,16 @@
   }
 
   /* ── Main grid ───────────────────────────────────────────── */
+  :root { --col-left:240px; --col-right:320px; --row-bottom:150px; }
   #main {
     display: grid;
-    grid-template-columns: 240px 1fr 320px;
+    grid-template-columns: var(--col-left) 1fr var(--col-right);
     grid-template-rows: 1fr;
-    height: calc(100vh - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 150px);
+    height: calc(100vh - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - var(--row-bottom));
     min-height: 400px;
+    transition: grid-template-columns 0.2s, height 0.2s;
   }
+  #panel-bottom { transition: height 0.2s; }
 
   /* ── Left: pipeline log ──────────────────────────────────── */
   #panel-left {
@@ -511,6 +514,7 @@
     <div class="panel-header">
       <span>Systems</span>
       <span id="sys-count">—</span>
+      <button onclick="collapsePanel('left')" title="Collapse" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:12px;padding:0 0 0 8px;line-height:1" id="btn-collapse-left">◀</button>
     </div>
     <div id="systems-list"></div>
     <div class="panel-header" style="border-top:1px solid var(--border); border-bottom:none; cursor:pointer" onclick="toggleLog()">
@@ -562,7 +566,7 @@
           <button id="sqs-grid-toggle" onclick="sqsToggleGrid()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text-dim);padding:2px 8px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">▾ tiles</button>
         </div>
         <!-- Large preview canvas for selected/live structure -->
-        <div id="sqs-preview-wrap" style="flex:0 0 220px;background:#060B10;border-bottom:1px solid var(--border);position:relative;display:flex;align-items:center;justify-content:center">
+        <div id="sqs-preview-wrap" style="flex:0 0 160px;background:#060B10;border-bottom:1px solid var(--border);position:relative;display:flex;align-items:center;justify-content:center">
           <canvas id="sqs-preview-canvas" style="width:100%;height:100%;display:block"></canvas>
           <div id="sqs-preview-label" style="position:absolute;bottom:6px;left:10px;font-family:var(--mono);font-size:9px;color:var(--text-dim);pointer-events:none">click a tile to preview</div>
         </div>
@@ -578,10 +582,10 @@
       <button class="stage-tab active" id="tab-sqs" onclick="switchTab('sqs')">SQS</button>
       <button class="stage-tab" id="tab-tdb" onclick="switchTab('tdb')">TDB</button>
       <button class="stage-tab" id="tab-plots" onclick="switchTab('plots')">Plots</button>
-      <label id="live-sqs-label" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--text-dim);user-select:none;margin-left:auto;padding:0 10px;">
+      <label id="live-sqs-label" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--text-dim);user-select:none;margin-left:auto;padding:0 8px;">
         <input type="checkbox" id="live-sqs-chk" style="accent-color:#A78BFA"> Live
       </label>
-      <span id="sqs-dir-label" style="color:var(--text-dim);font-family:var(--mono);font-size:10px;padding-right:12px">—</span>
+      <button onclick="collapsePanel('right')" title="Collapse" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:12px;padding:0 10px;line-height:1" id="btn-collapse-right">▶</button>
     </div>
     <div id="tab-content-sqs" class="tab-content" style="padding:10px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">
       <div>SQS grid shown in center panel.</div>
@@ -599,9 +603,10 @@
 
 <!-- Bottom: plot gallery -->
 <div id="panel-bottom">
-  <div class="panel-header">
+  <div class="panel-header" style="cursor:pointer" onclick="collapsePanel('bottom')">
     <span>Outputs</span>
     <span id="plot-count" style="color:var(--text-dim)">—</span>
+    <button style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:12px;padding:0;line-height:1;margin-left:auto" id="btn-collapse-bottom">▾</button>
   </div>
   <div id="plots-strip"><div class="no-plots">No outputs yet</div></div>
 </div>
@@ -924,6 +929,32 @@ function sqsToggleGrid() {
   const collapsed = grid.hidden;
   grid.hidden = !collapsed;
   if (btn) btn.textContent = collapsed ? '▾ tiles' : '▸ tiles';
+}
+
+// ── Panel collapse ─────────────────────────────────────────────────────
+const _panelCollapsed = { left: false, right: false, bottom: false };
+function collapsePanel(which) {
+  const r = document.documentElement;
+  _panelCollapsed[which] = !_panelCollapsed[which];
+  const c = _panelCollapsed[which];
+  if (which === 'left') {
+    r.style.setProperty('--col-left', c ? '0px' : '240px');
+    const btn = document.getElementById('btn-collapse-left');
+    if (btn) btn.textContent = c ? '▶' : '◀';
+    // show expand button on center edge when collapsed
+    document.getElementById('panel-left').style.overflow = 'hidden';
+  } else if (which === 'right') {
+    r.style.setProperty('--col-right', c ? '0px' : '320px');
+    const btn = document.getElementById('btn-collapse-right');
+    if (btn) btn.textContent = c ? '◀' : '▶';
+    document.getElementById('panel-right').style.overflow = 'hidden';
+  } else if (which === 'bottom') {
+    const newH = c ? '32px' : '150px';
+    r.style.setProperty('--row-bottom', newH);
+    document.getElementById('panel-bottom').style.height = newH;
+    const btn = document.getElementById('btn-collapse-bottom');
+    if (btn) btn.textContent = c ? '▸' : '▾';
+  }
 }
 
 // Keep loadSQSInCenter for non-SQS-tab context (TDB/trajectory tab)
