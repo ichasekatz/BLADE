@@ -813,67 +813,82 @@ function selectSystem(sys) {
 
 // ── Render SQS tiles ───────────────────────────────────────────────────
 function renderSQS(sqsDirs) {
+  const grid = document.getElementById('sqs-grid');
   if (!sqsDirs.length) {
-    document.getElementById('sqs-grid').innerHTML = '<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:60px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">No active SQS runs</div>';
+    grid.innerHTML = '<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:60px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">No active SQS runs</div>';
     document.getElementById('sqs-dir-label').textContent = '—';
     return;
   }
 
-  // Show most recently active dir
-  const active = sqsDirs[sqsDirs.length - 1];
-  document.getElementById('sqs-dir-label').textContent = active.name;
+  // Show all dirs simultaneously — label shows count
+  const activeNames = sqsDirs.filter(d => d.runs.length).map(d => d.name);
+  document.getElementById('sqs-dir-label').textContent = activeNames.length ? activeNames.join(', ') : sqsDirs[sqsDirs.length-1].name;
 
-  const runs = active.runs.length ? active.runs : [];
-  const grid = document.getElementById('sqs-grid');
+  // Collect all runs across all dirs, tag with dir name
+  const allRuns = [];
+  sqsDirs.forEach(dir => {
+    if (dir.runs.length) {
+      dir.runs.forEach(r => allRuns.push({...r, dirName: dir.name}));
+    } else {
+      // waiting placeholder: add one synthetic entry
+      allRuns.push({ip: `wait_${dir.name}`, dirName: dir.name, waiting: true, bestsqs_path: null, objective: null});
+    }
+  });
 
-  if (!runs.length) {
-    grid.innerHTML = `<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:80px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">
-      <span>${active.name} — waiting for mcsqs output…</span></div>`;
+  if (!allRuns.length) {
+    grid.innerHTML = `<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:80px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">${sqsDirs[0].name} — waiting for mcsqs output…</div>`;
     return;
   }
 
-  // Find best (lowest objective)
-  const bestObj = Math.min(...runs.map(r => r.objective ?? Infinity).filter(isFinite));
+  // Best objective per dir
+  const bestByDir = {};
+  sqsDirs.forEach(dir => {
+    const objs = dir.runs.map(r => r.objective ?? Infinity).filter(isFinite);
+    bestByDir[dir.name] = objs.length ? Math.min(...objs) : Infinity;
+  });
 
-  runs.slice(0, 10).forEach(run => {
-    const isBest = isFinite(bestObj) && run.objective === bestObj;
-    const tileId = `sqs-tile-${run.ip}`;
+  allRuns.forEach(run => {
+    const isBest = isFinite(bestByDir[run.dirName]) && run.objective === bestByDir[run.dirName];
+    const tileId = `sqs-tile-${run.dirName}-${run.ip}`;
+    const viewerId = `sqs-v-${run.dirName}-${run.ip}`;
     let tile = document.getElementById(tileId);
     if (!tile) {
       tile = document.createElement('div');
       tile.id = tileId;
       tile.className = 'sqs-tile';
-      tile.innerHTML = `
-        <div class="sqs-tile-header">
-          <span class="sqs-tile-id">run ${run.ip}</span>
-          <span class="sqs-obj" id="obj-${run.ip}">—</span>
-        </div>
-        <div class="sqs-viewer-wrap">
-          ${run.bestsqs_path ? `<div class="sqs-viewer" id="sqs-v-${run.ip}"></div>` : `<div class="sqs-no-data">waiting…</div>`}
-        </div>`;
+      tile.innerHTML = run.waiting
+        ? `<div class="sqs-tile-header"><span class="sqs-tile-id">${run.dirName}</span></div><div class="sqs-viewer-wrap"><div class="sqs-no-data">waiting…</div></div>`
+        : `<div class="sqs-tile-header">
+            <span class="sqs-tile-id">${run.dirName} #${run.ip}</span>
+            <span class="sqs-obj" id="obj-${run.dirName}-${run.ip}">—</span>
+           </div>
+           <div class="sqs-viewer-wrap">
+             ${run.bestsqs_path ? `<div class="sqs-viewer" id="${viewerId}"></div>` : `<div class="sqs-no-data">waiting…</div>`}
+           </div>`;
       grid.appendChild(tile);
     }
 
-    tile.className = `sqs-tile${isBest ? ' best' : ''}`;
-    const objEl = document.getElementById(`obj-${run.ip}`);
-    if (objEl && run.objective != null)
-      objEl.textContent = run.objective.toFixed(4);
+    if (!run.waiting) {
+      tile.className = `sqs-tile${isBest ? ' best' : ''}`;
+      const objEl = document.getElementById(`obj-${run.dirName}-${run.ip}`);
+      if (objEl && run.objective != null) objEl.textContent = run.objective.toFixed(4);
 
-    // Load structure into viewer
-    if (run.bestsqs_path && !sqsViewers[run.ip]) {
-      const viewWrap = document.getElementById(`sqs-v-${run.ip}`);
-      if (viewWrap) {
-        sqsViewers[run.ip] = $3Dmol.createViewer(viewWrap, { backgroundColor: '#060B10', antialias: false });
-        fetch(`/api/structure?path=${encodeURIComponent(run.bestsqs_path)}`)
-          .then(r => r.json())
-          .then(d => {
-            if (d.xyz && sqsViewers[run.ip]) {
-              loadXYZ(sqsViewers[run.ip], d.xyz, {
-                sphere: { radius: 0.28, colorscheme: 'Jmol' },
-                stick: { radius: 0.06, colorscheme: 'Jmol' },
-              });
-            }
-          }).catch(() => {});
+      const viewKey = `${run.dirName}-${run.ip}`;
+      if (run.bestsqs_path && !sqsViewers[viewKey]) {
+        const viewWrap = document.getElementById(viewerId);
+        if (viewWrap) {
+          sqsViewers[viewKey] = $3Dmol.createViewer(viewWrap, { backgroundColor: '#060B10', antialias: false });
+          fetch(`/api/structure?path=${encodeURIComponent(run.bestsqs_path)}`)
+            .then(r => r.json())
+            .then(d => {
+              if (d.xyz && sqsViewers[viewKey]) {
+                loadXYZ(sqsViewers[viewKey], d.xyz, {
+                  sphere: { radius: 0.28, colorscheme: 'Jmol' },
+                  stick: { radius: 0.06, colorscheme: 'Jmol' },
+                });
+              }
+            }).catch(() => {});
+        }
       }
     }
   });
@@ -903,6 +918,77 @@ function updateStages(stages, cfgStages) {
   });
 }
 
+// ── Composition drill-down ────────────────────────────────────────────
+let openCompSystem = null;
+function loadCompositions(sys, row) {
+  // Toggle: clicking same system again collapses
+  if (openCompSystem === sys.name) {
+    const el = document.getElementById(`comp-list-${sys.name}`);
+    if (el) el.style.display = 'none';
+    openCompSystem = null;
+    return;
+  }
+  // Collapse any open list
+  if (openCompSystem) {
+    const prev = document.getElementById(`comp-list-${openCompSystem}`);
+    if (prev) prev.style.display = 'none';
+  }
+  openCompSystem = sys.name;
+  const compList = document.getElementById(`comp-list-${sys.name}`);
+  if (!compList) return;
+  compList.style.display = 'flex';
+  compList.innerHTML = `<div style="padding:4px 10px;font-family:var(--mono);font-size:9px;color:var(--text-dim)">loading…</div>`;
+
+  fetch(`/api/compositions?dir=${encodeURIComponent(sys.path)}`)
+    .then(r => r.json())
+    .then(comps => {
+      if (!comps.length) {
+        compList.innerHTML = `<div style="padding:4px 10px;font-family:var(--mono);font-size:9px;color:var(--text-dim)">no structures yet</div>`;
+        return;
+      }
+      compList.innerHTML = '';
+      comps.forEach(comp => {
+        const div = document.createElement('div');
+        div.style.cssText = 'padding:3px 10px;font-family:var(--mono);font-size:9px;cursor:pointer;color:var(--text-dim);border-bottom:1px solid var(--border);';
+        div.textContent = comp.name + (comp.energy != null ? `  ${comp.energy.toFixed(4)} eV` : '');
+        div.addEventListener('mouseenter', () => div.style.color = 'var(--accent)');
+        div.addEventListener('mouseleave', () => div.style.color = 'var(--text-dim)');
+        div.addEventListener('click', e => {
+          e.stopPropagation();
+          setLiveMode(false);
+          // Load composition CONTCAR into center viewer
+          fetch(`/api/structure?path=${encodeURIComponent(comp.contcar_path)}`)
+            .then(r => r.json())
+            .then(d => {
+              if (!d.xyz) return;
+              trajFrames = [d.xyz];
+              document.getElementById('active-name').textContent = `${sys.name} / ${comp.name}`;
+              document.getElementById('active-substage').textContent = comp.energy != null ? `${comp.energy.toFixed(4)} eV` : '';
+              initTrajViewer();
+              showFrame(0);
+              document.getElementById('traj-controls').style.display = 'none';
+            }).catch(() => {});
+          // If trajectory available, load that instead
+          if (comp.has_trajectory && comp.trajectory_paths.length) {
+            fetch(`/api/trajectory?path=${encodeURIComponent(comp.trajectory_paths[0])}`)
+              .then(r => r.json())
+              .then(d => {
+                if (!d.xyz) return;
+                const frames = splitXYZ(d.xyz);
+                trajFrames = frames;
+                initTrajViewer();
+                showFrame(frames.length - 1);
+                document.getElementById('traj-controls').style.display = frames.length > 1 ? 'flex' : 'none';
+              }).catch(() => {});
+          }
+        });
+        compList.appendChild(div);
+      });
+    }).catch(() => {
+      compList.innerHTML = `<div style="padding:4px 10px;font-family:var(--mono);font-size:9px;color:var(--red)">error loading</div>`;
+    });
+}
+
 // ── Render system list ─────────────────────────────────────────────────
 function renderSystems(systems) {
   latestSystems = systems;
@@ -924,8 +1010,14 @@ function renderSystems(systems) {
       row.addEventListener('click', () => {
         const current = latestSystems.find(s => s.name === sys.name) || sys;
         selectSystem(current);
+        loadCompositions(current, row);
       });
       list.appendChild(row);
+      // Composition sub-list container (hidden by default)
+      const compList = document.createElement('div');
+      compList.id = `comp-list-${sys.name}`;
+      compList.style.cssText = 'display:none; flex-direction:column; background:var(--surface2); border-left:2px solid var(--border2); margin-left:10px;';
+      list.appendChild(compList);
     }
     // Update badge
     const badge = document.getElementById(`badge-${sys.name}`);

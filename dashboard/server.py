@@ -205,6 +205,30 @@ def scan_plots(files_dir: Path) -> list[dict]:
     return plots
 
 
+def scan_compositions(system_dir: Path) -> list[dict]:
+    """List individual SQS composition subdirs within a system (each has a CONTCAR)."""
+    results = []
+    for contcar in sorted(system_dir.rglob("CONTCAR")):
+        parent = contcar.parent
+        traj = sorted(parent.rglob("*.xyz"))
+        energy_file = parent / "energy"
+        energy = None
+        if energy_file.exists():
+            try:
+                energy = float(energy_file.read_text().strip().split()[0])
+            except (ValueError, IndexError):
+                pass
+        results.append({
+            "name": parent.name,
+            "path": str(parent),
+            "contcar_path": str(contcar),
+            "has_trajectory": bool(traj),
+            "trajectory_paths": [str(f) for f in traj],
+            "energy": energy,
+        })
+    return results
+
+
 def scan_energy(comp_path: Path) -> list[dict]:
     """Parse energy files from a composition directory."""
     results = []
@@ -333,6 +357,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json({"error": "not found"}, 404)
                 return
             self._json({"xyz": p.read_text(errors="ignore"), "path": str(p)})
+
+        elif path == "/api/compositions":
+            dir_path = qs.get("dir", [None])[0]
+            if not dir_path:
+                self._json({"error": "missing dir"}, 400)
+                return
+            self._json(scan_compositions(Path(dir_path)))
 
         elif path == "/api/energy":
             dir_path = qs.get("dir", [None])[0]
