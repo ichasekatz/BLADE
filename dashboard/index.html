@@ -1,0 +1,922 @@
+<title>BLADE Monitor</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.0.3/3Dmol-min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+<style>
+  :root {
+    --bg:         #0D1117;
+    --surface:    #161C27;
+    --surface2:   #1B2333;
+    --border:     #1E2A3E;
+    --border2:    #253045;
+    --accent:     #E8A030;
+    --accent-dim: #A06B18;
+    --teal:       #38B2A0;
+    --teal-dim:   #1E6B62;
+    --green:      #4CAF7D;
+    --red:        #E05252;
+    --text:       #CDD6E8;
+    --text-muted: #5A6880;
+    --text-dim:   #3A4860;
+    --mono: "JetBrains Mono", monospace;
+    --sans: "Inter", system-ui, sans-serif;
+    color-scheme: dark;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-x: hidden;
+  }
+
+  /* ── Header ─────────────────────────────────────────────── */
+  #header {
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: 100;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  #header .wordmark {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+
+  #stage-bar {
+    display: flex;
+    gap: 6px;
+    flex: 1;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .stage-pill {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    border: 1px solid var(--border2);
+    background: var(--surface);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .stage-pill .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text-dim);
+  }
+
+  .stage-pill.running { border-color: var(--accent); color: var(--accent); }
+  .stage-pill.running .dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+  .stage-pill.done { border-color: var(--green); color: var(--green); }
+  .stage-pill.done .dot { background: var(--green); }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  #refresh-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  /* ── Main grid ───────────────────────────────────────────── */
+  #main {
+    display: grid;
+    grid-template-columns: 240px 1fr 320px;
+    grid-template-rows: 1fr;
+    height: calc(100vh - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 150px);
+    min-height: 400px;
+  }
+
+  /* ── Left: pipeline log ──────────────────────────────────── */
+  #panel-left {
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .panel-header {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+
+  #systems-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border2) transparent;
+  }
+
+  .system-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: background 0.15s;
+  }
+
+  .system-row:hover { background: var(--surface); }
+  .system-row.active { border-left-color: var(--accent); background: var(--surface); }
+
+  .system-name {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text);
+    flex: 1;
+  }
+
+  .system-badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    letter-spacing: 0.04em;
+  }
+  .system-badge.done { background: rgba(76,175,125,0.15); color: var(--green); }
+  .system-badge.running { background: rgba(232,160,48,0.15); color: var(--accent); }
+  .system-badge.queued { background: var(--surface2); color: var(--text-muted); }
+
+  .system-energy {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  #log-panel {
+    border-top: 1px solid var(--border);
+    height: 140px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    padding: 6px 10px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border2) transparent;
+    background: var(--bg);
+  }
+
+  .log-line {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.6;
+  }
+
+  .log-line.accent { color: var(--accent); }
+  .log-line.green  { color: var(--green); }
+  .log-line.red    { color: var(--red); }
+
+  /* ── Center: active system ───────────────────────────────── */
+  #panel-center {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-right: 1px solid var(--border);
+  }
+
+  #active-header {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  #active-name {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  #active-substage {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
+
+  #viewer-traj {
+    flex: 1;
+    position: relative;
+    background: #080D14;
+    min-height: 0;
+  }
+
+  #traj-overlay {
+    position: absolute;
+    bottom: 8px; left: 10px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  .overlay-chip {
+    background: rgba(13,17,23,0.82);
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  #energy-chart-wrap {
+    height: 110px;
+    padding: 6px 12px 6px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  #energy-label {
+    position: absolute;
+    top: 6px; left: 12px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  #energy-chart { width: 100% !important; height: 94px !important; }
+
+  /* ── Right: SQS tiles ────────────────────────────────────── */
+  #panel-right {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #sqs-grid {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    align-content: start;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border2) transparent;
+  }
+
+  .sqs-tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+
+  .sqs-tile:hover { border-color: var(--border2); }
+  .sqs-tile.best  { border-color: var(--teal); }
+
+  .sqs-tile-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 7px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sqs-tile-id {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+
+  .sqs-obj {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--teal);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sqs-viewer-wrap {
+    height: 90px;
+    position: relative;
+    background: #060B10;
+  }
+
+  .sqs-viewer { width: 100%; height: 100%; }
+
+  .sqs-no-data {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 90px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+
+  /* ── Bottom: completed systems ───────────────────────────── */
+  #panel-bottom {
+    height: 150px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  #plots-strip {
+    flex: 1;
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 8px 12px;
+    align-items: center;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border2) transparent;
+  }
+
+  .plot-thumb {
+    flex-shrink: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.15s;
+    width: 110px;
+  }
+
+  .plot-thumb:hover { border-color: var(--accent-dim); }
+
+  .plot-thumb img {
+    display: block;
+    width: 100%;
+    height: 86px;
+    object-fit: cover;
+  }
+
+  .plot-thumb-label {
+    padding: 3px 6px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-top: 1px solid var(--border);
+  }
+
+  .no-plots {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin: auto;
+  }
+
+  /* ── Modal for full image ────────────────────────────────── */
+  #modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.88);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  #modal.open { display: flex; }
+
+  #modal img {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 4px;
+    border: 1px solid var(--border2);
+  }
+
+  /* ── Scrollbar global ────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  /* ── Responsive ──────────────────────────────────────────── */
+  @media (max-width: 800px) {
+    #main { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; }
+    #panel-left { height: 240px; border-right: none; border-bottom: 1px solid var(--border); }
+    #panel-right { height: 280px; border-top: 1px solid var(--border); }
+    #panel-center { min-height: 340px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .stage-pill.running .dot { animation: none; }
+  }
+</style>
+
+<!-- Header -->
+<div id="header">
+  <div class="wordmark">BLADE</div>
+  <div id="stage-bar">
+    <div class="stage-pill" data-stage="sqs_generation"><span class="dot"></span>SQS</div>
+    <div class="stage-pill" data-stage="tdb_fitting"><span class="dot"></span>TDB</div>
+    <div class="stage-pill" data-stage="phase_diagrams"><span class="dot"></span>Phase Diagrams</div>
+    <div class="stage-pill" data-stage="oxide_database"><span class="dot"></span>Oxide DB</div>
+    <div class="stage-pill" data-stage="oxidation_graphs"><span class="dot"></span>Oxidation</div>
+  </div>
+  <div id="refresh-badge">— —</div>
+</div>
+
+<!-- Main 3-column grid -->
+<div id="main">
+
+  <!-- Left: system list + log -->
+  <div id="panel-left">
+    <div class="panel-header">
+      <span>Systems</span>
+      <span id="sys-count">—</span>
+    </div>
+    <div id="systems-list"></div>
+    <div class="panel-header" style="border-top:1px solid var(--border); border-bottom:none; cursor:pointer" onclick="toggleLog()">
+      <span>nohup.out</span>
+      <span id="log-toggle" style="color:var(--text-dim)">▾</span>
+    </div>
+    <div id="log-panel"></div>
+  </div>
+
+  <!-- Center: active system -->
+  <div id="panel-center">
+    <div id="active-header">
+      <div id="active-name" style="color:var(--text-muted)">No active system</div>
+      <div id="active-substage"></div>
+      <div style="margin-left:auto; display:flex; gap:8px; align-items:center">
+        <div id="traj-controls" style="display:none; gap:6px">
+          <button onclick="trajStep(-10)" style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">◀◀</button>
+          <button onclick="trajStep(-1)"  style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">◀</button>
+          <button onclick="trajPlay()"    style="background:var(--surface2);border:1px solid var(--border2);color:var(--accent);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer" id="play-btn">▶</button>
+          <button onclick="trajStep(1)"   style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">▶</button>
+          <button onclick="trajStep(10)"  style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">▶▶</button>
+        </div>
+      </div>
+    </div>
+    <div id="viewer-traj">
+      <div id="traj-overlay">
+        <div class="overlay-chip" id="frame-chip" hidden>Frame —/—</div>
+        <div class="overlay-chip" id="energy-chip" hidden>E = — eV/atom</div>
+      </div>
+    </div>
+    <div id="energy-chart-wrap">
+      <div id="energy-label">Energy convergence (eV/atom)</div>
+      <canvas id="energy-chart"></canvas>
+    </div>
+  </div>
+
+  <!-- Right: SQS run tiles -->
+  <div id="panel-right">
+    <div class="panel-header">
+      <span>SQS Parallel Runs</span>
+      <span id="sqs-dir-label" style="color:var(--text-dim)">—</span>
+    </div>
+    <div id="sqs-grid"></div>
+  </div>
+
+</div>
+
+<!-- Bottom: plot gallery -->
+<div id="panel-bottom">
+  <div class="panel-header">
+    <span>Outputs</span>
+    <span id="plot-count" style="color:var(--text-dim)">—</span>
+  </div>
+  <div id="plots-strip"><div class="no-plots">No outputs yet</div></div>
+</div>
+
+<!-- Full-image modal -->
+<div id="modal" onclick="closeModal()">
+  <img id="modal-img" src="" alt="plot">
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────
+const POLL_MS = 4000;
+let trajViewer = null;
+let sqsViewers = {};
+let energyChart = null;
+let trajFrames = [];
+let trajIdx = 0;
+let trajPlaying = false;
+let trajInterval = null;
+let selectedSystem = null;
+let lastStatus = null;
+
+// ── Init 3D viewer ─────────────────────────────────────────────────────
+function initTrajViewer() {
+  const el = document.getElementById('viewer-traj');
+  if (trajViewer) return;
+  trajViewer = $3Dmol.createViewer(el, {
+    backgroundColor: '#080D14',
+    antialias: true,
+  });
+}
+
+function initSqsViewer(tile, ip) {
+  const wrap = tile.querySelector('.sqs-viewer');
+  if (!wrap || sqsViewers[ip]) return;
+  sqsViewers[ip] = $3Dmol.createViewer(wrap, {
+    backgroundColor: '#060B10',
+    antialias: false,
+  });
+}
+
+// ── Energy chart ────────────────────────────────────────────────────────
+function initEnergyChart() {
+  const ctx = document.getElementById('energy-chart').getContext('2d');
+  energyChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{
+      data: [],
+      borderColor: '#E8A030',
+      borderWidth: 1.5,
+      pointRadius: 0,
+      tension: 0.3,
+      fill: { target: 'origin', above: 'rgba(232,160,48,0.05)' },
+    }]},
+    options: {
+      responsive: false,
+      animation: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: {
+        x: { display: false },
+        y: {
+          grid: { color: '#1E2A3E', lineWidth: 0.5 },
+          ticks: { color: '#5A6880', font: { family: 'JetBrains Mono', size: 9 }, maxTicksLimit: 4 },
+          border: { display: false },
+        },
+      },
+    },
+  });
+}
+
+// ── Load XYZ into a 3Dmol viewer ────────────────────────────────────────
+function loadXYZ(viewer, xyz, style) {
+  viewer.clear();
+  viewer.addModel(xyz, 'xyz');
+  viewer.setStyle({}, style || {
+    sphere: { radius: 0.35, colorscheme: 'Jmol' },
+    stick: { radius: 0.08, colorscheme: 'Jmol' },
+  });
+  viewer.zoomTo();
+  viewer.render();
+}
+
+// ── Trajectory playback ────────────────────────────────────────────────
+function showFrame(idx) {
+  if (!trajFrames.length || !trajViewer) return;
+  idx = Math.max(0, Math.min(trajFrames.length - 1, idx));
+  trajIdx = idx;
+  loadXYZ(trajViewer, trajFrames[idx]);
+  document.getElementById('frame-chip').hidden = false;
+  document.getElementById('frame-chip').textContent = `Frame ${idx + 1}/${trajFrames.length}`;
+}
+
+function trajStep(delta) {
+  showFrame(trajIdx + delta);
+}
+
+function trajPlay() {
+  if (trajPlaying) {
+    clearInterval(trajInterval);
+    trajPlaying = false;
+    document.getElementById('play-btn').textContent = '▶';
+  } else {
+    trajPlaying = true;
+    document.getElementById('play-btn').textContent = '⏹';
+    trajInterval = setInterval(() => {
+      if (trajIdx >= trajFrames.length - 1) { trajIdx = 0; }
+      showFrame(trajIdx + 1);
+    }, 120);
+  }
+}
+
+// Parse multi-frame XYZ into array of single-frame strings
+function splitXYZ(text) {
+  const lines = text.split('\n');
+  const frames = [];
+  let i = 0;
+  while (i < lines.length) {
+    const nStr = lines[i].trim();
+    if (!nStr) { i++; continue; }
+    const n = parseInt(nStr);
+    if (isNaN(n) || n <= 0) { i++; continue; }
+    const end = i + 2 + n;
+    frames.push(lines.slice(i, end).join('\n'));
+    i = end;
+  }
+  return frames;
+}
+
+// ── Select a system to display in center panel ─────────────────────────
+function selectSystem(sys) {
+  selectedSystem = sys;
+  document.querySelectorAll('.system-row').forEach(r =>
+    r.classList.toggle('active', r.dataset.name === sys.name));
+  document.getElementById('active-name').textContent = sys.name;
+  document.getElementById('active-name').style.color = 'var(--text)';
+  document.getElementById('active-substage').textContent =
+    sys.tdb_done ? 'TDB done' : sys.energy_count > 0 ? `${sys.energy_count} energies` : 'queued';
+
+  // Load trajectory if available
+  if (sys.has_trajectory && sys.trajectory_paths.length) {
+    fetch(`/api/trajectory?path=${encodeURIComponent(sys.trajectory_paths[0])}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.xyz) {
+          trajFrames = splitXYZ(d.xyz);
+          document.getElementById('traj-controls').style.display = trajFrames.length > 1 ? 'flex' : 'none';
+          initTrajViewer();
+          showFrame(trajFrames.length - 1);
+        }
+      }).catch(() => {});
+  } else if (sys.contcar_paths.length) {
+    // Show CONTCAR as structure
+    fetch(`/api/structure?path=${encodeURIComponent(sys.contcar_paths[0])}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.xyz) {
+          trajFrames = [d.xyz];
+          initTrajViewer();
+          showFrame(0);
+        }
+      }).catch(() => {});
+  }
+
+  // Load energy data
+  fetch(`/api/energy?dir=${encodeURIComponent(sys.path)}`)
+    .then(r => r.json())
+    .then(entries => {
+      if (!entries.length) return;
+      const vals = entries.map((e, i) => ({ x: i, y: e.energy }));
+      const last = vals[vals.length - 1];
+      document.getElementById('energy-chip').hidden = false;
+      document.getElementById('energy-chip').textContent = `E = ${last.y.toFixed(4)} eV/atom`;
+      energyChart.data.labels = vals.map(v => v.x);
+      energyChart.data.datasets[0].data = vals.map(v => v.y);
+      energyChart.update('none');
+    }).catch(() => {});
+}
+
+// ── Render SQS tiles ───────────────────────────────────────────────────
+function renderSQS(sqsDirs) {
+  if (!sqsDirs.length) {
+    document.getElementById('sqs-grid').innerHTML = '<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:60px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">No active SQS runs</div>';
+    document.getElementById('sqs-dir-label').textContent = '—';
+    return;
+  }
+
+  // Show most recently active dir
+  const active = sqsDirs[sqsDirs.length - 1];
+  document.getElementById('sqs-dir-label').textContent = active.name;
+
+  const runs = active.runs.length ? active.runs : [];
+  const grid = document.getElementById('sqs-grid');
+
+  // Find best (lowest objective)
+  const bestObj = Math.min(...runs.map(r => r.objective ?? Infinity).filter(isFinite));
+
+  runs.slice(0, 10).forEach(run => {
+    const isBest = isFinite(bestObj) && run.objective === bestObj;
+    const tileId = `sqs-tile-${run.ip}`;
+    let tile = document.getElementById(tileId);
+    if (!tile) {
+      tile = document.createElement('div');
+      tile.id = tileId;
+      tile.className = 'sqs-tile';
+      tile.innerHTML = `
+        <div class="sqs-tile-header">
+          <span class="sqs-tile-id">run ${run.ip}</span>
+          <span class="sqs-obj" id="obj-${run.ip}">—</span>
+        </div>
+        <div class="sqs-viewer-wrap">
+          ${run.bestsqs_path ? `<div class="sqs-viewer" id="sqs-v-${run.ip}"></div>` : `<div class="sqs-no-data">waiting…</div>`}
+        </div>`;
+      grid.appendChild(tile);
+    }
+
+    tile.className = `sqs-tile${isBest ? ' best' : ''}`;
+    const objEl = document.getElementById(`obj-${run.ip}`);
+    if (objEl && run.objective != null)
+      objEl.textContent = run.objective.toFixed(4);
+
+    // Load structure into viewer
+    if (run.bestsqs_path && !sqsViewers[run.ip]) {
+      const viewWrap = document.getElementById(`sqs-v-${run.ip}`);
+      if (viewWrap) {
+        sqsViewers[run.ip] = $3Dmol.createViewer(viewWrap, { backgroundColor: '#060B10', antialias: false });
+        fetch(`/api/structure?path=${encodeURIComponent(run.bestsqs_path)}`)
+          .then(r => r.json())
+          .then(d => {
+            if (d.xyz && sqsViewers[run.ip]) {
+              loadXYZ(sqsViewers[run.ip], d.xyz, {
+                sphere: { radius: 0.28, colorscheme: 'Jmol' },
+                stick: { radius: 0.06, colorscheme: 'Jmol' },
+              });
+            }
+          }).catch(() => {});
+      }
+    }
+  });
+}
+
+// ── Update stage pills ─────────────────────────────────────────────────
+function updateStages(stages, cfgStages) {
+  document.querySelectorAll('.stage-pill').forEach(pill => {
+    const key = pill.dataset.stage;
+    const enabled = cfgStages ? cfgStages[key] !== false : true;
+    if (!enabled) { pill.className = 'stage-pill'; return; }
+    const s = stages[key] || {};
+    if (key === 'tdb_fitting') {
+      if (s.all_done) pill.className = 'stage-pill done';
+      else if (s.started) pill.className = 'stage-pill running';
+      else pill.className = 'stage-pill';
+      const countEl = pill.querySelector('.dot');
+      if (s.started && !s.all_done && s.systems_total)
+        pill.title = `${s.systems_done}/${s.systems_total} systems`;
+    } else if (key === 'sqs_generation') {
+      pill.className = s.started ? (stages.tdb_fitting?.started ? 'stage-pill done' : 'stage-pill running') : 'stage-pill';
+    } else if (key === 'phase_diagrams') {
+      pill.className = s.plot_count > 0 ? 'stage-pill done' : (s.started ? 'stage-pill running' : 'stage-pill');
+    } else {
+      pill.className = s.started ? 'stage-pill running' : 'stage-pill';
+    }
+  });
+}
+
+// ── Render system list ─────────────────────────────────────────────────
+function renderSystems(systems) {
+  const list = document.getElementById('systems-list');
+  document.getElementById('sys-count').textContent = `${systems.filter(s => s.tdb_done).length}/${systems.length}`;
+
+  systems.forEach(sys => {
+    const rowId = `sys-row-${sys.name}`;
+    let row = document.getElementById(rowId);
+    if (!row) {
+      row = document.createElement('div');
+      row.id = rowId;
+      row.className = 'system-row';
+      row.dataset.name = sys.name;
+      row.innerHTML = `
+        <span class="system-name">${sys.name}</span>
+        <span class="system-badge" id="badge-${sys.name}"></span>`;
+      row.addEventListener('click', () => selectSystem(sys));
+      list.appendChild(row);
+    }
+    // Update badge
+    const badge = document.getElementById(`badge-${sys.name}`);
+    if (badge) {
+      if (sys.tdb_done) { badge.className = 'system-badge done'; badge.textContent = 'done'; }
+      else if (sys.energy_count > 0) { badge.className = 'system-badge running'; badge.textContent = `${sys.energy_count}E`; }
+      else { badge.className = 'system-badge queued'; badge.textContent = 'queued'; }
+    }
+    // Auto-select most active
+    if (!selectedSystem && sys.energy_count > 0 && !sys.tdb_done) selectSystem(sys);
+  });
+}
+
+// ── Render plots strip ─────────────────────────────────────────────────
+function renderPlots(plots) {
+  const strip = document.getElementById('plots-strip');
+  document.getElementById('plot-count').textContent = `${plots.length} files`;
+  if (!plots.length) { strip.innerHTML = '<div class="no-plots">No outputs yet</div>'; return; }
+
+  plots.slice(0, 40).forEach(plot => {
+    const thumbId = `thumb-${plot.path.replace(/\W/g, '_')}`;
+    if (document.getElementById(thumbId)) return;
+    const div = document.createElement('div');
+    div.id = thumbId;
+    div.className = 'plot-thumb';
+    div.innerHTML = `<img src="" alt="${plot.name}"><div class="plot-thumb-label">${plot.name}</div>`;
+    div.addEventListener('click', () => openModal(plot.path));
+    strip.querySelector('.no-plots')?.remove();
+    strip.appendChild(div);
+    // Lazy-load image
+    fetch(`/api/image?path=${encodeURIComponent(plot.path)}`)
+      .then(r => r.json())
+      .then(d => { if (d.data) div.querySelector('img').src = `data:${d.mime};base64,${d.data}`; })
+      .catch(() => {});
+  });
+}
+
+// ── Modal ──────────────────────────────────────────────────────────────
+function openModal(path) {
+  fetch(`/api/image?path=${encodeURIComponent(path)}`)
+    .then(r => r.json())
+    .then(d => {
+      if (!d.data) return;
+      document.getElementById('modal-img').src = `data:${d.mime};base64,${d.data}`;
+      document.getElementById('modal').classList.add('open');
+    }).catch(() => {});
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// ── Log ────────────────────────────────────────────────────────────────
+function toggleLog() {
+  const panel = document.getElementById('log-panel');
+  const btn = document.getElementById('log-toggle');
+  const hidden = panel.style.display === 'none';
+  panel.style.display = hidden ? '' : 'none';
+  btn.textContent = hidden ? '▾' : '▸';
+}
+
+function renderLog(lines) {
+  const panel = document.getElementById('log-panel');
+  panel.innerHTML = lines.map(l => {
+    let cls = 'log-line';
+    if (/error|fail|traceback/i.test(l)) cls += ' red';
+    else if (/done|complete|success|finish/i.test(l)) cls += ' green';
+    else if (/running|start|mcsqs|relaxing|fitting/i.test(l)) cls += ' accent';
+    return `<div class="${cls}">${escHtml(l)}</div>`;
+  }).join('');
+  panel.scrollTop = panel.scrollHeight;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Poll ───────────────────────────────────────────────────────────────
+async function poll() {
+  try {
+    const [statusRes, sqsRes, plotsRes, logRes] = await Promise.all([
+      fetch('/api/status').then(r => r.json()),
+      fetch('/api/sqs').then(r => r.json()),
+      fetch('/api/plots').then(r => r.json()),
+      fetch('/api/log').then(r => r.json()),
+    ]);
+
+    lastStatus = statusRes;
+    updateStages(statusRes.stages, null);
+    renderSystems(statusRes.systems || []);
+    renderSQS(sqsRes || []);
+    renderPlots(plotsRes || []);
+    renderLog(logRes.lines || []);
+
+    const now = new Date();
+    document.getElementById('refresh-badge').textContent =
+      `updated ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+  } catch {
+    document.getElementById('refresh-badge').textContent = 'server unreachable';
+  }
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────
+initTrajViewer();
+initEnergyChart();
+poll();
+setInterval(poll, POLL_MS);
+</script>
