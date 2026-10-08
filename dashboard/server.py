@@ -70,12 +70,12 @@ def _build_elem_map(rndstr_path: Path) -> dict[str, str]:
         return {}
     lines = [l.strip() for l in text.strip().splitlines()
              if l.strip() and not l.startswith("#")]
-    if len(lines) < 5:
+    if not lines:
         return {}
     mapping: dict[str, str] = {}
     sl_letters = "abcdefghijklmnop"
     sl_idx = 0
-    for line in lines[4:]:
+    for line in lines:  # scan all lines — position-agnostic
         parts = line.split()
         if len(parts) < 4:
             continue
@@ -96,10 +96,10 @@ def _build_elem_map(rndstr_path: Path) -> dict[str, str]:
 # One element per letter A-Z, in periodic-table order for visual variety.
 # Used when rndstr.in is unavailable or missing a component.
 _ALPHA_ELEMS = [
-    "Al", "B",  "Ca", "Cr", "Cu", "Fe", "Ga", "Hf", "In", "Ir",
-    "K",  "La", "Mn", "N",  "O",  "P",  "Pt", "Re", "S",  "Ti",
+    "Al", "Ba", "Ca", "Cr", "Cu", "Fe", "Ga", "Hf", "In", "Ir",
+    "K",  "La", "Mn", "Na", "Os", "Pd", "Pt", "Re", "Si", "Ti",
     "U",  "V",  "W",  "Xe", "Y",  "Zr",
-]  # A→Al, B→B, C→Ca, D→Cr, E→Cu, F→Fe, G→Ga, H→Hf, ...
+]  # A→Al, B→Ba, C→Ca, D→Cr … avoids collision with real element symbols
 
 
 def _atat_species(raw: str, elem_map: dict[str, str] | None = None) -> str:
