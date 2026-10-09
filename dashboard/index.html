@@ -540,19 +540,17 @@
       <div id="active-substage"></div>
       <div style="margin-left:auto; display:flex; gap:8px; align-items:center">
         <div id="traj-controls" style="display:none; gap:6px; align-items:center">
-          <button onclick="trajStep(-10)" style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">&lt;&lt;</button>
-          <button onclick="trajStep(-1)"  style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">&lt;</button>
-          <button onclick="trajPlay()"    style="background:var(--surface2);border:1px solid var(--border2);color:var(--accent);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer" id="play-btn">&#9654;</button>
-          <button onclick="trajStep(1)"   style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">&gt;</button>
-          <button onclick="trajStep(10)"  style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">&gt;&gt;</button>
-          <label id="live-frame-label" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--teal);user-select:none;margin-left:4px">
-            <input type="checkbox" id="live-frame-chk" checked style="accent-color:var(--teal)"> Frame
-          </label>
-          <label id="live-sys-label" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--accent);user-select:none;">
-            <input type="checkbox" id="live-sys-chk" checked style="accent-color:var(--accent)"> Sys
-          </label>
+          <button onclick="trajPlay()" id="play-btn" style="background:var(--surface2);border:1px solid var(--border2);color:var(--accent);padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">&#9654;</button>
+          <input type="range" id="frame-slider" min="0" max="0" value="0"
+            style="width:120px;accent-color:var(--teal);cursor:pointer"
+            oninput="onFrameSlider(this.value)">
+          <span id="frame-label" style="font-family:var(--mono);font-size:10px;color:var(--teal);min-width:56px">Frame 1/1</span>
         </div>
       </div>
+    </div>
+    <div class="section-header tdb-section-header" onclick="toggleSection('viewer-traj','btn-traj-collapse','▾ structure','▸ structure')" style="display:flex;align-items:center;gap:6px;padding:3px 10px;border-bottom:1px solid var(--border);flex-shrink:0;cursor:pointer;user-select:none">
+      <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);flex:1">Structure</span>
+      <button id="btn-traj-collapse" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-family:var(--mono);font-size:10px;padding:0">▾ structure</button>
     </div>
     <div id="viewer-traj">
       <div id="traj-overlay">
@@ -561,7 +559,10 @@
       </div>
     </div>
     <div id="energy-chart-wrap">
-      <div id="energy-label">Energy convergence (eV/atom)</div>
+      <div id="energy-label" onclick="toggleSection('energy-chart','btn-echart-collapse','▾ energy','▸ energy')" style="display:flex;align-items:center;cursor:pointer;user-select:none">
+        <span style="flex:1">Energy convergence (eV/atom)</span>
+        <button id="btn-echart-collapse" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-family:var(--mono);font-size:10px;padding:0">▾ energy</button>
+      </div>
       <canvas id="energy-chart"></canvas>
     </div>
     <!-- SQS center view — shown when SQS tab active -->
@@ -575,6 +576,10 @@
           <button id="sqs-grid-toggle" onclick="sqsToggleGrid()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text-dim);padding:2px 8px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">▾ tiles</button>
         </div>
         <!-- Large preview canvas for selected/live structure -->
+        <div class="section-header" onclick="toggleSection('sqs-preview-wrap','btn-preview-collapse','▾ preview','▸ preview')" style="display:flex;align-items:center;gap:6px;padding:3px 10px;border-bottom:1px solid var(--border);flex-shrink:0;cursor:pointer;user-select:none">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);flex:1">Preview</span>
+          <button id="btn-preview-collapse" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-family:var(--mono);font-size:10px;padding:0">▾ preview</button>
+        </div>
         <div id="sqs-preview-wrap" style="flex:0 0 160px;background:#060B10;border-bottom:1px solid var(--border);position:relative;display:flex;align-items:center;justify-content:center">
           <canvas id="sqs-preview-canvas" style="width:100%;height:100%;display:block"></canvas>
           <div id="sqs-preview-label" style="position:absolute;bottom:6px;left:10px;font-family:var(--mono);font-size:9px;color:var(--text-dim);pointer-events:none">click a tile to preview</div>
@@ -797,18 +802,49 @@ function loadXYZ(viewer, xyz, style) {
 }
 
 // ── Trajectory playback ────────────────────────────────────────────────
+function parseFrameEnergy(frameText) {
+  const lines = frameText.split('\n');
+  if (lines.length < 2) return null;
+  const comment = lines[1];
+  const m = comment.match(/energy\s*=\s*([-\d.eE+]+)/i);
+  return m ? parseFloat(m[1]) : null;
+}
+
+function updateEnergyChartFromFrames() {
+  if (!energyChart || !trajFrames.length) return;
+  const energies = trajFrames.map(f => parseFrameEnergy(f)).filter(e => e !== null);
+  if (!energies.length) return;
+  energyChart.data.labels = energies.map((_, i) => i);
+  energyChart.data.datasets[0].data = energies;
+  energyChart.update('none');
+  const last = energies[energies.length - 1];
+  const chip = document.getElementById('energy-chip');
+  if (chip) { chip.hidden = false; chip.textContent = `E = ${last.toFixed(4)} eV/atom`; }
+}
+
 function showFrame(idx) {
   if (!trajFrames.length || !trajViewer) return;
   idx = Math.max(0, Math.min(trajFrames.length - 1, idx));
   trajIdx = idx;
   loadXYZ(trajViewer, trajFrames[idx]);
+  _syncSlider(idx);
   document.getElementById('frame-chip').hidden = false;
   document.getElementById('frame-chip').textContent = `Frame ${idx + 1}/${trajFrames.length}`;
 }
 
-function trajStep(delta) {
-  setLiveMode(false);
-  showFrame(trajIdx + delta);
+function onFrameSlider(val) {
+  val = parseInt(val);
+  const isLast = val >= trajFrames.length - 1;
+  liveFrame = isLast;
+  liveMode = isLast;
+  showFrame(val);
+}
+
+function _syncSlider(idx) {
+  const sl = document.getElementById('frame-slider');
+  const lbl = document.getElementById('frame-label');
+  if (sl) { sl.max = Math.max(0, trajFrames.length - 1); sl.value = idx; }
+  if (lbl) lbl.textContent = `Frame ${idx + 1}/${trajFrames.length}`;
 }
 
 function trajPlay() {
@@ -828,17 +864,9 @@ function trajPlay() {
 
 function setLiveMode(v) {
   liveMode = v; liveFrame = v;
-  const lbl = document.getElementById('live-frame-label');
-  const chk = document.getElementById('live-frame-chk');
-  if (lbl) lbl.style.color = v ? 'var(--teal)' : 'var(--text-dim)';
-  if (chk) chk.checked = v;
 }
 function setLiveSys(v) {
   liveSys = v;
-  const lbl = document.getElementById('live-sys-label');
-  const chk = document.getElementById('live-sys-chk');
-  if (lbl) lbl.style.color = v ? 'var(--accent)' : 'var(--text-dim)';
-  if (chk) chk.checked = v;
 }
 function setLiveSQS(v) {
   liveSQS = v;
@@ -853,19 +881,30 @@ function setLiveSQS(v) {
   }
 }
 
+function _applyFrames(frames) {
+  if (!frames.length) return;
+  const wasEmpty = !trajFrames.length;
+  trajFrames = frames;
+  if (!trajViewer) initTrajViewer();
+  if (wasEmpty) document.getElementById('traj-controls').style.display = 'flex';
+  if (liveFrame) showFrame(frames.length - 1);
+  updateEnergyChartFromFrames();
+}
+
 function liveRefresh(sys) {
   if (sys.has_trajectory && sys.trajectory_paths && sys.trajectory_paths.length) {
     fetch(`/api/trajectory?path=${encodeURIComponent(sys.trajectory_paths[0])}`)
       .then(r => r.json())
-      .then(d => {
-        if (!d.xyz) return;
-        const frames = splitXYZ(d.xyz);
-        if (!trajViewer) { initTrajViewer(); }
-        if (!trajFrames.length) { document.getElementById('traj-controls').style.display = 'flex'; }
-        trajFrames = frames;
-        showFrame(frames.length - 1);
-      }).catch(() => {});
-  } else if (sys.contcar_paths && sys.contcar_paths.length) {
+      .then(d => { if (d.xyz) _applyFrames(splitXYZ(d.xyz)); })
+      .catch(() => {});
+  } else {
+    // Fallback: sqsdb-based live trajectory for active relaxations
+    fetch('/api/live_trajectory')
+      .then(r => r.json())
+      .then(d => { if (d.xyz) _applyFrames(splitXYZ(d.xyz)); })
+      .catch(() => {});
+  }
+  if (sys.contcar_paths && sys.contcar_paths.length && !sys.has_trajectory) {
     fetch(`/api/structure?path=${encodeURIComponent(sys.contcar_paths[0])}`)
       .then(r => r.json())
       .then(d => {
@@ -880,10 +919,6 @@ function liveRefresh(sys) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const fchk = document.getElementById('live-frame-chk');
-  if (fchk) fchk.addEventListener('change', e => setLiveMode(e.target.checked));
-  const schk = document.getElementById('live-sys-chk');
-  if (schk) schk.addEventListener('change', e => setLiveSys(e.target.checked));
   const sqschk = document.getElementById('live-sqs-chk');
   if (sqschk) sqschk.addEventListener('change', e => setLiveSQS(e.target.checked));
 });
@@ -917,43 +952,18 @@ function selectSystem(sys) {
     sys.tdb_done ? 'TDB done' : sys.energy_count > 0 ? `${sys.energy_count} energies` : 'queued';
 
   // Load trajectory if available
+  trajFrames = [];
   if (sys.has_trajectory && sys.trajectory_paths.length) {
     fetch(`/api/trajectory?path=${encodeURIComponent(sys.trajectory_paths[0])}`)
       .then(r => r.json())
-      .then(d => {
-        if (d.xyz) {
-          trajFrames = splitXYZ(d.xyz);
-          document.getElementById('traj-controls').style.display = trajFrames.length > 1 ? 'flex' : 'none';
-          initTrajViewer();
-          showFrame(trajFrames.length - 1);
-        }
-      }).catch(() => {});
-  } else if (sys.contcar_paths.length) {
-    // Show CONTCAR as structure
+      .then(d => { if (d.xyz) { _applyFrames(splitXYZ(d.xyz)); showFrame(trajFrames.length - 1); } })
+      .catch(() => {});
+  } else if (sys.contcar_paths && sys.contcar_paths.length) {
     fetch(`/api/structure?path=${encodeURIComponent(sys.contcar_paths[0])}`)
       .then(r => r.json())
-      .then(d => {
-        if (d.xyz) {
-          trajFrames = [d.xyz];
-          initTrajViewer();
-          showFrame(0);
-        }
-      }).catch(() => {});
+      .then(d => { if (d.xyz) { trajFrames = [d.xyz]; initTrajViewer(); showFrame(0); } })
+      .catch(() => {});
   }
-
-  // Load energy data
-  fetch(`/api/energy?dir=${encodeURIComponent(sys.path)}`)
-    .then(r => r.json())
-    .then(entries => {
-      if (!entries.length) return;
-      const vals = entries.map((e, i) => ({ x: i, y: e.energy }));
-      const last = vals[vals.length - 1];
-      document.getElementById('energy-chip').hidden = false;
-      document.getElementById('energy-chip').textContent = `E = ${last.y.toFixed(4)} eV/atom`;
-      energyChart.data.labels = vals.map(v => v.x);
-      energyChart.data.datasets[0].data = vals.map(v => v.y);
-      energyChart.update('none');
-    }).catch(() => {});
 }
 
 // ── SQS in-panel preview canvas ────────────────────────────────────────
@@ -992,6 +1002,15 @@ function sqsToggleGrid() {
   const collapsed = grid.hidden;
   grid.hidden = !collapsed;
   if (btn) btn.textContent = collapsed ? '▾ tiles' : '▸ tiles';
+}
+
+function toggleSection(contentId, btnId, openLabel, closedLabel) {
+  const el = document.getElementById(contentId);
+  const btn = document.getElementById(btnId);
+  if (!el) return;
+  const nowCollapsed = !el.hidden;
+  el.hidden = nowCollapsed;
+  if (btn) btn.textContent = nowCollapsed ? (closedLabel || '▸') : (openLabel || '▾');
 }
 
 // ── Panel collapse ─────────────────────────────────────────────────────
@@ -1256,13 +1275,18 @@ function renderSQS(sqsDirs) {
     }
   });
 
-  // Auto-preview best tile when first entering a composition
+  // Auto-preview #0 first when entering a composition; fall back to best
   if (!sqsPreviewPath) {
-    const bestRun = runs.reduce((b, r) => {
-      if (!r.bestsqs_path || r.objective == null) return b;
-      return (!b || r.objective < b.objective) ? r : b;
-    }, null);
-    if (bestRun) sqsPreviewTile(bestRun.bestsqs_path, `#${bestRun.ip} — ${bestRun.subdir}`);
+    const ip0 = runs.find(r => r.ip === 0 && r.bestsqs_path);
+    if (ip0) {
+      sqsPreviewTile(ip0.bestsqs_path, `#0 — ${ip0.subdir}`);
+    } else {
+      const bestRun = runs.reduce((b, r) => {
+        if (!r.bestsqs_path || r.objective == null) return b;
+        return (!b || r.objective < b.objective) ? r : b;
+      }, null);
+      if (bestRun) sqsPreviewTile(bestRun.bestsqs_path, `#${bestRun.ip} — ${bestRun.subdir}`);
+    }
   }
 }
 
@@ -1478,7 +1502,8 @@ function switchTab(name) {
   const sqsCenter = document.getElementById('sqs-center');
   const viewerTraj = document.getElementById('viewer-traj');
   const energyWrap = document.getElementById('energy-chart-wrap');
-  if (name === 'sqs') {
+  const isSQS = name === 'sqs';
+  if (isSQS) {
     sqsCenter.hidden = false;
     sqsCenter.style.display = 'flex';
     viewerTraj.hidden = true;
@@ -1488,6 +1513,8 @@ function switchTab(name) {
     viewerTraj.hidden = false;
     energyWrap.hidden = false;
   }
+  // Show/hide section headers that accompany viewer-traj and energy-chart-wrap
+  document.querySelectorAll('.tdb-section-header').forEach(h => { h.hidden = isSQS; });
 }
 
 // ── TDB tab ────────────────────────────────────────────────────────────

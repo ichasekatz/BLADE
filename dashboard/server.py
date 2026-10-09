@@ -395,9 +395,21 @@ def read_log_tail(log_path: Path, n_lines: int = 80) -> list[str]:
 # HTTP handler
 # ---------------------------------------------------------------------------
 
+def find_live_trajectory(sqsdb_dir: Path | None) -> dict | None:
+    """Return the most recently modified relaxation_live.xyz under sqsdb_dir, or None."""
+    if not sqsdb_dir or not sqsdb_dir.exists():
+        return None
+    candidates = sorted(sqsdb_dir.rglob("relaxation_live.xyz"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for p in candidates:
+        if p.stat().st_size > 0:
+            return {"path": str(p), "mtime": p.stat().st_mtime}
+    return None
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     files_dir: Path
     blade_root: Path
+    sqsdb_dir: Path | None
     cfg: dict
     log_path: Path | None
 
@@ -500,6 +512,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             b64 = base64.b64encode(p.read_bytes()).decode()
             self._json({"data": b64, "mime": mime, "name": p.name})
 
+        elif path == "/api/live_trajectory":
+            result = find_live_trajectory(self.sqsdb_dir)
+            if result:
+                p = Path(result["path"])
+                self._json({"xyz": p.read_text(errors="ignore"), "path": result["path"], "mtime": result["mtime"]})
+            else:
+                self._json({"xyz": None, "path": None})
+
         elif path == "/api/log":
             lines = read_log_tail(self.log_path)
             self._json({"lines": lines})
@@ -538,8 +558,12 @@ def main() -> None:
     print(f"  http://localhost:{args.port}")
     print()
 
+    sqsdb_raw = cfg.get("paths", {}).get("sqsdb_dir")
+    sqsdb_dir = Path(sqsdb_raw).expanduser().resolve() if sqsdb_raw else None
+
     DashboardHandler.files_dir = files_dir
     DashboardHandler.blade_root = blade_root
+    DashboardHandler.sqsdb_dir = sqsdb_dir
     DashboardHandler.cfg = cfg
     DashboardHandler.log_path = args.log
 
