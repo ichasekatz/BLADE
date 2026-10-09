@@ -270,21 +270,8 @@
   }
 
   #energy-chart-wrap {
-    height: 110px;
-    padding: 6px 12px 6px;
-    border-top: 1px solid var(--border);
+    padding: 4px 12px 6px;
     flex-shrink: 0;
-    position: relative;
-  }
-
-  #energy-label {
-    position: absolute;
-    top: 6px; left: 12px;
-    font-family: var(--mono);
-    font-size: 9px;
-    color: var(--text-dim);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
   }
 
   #energy-chart { width: 100% !important; height: 94px !important; }
@@ -545,6 +532,14 @@
             style="width:120px;accent-color:var(--teal);cursor:pointer"
             oninput="onFrameSlider(this.value)">
           <span id="frame-label" style="font-family:var(--mono);font-size:10px;color:var(--teal);min-width:56px">Frame 1/1</span>
+          <select id="play-speed" onchange="setPlaySpeed(this.value)"
+            style="background:var(--surface2);border:1px solid var(--border2);color:var(--text-dim);font-family:var(--mono);font-size:10px;padding:2px 4px;border-radius:3px;cursor:pointer">
+            <option value="240">0.5×</option>
+            <option value="120" selected>1×</option>
+            <option value="60">2×</option>
+            <option value="30">4×</option>
+            <option value="16">8×</option>
+          </select>
         </div>
       </div>
     </div>
@@ -558,16 +553,20 @@
         <div class="overlay-chip" id="energy-chip" hidden>E = — eV/atom</div>
       </div>
     </div>
+    <div class="section-header tdb-section-header" onclick="toggleSection('energy-chart-wrap','btn-echart-collapse','▾ energy','▸ energy')" style="display:flex;align-items:center;gap:6px;padding:3px 10px;border-top:1px solid var(--border);flex-shrink:0;cursor:pointer;user-select:none">
+      <span id="energy-label" style="font-family:var(--mono);font-size:9px;color:var(--text-dim);letter-spacing:0.06em;text-transform:uppercase;flex:1">Energy (eV/atom)</span>
+      <button id="btn-echart-collapse" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-family:var(--mono);font-size:10px;padding:0">▾ energy</button>
+    </div>
     <div id="energy-chart-wrap">
-      <div id="energy-label" onclick="toggleSection('energy-chart','btn-echart-collapse','▾ energy','▸ energy')" style="display:flex;align-items:center;cursor:pointer;user-select:none">
-        <span style="flex:1">Energy convergence (eV/atom)</span>
-        <button id="btn-echart-collapse" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-family:var(--mono);font-size:10px;padding:0">▾ energy</button>
-      </div>
       <canvas id="energy-chart"></canvas>
     </div>
     <!-- SQS center view — shown when SQS tab active -->
     <div id="sqs-center" hidden style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
-      <div id="sqs-center-picker" style="flex:1;min-height:0;overflow-y:auto;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;align-content:start"></div>
+      <div class="section-header" onclick="toggleSection('sqs-center-picker','btn-picker-collapse','▾ comps','▸ comps')" style="display:flex;align-items:center;gap:6px;padding:3px 10px;border-bottom:1px solid var(--border);flex-shrink:0;cursor:pointer;user-select:none">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);flex:1">Compositions</span>
+        <button id="btn-picker-collapse" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-family:var(--mono);font-size:10px;padding:0">▾ comps</button>
+      </div>
+      <div id="sqs-center-picker" style="flex:0 0 auto;max-height:200px;overflow-y:auto;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;align-content:start"></div>
       <div id="sqs-center-tiles" hidden style="flex:1;min-height:0;display:flex;flex-direction:column;overflow-y:auto">
         <!-- Tile-view header -->
         <div style="display:flex;align-items:center;gap:8px;padding:5px 12px;border-bottom:1px solid var(--border);flex-shrink:0">
@@ -769,7 +768,26 @@ function initEnergyChart() {
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
-      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          enabled: true,
+          mode: 'index',
+          intersect: false,
+          backgroundColor: 'rgba(10,16,26,0.92)',
+          borderColor: 'rgba(90,104,128,0.4)',
+          borderWidth: 1,
+          titleColor: '#5A6880',
+          bodyColor: '#C8D4E8',
+          titleFont: { family: 'JetBrains Mono', size: 9 },
+          bodyFont: { family: 'JetBrains Mono', size: 9 },
+          padding: 6,
+          callbacks: {
+            title: items => `step ${items[0].label}`,
+            label: item => `E = ${parseFloat(item.raw).toFixed(4)} eV/atom`,
+          },
+        },
+      },
       layout: { padding: { left: 8, right: 4, top: 4, bottom: 2 } },
       scales: {
         x: {
@@ -847,6 +865,18 @@ function _syncSlider(idx) {
   if (lbl) lbl.textContent = `Frame ${idx + 1}/${trajFrames.length}`;
 }
 
+let playSpeedMs = 120;
+function setPlaySpeed(ms) {
+  playSpeedMs = parseInt(ms);
+  if (trajPlaying) {
+    clearInterval(trajInterval);
+    trajInterval = setInterval(() => {
+      if (trajIdx >= trajFrames.length - 1) { trajIdx = 0; }
+      showFrame(trajIdx + 1);
+    }, playSpeedMs);
+  }
+}
+
 function trajPlay() {
   if (trajPlaying) {
     clearInterval(trajInterval);
@@ -858,7 +888,7 @@ function trajPlay() {
     trajInterval = setInterval(() => {
       if (trajIdx >= trajFrames.length - 1) { trajIdx = 0; }
       showFrame(trajIdx + 1);
-    }, 120);
+    }, playSpeedMs);
   }
 }
 
@@ -1308,6 +1338,8 @@ function updateStages(stages, cfgStages) {
       pill.className = s.started ? (stages.tdb_fitting?.started ? 'stage-pill done' : 'stage-pill running') : 'stage-pill';
     } else if (key === 'phase_diagrams') {
       pill.className = s.plot_count > 0 ? 'stage-pill done' : (s.started ? 'stage-pill running' : 'stage-pill');
+    } else if (s.done !== undefined) {
+      pill.className = s.done ? 'stage-pill done' : (s.started ? 'stage-pill running' : 'stage-pill');
     } else {
       pill.className = s.started ? 'stage-pill running' : 'stage-pill';
     }
@@ -1433,7 +1465,7 @@ function renderPlots(plots) {
   document.getElementById('plot-count').textContent = `${plots.length} files`;
   if (!plots.length) { strip.innerHTML = '<div class="no-plots">No outputs yet</div>'; return; }
 
-  plots.slice(0, 40).forEach(plot => {
+  plots.forEach(plot => {
     const thumbId = `thumb-${plot.path.replace(/\W/g, '_')}`;
     if (document.getElementById(thumbId)) return;
     const div = document.createElement('div');
@@ -1543,15 +1575,65 @@ function renderTDB(systems) {
 function renderPlotsRight(plots) {
   const strip = document.getElementById('plots-strip-right');
   if (!strip) return;
-  (plots || []).slice(0, 30).forEach(plot => {
-    const id = `rthumb-${plot.path.replace(/\W/g, '_')}`;
-    if (document.getElementById(id)) return;
-    const div = document.createElement('div');
-    div.id = id;
-    div.className = 'plot-thumb-right';
-    div.innerHTML = `<img src="/api/image?path=${encodeURIComponent(plot.path)}" loading="lazy" onerror="this.style.display='none'"><div class="plot-name">${escHtml(plot.rel || plot.name || '')}</div>`;
-    div.addEventListener('click', () => openModal(plot.path));
-    strip.appendChild(div);
+
+  // Live mode: show only the 12 most recent plots
+  const displayPlots = liveSQS
+    ? (plots || []).slice(0, 12)
+    : (plots || []);
+
+  // Group by first directory component of rel path
+  const groups = {};
+  const groupOrder = [];
+  displayPlots.forEach(p => {
+    const parts = (p.rel || p.name || '').split('/');
+    const group = parts.length > 1 ? parts[0] : '—';
+    if (!groups[group]) { groups[group] = []; groupOrder.push(group); }
+    groups[group].push(p);
+  });
+
+  // Full rebuild when live toggled or group set changes
+  const currentGroupKeys = groupOrder.join('|');
+  if (strip._groupKeys !== currentGroupKeys || liveSQS !== strip._wasLive) {
+    strip.innerHTML = '';
+    strip._groupKeys = currentGroupKeys;
+    strip._wasLive = liveSQS;
+  }
+
+  groupOrder.forEach(group => {
+    const gid = `plot-group-${group.replace(/\W/g,'_')}`;
+    let section = document.getElementById(gid);
+    if (!section) {
+      section = document.createElement('div');
+      section.id = gid;
+      const hdr = document.createElement('div');
+      hdr.style.cssText = 'display:flex;align-items:center;padding:4px 8px;cursor:pointer;user-select:none;border-bottom:1px solid var(--border);gap:4px';
+      hdr.innerHTML = `<span style="font-family:var(--mono);font-size:9px;color:var(--text-dim);flex:1;letter-spacing:0.04em;text-transform:uppercase">${escHtml(group)}</span><span class="plot-grp-toggle" style="font-family:var(--mono);font-size:9px;color:var(--text-dim)">▾</span>`;
+      const body = document.createElement('div');
+      body.id = `${gid}-body`;
+      body.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:4px;padding:6px;';
+      hdr.addEventListener('click', () => {
+        const open = body.hidden;
+        body.hidden = !open;
+        hdr.querySelector('.plot-grp-toggle').textContent = open ? '▾' : '▸';
+      });
+      section.appendChild(hdr);
+      section.appendChild(body);
+      strip.appendChild(section);
+    }
+
+    const body = document.getElementById(`${gid}-body`);
+    groups[group].forEach(plot => {
+      const id = `rthumb-${plot.path.replace(/\W/g,'_')}`;
+      if (document.getElementById(id)) return;
+      const div = document.createElement('div');
+      div.id = id;
+      div.className = 'plot-thumb-right';
+      div.style.cssText = 'cursor:pointer;border:1px solid var(--border);border-radius:3px;overflow:hidden;';
+      const fname = (plot.rel || plot.name || '').split('/').pop();
+      div.innerHTML = `<img src="/api/image?path=${encodeURIComponent(plot.path)}" loading="lazy" style="width:100%;display:block" onerror="this.style.display='none'"><div class="plot-name" style="font-size:8px;padding:2px 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(plot.rel||plot.name)}">${escHtml(fname)}</div>`;
+      div.addEventListener('click', () => openModal(plot.path));
+      body.appendChild(div);
+    });
   });
 }
 
