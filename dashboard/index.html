@@ -534,12 +534,15 @@
           <span id="frame-label" style="font-family:var(--mono);font-size:10px;color:var(--teal);min-width:56px">Frame 1/1</span>
           <select id="play-speed" onchange="setPlaySpeed(this.value)"
             style="background:var(--surface2);border:1px solid var(--border2);color:var(--text-dim);font-family:var(--mono);font-size:10px;padding:2px 4px;border-radius:3px;cursor:pointer">
-            <option value="240">0.5×</option>
             <option value="120" selected>1×</option>
             <option value="60">2×</option>
-            <option value="30">4×</option>
-            <option value="16">8×</option>
+            <option value="24">5×</option>
+            <option value="12">10×</option>
+            <option value="6">20×</option>
           </select>
+          <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--text-dim);user-select:none">
+            <input type="checkbox" id="show-forces-chk" onchange="setShowForces(this.checked)" style="accent-color:var(--red)"> F
+          </label>
         </div>
       </div>
     </div>
@@ -807,6 +810,42 @@ function initEnergyChart() {
   });
 }
 
+let showForces = false;
+function setShowForces(v) {
+  showForces = v;
+  if (trajFrames.length && trajViewer) showFrame(trajIdx);
+}
+
+function parseExtxyzForces(frameText) {
+  const lines = frameText.split('\n');
+  if (lines.length < 2) return null;
+  const comment = lines[1];
+  // Parse Properties= to find column layout
+  const pm = comment.match(/Properties\s*=\s*(\S+)/i);
+  if (!pm) return null;
+  const props = pm[1].split(':');
+  // props format: name:type:count repeated e.g. species:S:1:pos:R:3:forces:R:3
+  let colOffset = 0;
+  let forcesOffset = -1;
+  for (let i = 0; i < props.length; i += 3) {
+    const name = props[i], count = parseInt(props[i + 2]) || 1;
+    if (name.toLowerCase() === 'forces') { forcesOffset = colOffset; break; }
+    colOffset += count;
+  }
+  if (forcesOffset < 0) return null;
+  const atoms = [];
+  for (let i = 2; i < lines.length; i++) {
+    const parts = lines[i].trim().split(/\s+/);
+    if (parts.length < forcesOffset + 3) continue;
+    atoms.push({
+      fx: parseFloat(parts[forcesOffset]),
+      fy: parseFloat(parts[forcesOffset + 1]),
+      fz: parseFloat(parts[forcesOffset + 2]),
+    });
+  }
+  return atoms.length ? atoms : null;
+}
+
 // ── Load XYZ into a 3Dmol viewer ────────────────────────────────────────
 function loadXYZ(viewer, xyz, style) {
   viewer.clear();
@@ -815,6 +854,28 @@ function loadXYZ(viewer, xyz, style) {
     sphere: { radius: 0.35, colorscheme: 'Jmol' },
     stick: { radius: 0.08, colorscheme: 'Jmol' },
   });
+  if (showForces) {
+    const forces = parseExtxyzForces(xyz);
+    const model = viewer.getModel(0);
+    if (forces && model) {
+      const atoms3d = model.selectedAtoms({});
+      const fmax = forces.reduce((m, f) => Math.max(m, Math.sqrt(f.fx**2 + f.fy**2 + f.fz**2)), 0.001);
+      const scale = 2.0 / fmax;
+      forces.forEach((f, i) => {
+        if (!atoms3d[i]) return;
+        const a = atoms3d[i];
+        const mag = Math.sqrt(f.fx**2 + f.fy**2 + f.fz**2);
+        if (mag < 1e-6) return;
+        viewer.addArrow({
+          start: { x: a.x, y: a.y, z: a.z },
+          end: { x: a.x + f.fx * scale, y: a.y + f.fy * scale, z: a.z + f.fz * scale },
+          radius: 0.07,
+          color: '#FF4444',
+          radiusRatio: 1.5,
+        });
+      });
+    }
+  }
   viewer.zoomTo();
   viewer.render();
 }
@@ -904,11 +965,8 @@ function setLiveSQS(v) {
   const chk = document.getElementById('live-sqs-chk');
   if (lbl) { lbl.style.color = v ? '#A78BFA' : 'var(--text-dim)'; lbl.style.fontWeight = v ? '600' : ''; }
   if (chk) chk.checked = v;
-  // If TDB fitting is active, switch to trajectory tab to show live relaxation
-  if (v && lastStatus && lastStatus.stages && lastStatus.stages.tdb_fitting && lastStatus.stages.tdb_fitting.started) {
-    switchTab('tdb');
-    setLiveMode(true);
-  }
+  // Stay on SQS tab when live SQS is enabled
+  if (v) switchTab('sqs');
 }
 
 function _applyFrames(frames) {
@@ -1038,9 +1096,16 @@ function toggleSection(contentId, btnId, openLabel, closedLabel) {
   const el = document.getElementById(contentId);
   const btn = document.getElementById(btnId);
   if (!el) return;
-  const nowCollapsed = !el.hidden;
-  el.hidden = nowCollapsed;
-  if (btn) btn.textContent = nowCollapsed ? (closedLabel || '▸') : (openLabel || '▾');
+  if (el.style.display === 'none') {
+    // Restore
+    el.style.display = el._savedDisplay || '';
+    if (btn) btn.textContent = openLabel || '▾';
+  } else {
+    // Collapse
+    el._savedDisplay = el.style.display;
+    el.style.display = 'none';
+    if (btn) btn.textContent = closedLabel || '▸';
+  }
 }
 
 // ── Panel collapse ─────────────────────────────────────────────────────
@@ -1661,41 +1726,42 @@ async function poll() {
         || (statusRes.systems || []).find(s => !s.tdb_done)
         || (statusRes.systems || [])[0];
       if (active && (!selectedSystem || selectedSystem.name !== active.name)) {
-        selectedSystem = active;
-        document.querySelectorAll('.system-row').forEach(r =>
-          r.classList.toggle('active', r.dataset.name === active.name));
-        document.getElementById('active-name').textContent = active.name;
-        document.getElementById('active-name').style.color = 'var(--text)';
-        document.getElementById('active-substage').textContent =
-          active.tdb_done ? 'TDB done' : active.energy_count > 0 ? `${active.energy_count} energies` : 'queued';
+        selectSystem(active);
+        loadCompositions(active, document.getElementById(`sys-row-${active.name}`));
       }
     }
-    // Live SQS: auto-preview best-objective tile each poll
+    // Live SQS: auto-navigate to most-recently updated composition and preview best tile
     if (liveSQS && sqsRes && sqsRes.length) {
-      let bestRun = null, bestObj = Infinity;
+      // Find most recently modified run across all dirs/subdirs
+      let bestRun = null, bestDir = null;
+      let latestMtime = -Infinity;
       sqsRes.forEach(dir => (dir.runs || []).forEach(r => {
-        // if a composition is selected, limit to that group; else search all
-        const gk = `${dir.name}|${r.subdir}`;
-        if (selectedSQSSubdir && gk !== selectedSQSSubdir) return;
-        if (r.bestsqs_path && r.objective != null && r.objective < bestObj) {
-          bestObj = r.objective; bestRun = r;
+        if (r.bestsqs_path && r.mtime != null && r.mtime > latestMtime) {
+          latestMtime = r.mtime;
+          bestRun = r;
+          bestDir = dir;
         }
       }));
-      // fallback: no match in selection, search all
-      if (!bestRun) {
-        sqsRes.forEach(dir => (dir.runs || []).forEach(r => {
-          if (r.bestsqs_path && r.objective != null && r.objective < bestObj) {
-            bestObj = r.objective; bestRun = r;
-          }
-        }));
-      }
-      if (bestRun) {
-        const label = `#${bestRun.ip} — ${bestRun.subdir} (obj ${bestObj.toFixed(4)})`;
+      if (bestRun && bestDir) {
+        const gk = `${bestDir.name}|${bestRun.subdir}`;
+        // Auto-navigate into composition if not already there
+        if (selectedSQSSubdir !== gk) {
+          selectSQSComp(gk, `${bestDir.name} / ${bestRun.subdir || ''}`.trim());
+        }
+        // Detect update via mtime and reset dedup so preview redraws
         if (bestRun.mtime !== window._liveSQSMtime) {
           window._liveSQSMtime = bestRun.mtime;
           sqsPreviewPath = null;
         }
-        sqsPreviewTile(bestRun.bestsqs_path, label);
+        // Find best-objective run within this composition
+        let compBest = bestRun, compBestObj = bestRun.objective ?? Infinity;
+        sqsRes.forEach(dir => (dir.runs || []).forEach(r => {
+          if (`${dir.name}|${r.subdir}` === gk && r.bestsqs_path && (r.objective ?? Infinity) < compBestObj) {
+            compBestObj = r.objective; compBest = r;
+          }
+        }));
+        const label = `#${compBest.ip} — ${compBest.subdir} (obj ${(compBestObj ?? 0).toFixed(4)})`;
+        sqsPreviewTile(compBest.bestsqs_path, label);
       }
     }
 
