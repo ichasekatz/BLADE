@@ -110,17 +110,44 @@
   :root { --col-left:240px; --col-right:320px; --row-bottom:150px; }
   #main {
     display: grid;
-    grid-template-columns: var(--col-left) 1fr var(--col-right);
+    grid-template-columns: var(--col-left) 5px 1fr 5px var(--col-right);
     grid-template-rows: 1fr;
     height: calc(100vh - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - var(--row-bottom));
     min-height: 400px;
-    transition: grid-template-columns 0.2s, height 0.2s;
+    transition: none;
   }
-  #panel-bottom { transition: height 0.2s; }
+
+  /* Resize handles */
+  .col-handle {
+    cursor: col-resize;
+    background: transparent;
+    border-left: 1px solid var(--border);
+    transition: background 0.1s;
+    z-index: 10;
+    position: relative;
+  }
+  .col-handle:hover, .col-handle.rh-active { background: rgba(232,160,48,0.18); }
+
+  .row-handle {
+    height: 5px;
+    cursor: row-resize;
+    background: transparent;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 10;
+  }
+  .row-handle::after {
+    content: '';
+    position: absolute;
+    left: 8%; right: 8%;
+    top: 50%; transform: translateY(-50%);
+    height: 1px;
+    background: var(--border2);
+  }
+  .row-handle:hover, .row-handle.rh-active { background: rgba(232,160,48,0.12); }
 
   /* ── Left: pipeline log ──────────────────────────────────── */
   #panel-left {
-    border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -216,7 +243,6 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    border-right: 1px solid var(--border);
   }
 
   #active-header {
@@ -513,12 +539,15 @@
       <button onclick="collapsePanel('left')" title="Collapse" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:12px;padding:0 0 0 8px;line-height:1" id="btn-collapse-left">◀</button>
     </div>
     <div id="systems-list"></div>
+    <div class="row-handle" id="handle-log" title="Drag to resize log"></div>
     <div class="panel-header" style="border-top:1px solid var(--border); border-bottom:none; cursor:pointer" onclick="toggleLog()">
       <span>nohup.out</span>
       <span id="log-toggle" style="color:var(--text-dim)">▾</span>
     </div>
     <div id="log-panel"></div>
   </div>
+
+  <div class="col-handle" id="handle-left-center" data-which="left"></div>
 
   <!-- Center: active system -->
   <div id="panel-center">
@@ -556,6 +585,7 @@
         <div class="overlay-chip" id="energy-chip" hidden>E = — eV/atom</div>
       </div>
     </div>
+    <div class="row-handle tdb-section-header" id="handle-energy" title="Drag to resize"></div>
     <div class="section-header tdb-section-header" onclick="toggleSection('energy-chart-wrap','btn-echart-collapse','▾ energy','▸ energy')" style="display:flex;align-items:center;gap:6px;padding:3px 10px;border-top:1px solid var(--border);flex-shrink:0;cursor:pointer;user-select:none">
       <span id="energy-label" style="font-family:var(--mono);font-size:9px;color:var(--text-dim);letter-spacing:0.06em;text-transform:uppercase;flex:1">Energy (eV/atom)</span>
       <button id="btn-echart-collapse" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-family:var(--mono);font-size:10px;padding:0">▾ energy</button>
@@ -586,11 +616,14 @@
           <canvas id="sqs-preview-canvas" style="width:100%;height:100%;display:block"></canvas>
           <div id="sqs-preview-label" style="position:absolute;bottom:6px;left:10px;font-family:var(--mono);font-size:9px;color:var(--text-dim);pointer-events:none">click a tile to preview</div>
         </div>
+        <div class="row-handle" id="handle-sqs-preview" title="Drag to resize preview"></div>
         <!-- 10-tile mini grid (collapsible) -->
         <div id="sqs-grid" style="padding:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;align-content:start"></div>
       </div>
     </div>
   </div>
+
+  <div class="col-handle" id="handle-center-right" data-which="right"></div>
 
   <!-- Right: stage tabs -->
   <div id="panel-right">
@@ -616,8 +649,10 @@
 
 </div>
 
+<div class="row-handle" id="handle-bottom" style="border-top:1px solid var(--border)" title="Drag to resize outputs"></div>
+
 <!-- Bottom: plot gallery -->
-<div id="panel-bottom">
+<div id="panel-bottom" style="border-top:none">
   <div class="panel-header" style="cursor:pointer" onclick="collapsePanel('bottom')">
     <span>Outputs</span>
     <span id="plot-count" style="color:var(--text-dim)">—</span>
@@ -635,6 +670,7 @@
 // ── State ──────────────────────────────────────────────────────────────
 const POLL_MS = 2000;
 let trajViewer = null;
+let relaxingSystems = new Set(); // systems currently running live relaxation
 let sqsDrawn = {};  // viewKey → true once canvas rendered
 let selectedSQSSubdir = null; // currently selected composition chip key "dirName|subdir"
 let selectedSQSDir = null;    // currently selected dir name (right panel)
@@ -983,13 +1019,30 @@ function liveRefresh(sys) {
   if (sys.has_trajectory && sys.trajectory_paths && sys.trajectory_paths.length) {
     fetch(`/api/trajectory?path=${encodeURIComponent(sys.trajectory_paths[0])}`)
       .then(r => r.json())
-      .then(d => { if (d.xyz) _applyFrames(splitXYZ(d.xyz)); })
+      .then(d => { if (d.xyz) { relaxingSystems.add(sys.name); _applyFrames(splitXYZ(d.xyz)); } })
       .catch(() => {});
   } else {
     // Fallback: sqsdb-based live trajectory for active relaxations
     fetch('/api/live_trajectory')
       .then(r => r.json())
-      .then(d => { if (d.xyz) _applyFrames(splitXYZ(d.xyz)); })
+      .then(d => {
+        if (d.xyz) {
+          relaxingSystems.add(sys.name);
+          _applyFrames(splitXYZ(d.xyz));
+          // Update badge immediately
+          const badge = document.getElementById(`badge-${sys.name}`);
+          if (badge && badge.textContent === 'queued') {
+            badge.className = 'system-badge running';
+            badge.textContent = 'relaxing';
+          }
+          const sub = document.getElementById('active-substage');
+          if (sub && selectedSystem && selectedSystem.name === sys.name && sub.textContent === 'queued') {
+            sub.textContent = 'relaxing';
+          }
+        } else {
+          relaxingSystems.delete(sys.name);
+        }
+      })
       .catch(() => {});
   }
   if (sys.contcar_paths && sys.contcar_paths.length && !sys.has_trajectory) {
@@ -1029,15 +1082,18 @@ function splitXYZ(text) {
 }
 
 // ── Select a system to display in center panel ─────────────────────────
-function selectSystem(sys) {
+function selectSystem(sys, keepLive = false) {
   selectedSystem = sys;
-  setLiveMode(false);
+  if (!keepLive) setLiveMode(false);
   document.querySelectorAll('.system-row').forEach(r =>
     r.classList.toggle('active', r.dataset.name === sys.name));
   document.getElementById('active-name').textContent = sys.name;
   document.getElementById('active-name').style.color = 'var(--text)';
-  document.getElementById('active-substage').textContent =
-    sys.tdb_done ? 'TDB done' : sys.energy_count > 0 ? `${sys.energy_count} energies` : 'queued';
+  const substage = sys.tdb_done ? 'TDB done'
+    : sys.energy_count > 0 ? `${sys.energy_count} energies`
+    : relaxingSystems.has(sys.name) ? 'relaxing'
+    : 'queued';
+  document.getElementById('active-substage').textContent = substage;
 
   // Load trajectory if available
   trajFrames = [];
@@ -1517,6 +1573,7 @@ function renderSystems(systems) {
     if (badge) {
       if (sys.tdb_done) { badge.className = 'system-badge done'; badge.textContent = 'done'; }
       else if (sys.energy_count > 0) { badge.className = 'system-badge running'; badge.textContent = `${sys.energy_count}E`; }
+      else if (relaxingSystems.has(sys.name)) { badge.className = 'system-badge running'; badge.textContent = 'relaxing'; }
       else { badge.className = 'system-badge queued'; badge.textContent = 'queued'; }
     }
     // Auto-select most active
@@ -1720,13 +1777,14 @@ async function poll() {
     renderPlots(plotsRes || []);
     renderPlotsRight(plotsRes || []);
     renderLog(logRes.lines || []);
-    // Live sys: auto-switch to the most active system
+    // Live sys: always snap back to most active system; preserve liveFrame
     if (liveSys) {
       const active = (statusRes.systems || []).find(s => s.energy_count > 0 && !s.tdb_done)
         || (statusRes.systems || []).find(s => !s.tdb_done)
         || (statusRes.systems || [])[0];
       if (active && (!selectedSystem || selectedSystem.name !== active.name)) {
-        selectSystem(active);
+        selectSystem(active, true); // keepLive=true so liveFrame stays on
+        liveFrame = true; liveMode = true;
         loadCompositions(active, document.getElementById(`sys-row-${active.name}`));
       }
     }
@@ -1779,10 +1837,115 @@ async function poll() {
   }
 }
 
+// ── Resize drag ────────────────────────────────────────────────────────
+let _rh = null; // active resize drag state
+
+function _rhStart(type, e, startVal) {
+  e.preventDefault();
+  _rh = { type, startX: e.clientX, startY: e.clientY, startVal };
+  document.body.style.cursor =
+    type.startsWith('col') ? 'col-resize' : 'row-resize';
+  document.body.style.userSelect = 'none';
+  const handle = e.currentTarget;
+  if (handle) handle.classList.add('rh-active');
+  _rh.handle = handle;
+}
+
+document.addEventListener('mousemove', e => {
+  if (!_rh) return;
+  const { type, startX, startY, startVal } = _rh;
+  const r = document.documentElement;
+  if (type === 'col-left') {
+    const w = Math.max(120, Math.min(500, startVal + (e.clientX - startX)));
+    r.style.setProperty('--col-left', w + 'px');
+    _panelCollapsed.left = false;
+    document.getElementById('edge-left').hidden = true;
+    const btn = document.getElementById('btn-collapse-left');
+    if (btn) btn.textContent = '◀';
+  } else if (type === 'col-right') {
+    const w = Math.max(120, Math.min(600, startVal - (e.clientX - startX)));
+    r.style.setProperty('--col-right', w + 'px');
+    _panelCollapsed.right = false;
+    document.getElementById('edge-right').hidden = true;
+    const btn = document.getElementById('btn-collapse-right');
+    if (btn) btn.textContent = '▶';
+  } else if (type === 'row-log') {
+    const lp = document.getElementById('log-panel');
+    const h = Math.max(40, Math.min(500, startVal - (e.clientY - startY)));
+    lp.style.height = h + 'px';
+    lp.style.flexShrink = '0';
+  } else if (type === 'row-energy') {
+    const ew = document.getElementById('energy-chart-wrap');
+    const h = Math.max(50, Math.min(300, startVal + (e.clientY - startY)));
+    ew.style.height = h + 'px';
+    ew.style.flexShrink = '0';
+  } else if (type === 'row-sqs-preview') {
+    const pw = document.getElementById('sqs-preview-wrap');
+    if (pw) {
+      const h = Math.max(60, Math.min(500, startVal + (e.clientY - startY)));
+      pw.style.flex = `0 0 ${h}px`;
+    }
+  } else if (type === 'row-bottom') {
+    const h = Math.max(32, Math.min(500, startVal + (startY - e.clientY)));
+    r.style.setProperty('--row-bottom', h + 'px');
+    document.getElementById('panel-bottom').style.height = h + 'px';
+    _panelCollapsed.bottom = false;
+    const btn = document.getElementById('btn-collapse-bottom');
+    if (btn) btn.textContent = '▾';
+  }
+});
+
+document.addEventListener('mouseup', () => {
+  if (!_rh) return;
+  if (_rh.handle) _rh.handle.classList.remove('rh-active');
+  _rh = null;
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+});
+
+function _initHandles() {
+  const lc = document.getElementById('handle-left-center');
+  if (lc) lc.addEventListener('mousedown', e => {
+    const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--col-left')) || 240;
+    _rhStart('col-left', e, w);
+  });
+
+  const cr = document.getElementById('handle-center-right');
+  if (cr) cr.addEventListener('mousedown', e => {
+    const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--col-right')) || 320;
+    _rhStart('col-right', e, w);
+  });
+
+  const hl = document.getElementById('handle-log');
+  if (hl) hl.addEventListener('mousedown', e => {
+    const lp = document.getElementById('log-panel');
+    _rhStart('row-log', e, lp ? lp.offsetHeight : 140);
+  });
+
+  const he = document.getElementById('handle-energy');
+  if (he) he.addEventListener('mousedown', e => {
+    const ew = document.getElementById('energy-chart-wrap');
+    _rhStart('row-energy', e, ew ? ew.offsetHeight : 100);
+  });
+
+  const sp = document.getElementById('handle-sqs-preview');
+  if (sp) sp.addEventListener('mousedown', e => {
+    const pw = document.getElementById('sqs-preview-wrap');
+    _rhStart('row-sqs-preview', e, pw ? pw.offsetHeight : 160);
+  });
+
+  const hb = document.getElementById('handle-bottom');
+  if (hb) hb.addEventListener('mousedown', e => {
+    const pb = document.getElementById('panel-bottom');
+    _rhStart('row-bottom', e, pb ? pb.offsetHeight : 150);
+  });
+}
+
 // ── Boot ───────────────────────────────────────────────────────────────
 initTrajViewer();
 initEnergyChart();
 switchTab('sqs');
+_initHandles();
 poll();
 setInterval(poll, POLL_MS);
 </script>
