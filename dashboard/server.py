@@ -408,14 +408,35 @@ def read_log_tail(log_path: Path, n_lines: int = 80) -> list[str]:
 # HTTP handler
 # ---------------------------------------------------------------------------
 
-def find_live_trajectory(sqsdb_dir: Path | None) -> dict | None:
-    """Return the most recently modified relaxation_live.xyz under sqsdb_dir, or None."""
-    if not sqsdb_dir or not sqsdb_dir.exists():
-        return None
-    candidates = sorted(sqsdb_dir.rglob("relaxation_live.xyz"), key=lambda p: p.stat().st_mtime, reverse=True)
-    for p in candidates:
-        if p.stat().st_size > 0:
-            return {"path": str(p), "mtime": p.stat().st_mtime}
+def find_live_trajectory(sqsdb_dir: Path | None, blade_root: Path | None = None) -> dict | None:
+    """Return the most recently modified relaxation_live.xyz, or None.
+
+    Searches sqsdb_dir first, then common sqsdb locations relative to blade_root.
+    """
+    search_dirs: list[Path] = []
+    if sqsdb_dir and sqsdb_dir.exists():
+        search_dirs.append(sqsdb_dir)
+    if blade_root:
+        parent = blade_root.parent
+        for guess in [
+            parent / "PhaseForge" / "atat" / "data" / "sqsdb",
+            parent / "PhaseForge" / "PhaseForge" / "atat" / "data" / "sqsdb",
+            blade_root / "PhaseForge" / "atat" / "data" / "sqsdb",
+        ]:
+            if guess.exists() and guess not in search_dirs:
+                search_dirs.append(guess)
+
+    best: tuple[float, Path] | None = None
+    for base in search_dirs:
+        for p in base.rglob("relaxation_live.xyz"):
+            try:
+                st = p.stat()
+                if st.st_size > 0 and (best is None or st.st_mtime > best[0]):
+                    best = (st.st_mtime, p)
+            except OSError:
+                continue
+    if best:
+        return {"path": str(best[1]), "mtime": best[0]}
     return None
 
 
@@ -526,7 +547,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json({"data": b64, "mime": mime, "name": p.name})
 
         elif path == "/api/live_trajectory":
-            result = find_live_trajectory(self.sqsdb_dir)
+            result = find_live_trajectory(self.sqsdb_dir, self.blade_root)
             if result:
                 p = Path(result["path"])
                 self._json({"xyz": p.read_text(errors="ignore"), "path": result["path"], "mtime": result["mtime"]})
