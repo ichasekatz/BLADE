@@ -362,6 +362,11 @@ def infer_stage_status(files_dir: Path, cfg: dict) -> dict:
     n_done = sum(1 for c in comps if c["tdb_done"])
     n_total = len(comps)
 
+    oxide_db_root = files_dir / "MaterialsProject_Comps"
+    oxide_db_xlsx = files_dir / "blade_generated_data.xlsx"
+    oxidation_root = files_dir / "oxidation"
+    oxidation_figures = oxidation_root / "figures"
+
     return {
         "sqs_generation": {
             "started": sqs_root.exists(),
@@ -376,6 +381,14 @@ def infer_stage_status(files_dir: Path, cfg: dict) -> dict:
         "phase_diagrams": {
             "started": phase_diag_root.exists(),
             "plot_count": len(list(phase_diag_root.rglob("*.png"))) if phase_diag_root.exists() else 0,
+        },
+        "oxide_database": {
+            "started": oxide_db_root.exists() or oxide_db_xlsx.exists(),
+            "done": oxide_db_xlsx.exists(),
+        },
+        "oxidation_graphs": {
+            "started": oxidation_root.exists(),
+            "done": oxidation_figures.exists() and bool(list(oxidation_figures.rglob("*.png"))),
         },
         "composition_list": (files_dir / "composition_list.xlsx").exists(),
     }
