@@ -108,13 +108,10 @@ Path & Purpose \\
 \file{src/blade/oxidation/framework/} & General equilibrium, map, batch, single-composition, labeling, caching, and plotting implementation. \\
 \file{examples/full_framework.py} & TOML-driven end-to-end orchestrator. \\
 \file{examples/full_framework.toml} & Standard complete-workflow demonstration configuration. \\
-\file{examples/full_framework_max.toml} & Multibasis demonstration configuration. \\
-\file{examples/structures/} & Direct structure/SQS/TDB examples and complete prototype drivers. \\
 \file{examples/oxidation/} & Direct database and oxidation examples. \\
 \file{examples/extra/} & Optional refitting, comparison, and combined phase visualization utilities. \\
 \file{Files/} & User-configurable persistent inputs, caches, databases, and outputs. \\
 \file{uv.lock} & Reproducible uv dependency resolution. \\
-\file{pixi.toml} and \file{pixi.lock} & Pixi environment and task definitions. \\
 \bottomrule
 \end{longtable}
 
@@ -122,17 +119,8 @@ Path & Purpose \\
 
 \subsection{Python and Package Managers}
 
-BLADE targets Python 3.12. Use either Pixi or uv.
+BLADE targets Python 3.12 and uses uv for environment management.
 
-\subsubsection{Pixi}
-\begin{lstlisting}[language=bash]
-cd /path/to/BLADE
-pixi install
-pixi run python -c "import blade; print(blade.__version__)"
-pixi run check
-\end{lstlisting}
-
-\subsubsection{uv}
 \begin{lstlisting}[language=bash]
 cd /path/to/BLADE
 uv sync --locked --extra workflow
@@ -172,20 +160,18 @@ Do not commit credentials to TOML, source, logs, or documentation.
 The default input is \file{examples/full_framework.toml}.
 \begin{lstlisting}[language=bash]
 # Validate files, settings, imports, and external dependencies.
-pixi run python examples/full_framework.py --check
+uv run --locked --extra workflow python examples/full_framework.py --check
 
 # Print enabled stages without executing calculations.
-pixi run python examples/full_framework.py --dry-run
+uv run --locked --extra workflow python examples/full_framework.py --dry-run
 
 # Run the default configuration.
-pixi run python examples/full_framework.py
+uv run --locked --extra workflow python examples/full_framework.py
 
-# Run an alternate configuration.
-pixi run python examples/full_framework.py examples/full_framework_max.toml
+# Run with an overlay config (e.g. MAX phases).
+uv run --locked --extra workflow python examples/full_framework.py \
+    examples/full_framework.toml examples/configs/max_phases.toml
 \end{lstlisting}
-
-Equivalent uv commands prepend
-\file{uv run --locked --extra workflow} instead of \file{pixi run}.
 
 \subsection{Major Stage Switches}
 
