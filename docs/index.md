@@ -23,8 +23,8 @@ composition space.
 
 ```bash
 git clone https://github.com/ichasekatz/BLADE.git
-cd BLADE && pixi install
-pixi run python examples/full_framework.py examples/full_framework.toml
+cd BLADE && uv sync --locked --extra workflow
+uv run --locked --extra workflow python examples/full_framework.py examples/full_framework.toml
 ```
 
 See [Getting Started](usage/getting-started.md) for the full walkthrough.
