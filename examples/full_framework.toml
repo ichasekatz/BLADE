@@ -23,7 +23,7 @@ secondary_max = 0
 # blade_root is auto-detected as the parent of the examples/ directory.
 # Only set these if your layout differs from the defaults.
 [paths]
-sqsdb_dir  = "/Users/chasekatz/Desktop/School/Research/PhaseForge/PhaseForge/atat/data/sqsdb"
+sqsdb_dir  = "~/Desktop/School/Research/PhaseForge/PhaseForge/atat/data/sqsdb"
 # scraps_repo = "/path/to/SCRAPS/scraps-perpair"   # required only when tdb.sqs_method = "scraps"
 
 # ── TDB fitting ───────────────────────────────────────────────────────────────
