@@ -20,7 +20,10 @@ secondary_max = 0
 level        = 2
 comps_folder = "Comps_MAX"
 
-# MAX: two mixed sublattices (a = M, b = A); both decorated in SQS
+# ── SQS composition levels ─────────────────────────────────────────────────────
+# MAX: two mixed sublattices (a = M, b = A); both decorated in SQS.
+# letter = ["a", "b"] tells mcsqs to vary both sublattices.
+[tdb_sqs]
 tdb_sqs_levels = [
     { level = 0, compositions = [[1.0, 0.0]],                     letter = ["a", "b"] },
     { level = 1, compositions = [[0.5, 0.5]],                     letter = ["a", "b"] },
@@ -68,21 +71,23 @@ MAX1_5 = """1,0:1,0:1,0
 [tdb_inputs.mult_in]
 MAX1_5 = "a=2\tb=1\tc=1"
 
-# Fixed site assignments: a = M-metals, b = A-metal (constant)
+# Site assignments for a (M-metals) and b (A-metals).
+# Without constant = true, both sublattices vary independently in SQS.
+# Set constant = true and add composition to fix a sublattice at one composition.
 [tdb_inputs.sites.MAX1.a]
-elements  = ["Zr", "Hf", "Ti", "Nb", "V"]
-constant  = true
-composition = [0.20, 0.20, 0.20, 0.25, 0.15]
+elements = ["Zr", "Hf", "Ti", "Nb", "V"]
 
 [tdb_inputs.sites.MAX1.b]
-elements  = ["Al", "Sn"]
-constant  = true
-composition = [0.40, 0.60]
+elements = ["Al", "Sn"]
 
 # ── Phase diagram plots ────────────────────────────────────────────────────────
 [phase_plots]
 fixed_elements = ["C"]
 metal_fraction = 0.75
+
+# ── Oxidation ─────────────────────────────────────────────────────────────────
+[oxidation]
+phase_element = ""   # disable stoichiometry validation for MAX phases
 
 # ── SCRAPS SQS (advanced; only needed when tdb.sqs_method = "scraps") ─────────
 [tdb_scraps]
