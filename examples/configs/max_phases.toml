@@ -45,7 +45,7 @@ c                = 13.906
 alpha            = 90
 beta             = 90
 gamma            = 120
-supercell_size   = [5, 5, 2]
+supercell_size   = [2, 2, 3]
 use_average_lattice = true
 vectors = """1 0 0
 0 1 0
