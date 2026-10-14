@@ -1,26 +1,29 @@
 [stages]
-sqs_generation  = true
-tdb_fitting     = true
-phase_diagrams  = true
-oxide_database  = true
+sqs_generation   = true
+tdb_fitting      = true
+phase_diagrams   = true
+oxide_database   = true
 oxidation_graphs = true
+
+# ── Global system filter ───────────────────────────────────────────────────────
+# Uncomment to limit all stages to specific named systems.
+# systems = ["CrHfB", "MoWB"]
 
 # ── Elements ──────────────────────────────────────────────────────────────────
 # Define your element pool once here; all stages inherit these values.
-# Override per-stage inside that stage's table (e.g. add primary = [...] under [tdb]).
 [elements]
-primary       = ["Zr", "Hf", "Ta", "Cr", "Ti", "V", "Nb", "Mo", "W"]
+primary       = ["Hf", "Cr", "Mo"]
 secondary     = []
 primary_min   = 2
 primary_max   = 3
 secondary_min = 0
 secondary_max = 0
 
-# ── Paths ──────────────────────────────────────────────────────────────────────
+# ── Paths ─────────────────────────────────────────────────────────────────────
 # blade_root is auto-detected as the parent of the examples/ directory.
 # Only set these if your layout differs from the defaults.
 [paths]
-sqsdb_dir  = "/path/to/atat/data/sqsdb"
+sqsdb_dir  = "/Users/chasekatz/Desktop/School/Research/PhaseForge/PhaseForge/atat/data/sqsdb"
 # scraps_repo = "/path/to/SCRAPS/scraps-perpair"   # required only when tdb.sqs_method = "scraps"
 
 # ── TDB fitting ───────────────────────────────────────────────────────────────
@@ -32,14 +35,10 @@ run_movie          = false     # generate MP4 trajectory videos (requires FFmpeg
 mlip               = "orb"
 liquid             = false
 comps_folder       = "Comps"
-# Override element pool for TDB only (inherits from [elements] by default):
-# primary     = ["Cr", "Hf", "Mo"]
-# primary_min = 2
-# primary_max = 3
 
 [mlip_kwargs]
 steps  = 1000
-device = "cuda"  # "cpu" if no GPU available — applies to both TDB and database stages
+device = "cpu"   # "cuda" if GPU available — applies to both TDB and database stages
 
 [tdb_fit]
 fmax             = 0.001
@@ -103,39 +102,10 @@ HEDB1_3 = "1,0:1,0\n2,2:1,0\n3,0:1,0\n"
 # [tdb_inputs.sqsgen_in]
 # HEDB1 = "level=0\ta=1\tb=1\nlevel=1\ta=0.5,0.5\tb=1\n"
 
-# ── Per-site element and composition overrides ────────────────────────────────
-# Site form assigns elements, a constant flag, and an optional ordered
-# composition to a specific phase/sublattice.
-# [tdb_inputs.sites.HEDB1.a]
-# elements    = ["Cr", "Hf"]
-# constant    = true
-# composition = [0.75, 0.25]
-
-# Sublattice-map form (element list only, no composition):
-# [tdb_inputs.sublattice_map.HEDB1]
-# a = ["Cr", "Hf", "Mo", "V"]
-
-# Fixed-composition form (element order follows sublattice_map):
-# [tdb_inputs.fixed_compositions]
-# a = [0.5, 0.5]
-
-# ── Per-system overrides ──────────────────────────────────────────────────────
-# System names are order-independent (CrHf and HfCr are the same system).
-# [tdb_system_overrides.CrHf.sites.HEDB1.a]
-# elements    = ["Cr", "Hf"]
-# constant    = true
-# composition = [0.75, 0.25]
-
-# [tdb_system_overrides.CrHf.sublattice_map.HEDB1]
-# a = ["Cr", "Hf"]
-# [tdb_system_overrides.CrHf.fixed_compositions]
-# a = [0.75, 0.25]
-
 # ── Phase diagram plots ───────────────────────────────────────────────────────
 [phase_plots]
-comps_folder  = "Comps"
-output_folder = "Phase_Diagrams"
-# systems = ["CrHfMo"]   # optional: limit to specific systems (derived from [elements] by default)
+comps_folder   = "Comps"
+output_folder  = "Phase_Diagrams"
 t_start        = 200
 t_end          = 2000
 t_step         = 200
@@ -152,15 +122,14 @@ t_step  = 10
 
 # ── Oxidation database ────────────────────────────────────────────────────────
 [database]
-# Inherits element pool from [elements] by default.
-fixed_elements         = ["B"]
-oxygen_element         = "O"
-mlip                   = "orb"
-run_compositions       = true
-run_download           = true
-run_energies           = true
-run_database           = true
-api_key_env            = "MP_API_KEY"   # name of env var holding your Materials Project key
+fixed_elements   = ["B"]
+oxygen_element   = "O"
+mlip             = "orb"
+run_compositions = true
+run_download     = true
+run_energies     = true
+run_database     = true
+api_key_env      = "MP_API_KEY"   # name of env var holding your Materials Project key
 
 # ── Oxidation calculations ────────────────────────────────────────────────────
 [oxidation]
@@ -171,27 +140,67 @@ mixed_phase_subdir          = "blade"
 fixed_phases_subdir         = "ORB"
 
 [oxidation_batch]
-# systems = ["CrHfB"]   # optional: limit to specific systems (discovers all by default)
-run_calculations          = true
-run_plots                 = true
-run_scan                  = true
-run_muO_x_map             = true
-run_onset                 = true
-run_3d_onset              = true
-run_animations            = true
-run_composition_slices    = true
-run_composition_slice_muT = true
-skip_if_tables_exist      = true
-skip_if_analysis_exists   = true
-temperature_range         = [250, 2000, 250]
-mu_o_range                = [-10.0, -4.0, 0.1]
-scan_x                    = 0.5
-scan_T                    = [700, 1270, 2000, 2500]
-scan_mu_o_range           = [-10.0, -4.0, 0.05]
-map_x_range               = [0.0, 1.0, 0.01]
-slice_remainder_ratios    = [0.0, 0.25, 0.3333333333333333, 0.5, 0.6666666666666666, 0.75, 1.0]
-slice_muT_comp_step       = 0.1
-onset_comp_step_binary    = 0.02
-onset_comp_step_ternary   = 0.025
-onset_comp_step_nary      = 0.1
-onset_threshold           = 1e-8
+run_plots      = true   # all plot types
+run_animated   = true   # GIFs and MP4s
+skip_existing  = true   # skip if tables / analysis already exist
+temperature_range      = [250, 2000, 250]
+mu_o_range             = [-10.0, -4.0, 0.1]
+scan_x                 = 0.5
+scan_T                 = [700, 1270, 2000, 2500]
+scan_mu_o_range        = [-10.0, -4.0, 0.05]
+map_x_range            = [0.0, 1.0, 0.01]
+slice_remainder_ratios = [0.0, 0.25, 0.3333333333333333, 0.5, 0.6666666666666666, 0.75, 1.0]
+slice_muT_comp_step    = 0.1
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Additional Settings — uncomment to override defaults
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── TDB element pool override (inherits from [elements] by default) ────────────
+# [tdb]
+# primary     = ["Cr", "Hf", "Mo"]
+# primary_min = 2
+# primary_max = 3
+
+# ── Per-site element and composition overrides ────────────────────────────────
+# Site form assigns elements, a constant flag, and an optional ordered composition.
+# [tdb_inputs.sites.HEDB1.a]
+# elements    = ["Cr", "Hf"]
+# constant    = true
+# composition = [0.75, 0.25]
+
+# Sublattice-map form (element list only, no composition):
+# [tdb_inputs.sublattice_map.HEDB1]
+# a = ["Cr", "Hf", "Mo", "V"]
+
+# Fixed-composition form (element order follows sublattice_map):
+# [tdb_inputs.fixed_compositions]
+# a = [0.5, 0.5]
+
+# ── Per-system TDB overrides (system names are order-independent) ─────────────
+# [tdb_system_overrides.CrHf.sites.HEDB1.a]
+# elements    = ["Cr", "Hf"]
+# constant    = true
+# composition = [0.75, 0.25]
+
+# [tdb_system_overrides.CrHf.sublattice_map.HEDB1]
+# a = ["Cr", "Hf"]
+# [tdb_system_overrides.CrHf.fixed_compositions]
+# a = [0.75, 0.25]
+
+# ── Oxidation batch — granular plot controls (all true when run_plots = true) ──
+# [oxidation_batch]
+# run_calculations          = true
+# run_scan                  = true
+# run_muO_x_map             = true
+# run_onset                 = true
+# run_3d_onset              = false
+# run_composition_slices    = true
+# run_composition_slice_muT = true
+
+# ── Oxidation batch — onset resolution ───────────────────────────────────────
+# onset_comp_step_binary  = 0.02
+# onset_comp_step_ternary = 0.025
+# onset_comp_step_nary    = 0.1
+# onset_threshold         = 1e-8

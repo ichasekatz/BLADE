@@ -570,6 +570,9 @@
             <option value="6">20×</option>
           </select>
           <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--text-dim);user-select:none">
+            <input type="checkbox" id="show-bonds-chk" onchange="setShowBonds(this.checked)" checked style="accent-color:var(--teal)"> Bonds
+          </label>
+          <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--text-dim);user-select:none">
             <input type="checkbox" id="show-forces-chk" onchange="setShowForces(this.checked)" style="accent-color:var(--red)"> F
           </label>
         </div>
@@ -593,8 +596,16 @@
     <div id="energy-chart-wrap">
       <canvas id="energy-chart"></canvas>
     </div>
+    <!-- Plots center — large preview, shown when Plots tab active -->
+    <div id="plots-center" style="display:none;flex:1;min-height:0;flex-direction:column;align-items:center;justify-content:center;background:#070C12;padding:16px">
+      <div id="plots-center-placeholder" style="display:flex;flex-direction:column;align-items:center;gap:12px;color:var(--text-dim);font-family:var(--mono);font-size:10px;pointer-events:none">
+        <span style="font-size:28px;opacity:0.25">&#128202;</span>
+        <span>Select a category → click a plot</span>
+      </div>
+      <img id="plots-center-img" style="display:none;max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;border:1px solid var(--border2)" alt="">
+    </div>
     <!-- SQS center view — shown when SQS tab active -->
-    <div id="sqs-center" hidden style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
+    <div id="sqs-center" style="display:none;flex:1;min-height:0;flex-direction:column;overflow:hidden">
       <div class="section-header" onclick="toggleSection('sqs-center-picker','btn-picker-collapse','▾ comps','▸ comps')" style="display:flex;align-items:center;gap:6px;padding:3px 10px;border-bottom:1px solid var(--border);flex-shrink:0;cursor:pointer;user-select:none">
         <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);flex:1">Compositions</span>
         <button id="btn-picker-collapse" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-family:var(--mono);font-size:10px;padding:0">▾ comps</button>
@@ -603,9 +614,8 @@
       <div id="sqs-center-tiles" hidden style="flex:1;min-height:0;display:flex;flex-direction:column;overflow-y:auto">
         <!-- Tile-view header -->
         <div style="display:flex;align-items:center;gap:8px;padding:5px 12px;border-bottom:1px solid var(--border);flex-shrink:0">
-          <button onclick="sqsShowPicker()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text-dim);padding:2px 9px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">← comps</button>
+          <button onclick="sqsShowPicker()" title="Back to composition list" style="background:var(--surface2);border:1px solid var(--border);color:var(--text-dim);padding:2px 9px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">← All Comps</button>
           <span id="sqs-center-label" style="font-family:var(--mono);font-size:10px;color:var(--text-dim);flex:1"></span>
-          <button id="sqs-grid-toggle" onclick="sqsToggleGrid()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text-dim);padding:2px 8px;border-radius:3px;font-family:var(--mono);font-size:10px;cursor:pointer">▾ tiles</button>
         </div>
         <!-- Large preview canvas for selected/live structure -->
         <div class="section-header" onclick="toggleSection('sqs-preview-wrap','btn-preview-collapse','▾ preview','▸ preview')" style="display:flex;align-items:center;gap:6px;padding:3px 10px;border-bottom:1px solid var(--border);flex-shrink:0;cursor:pointer;user-select:none">
@@ -617,8 +627,12 @@
           <div id="sqs-preview-label" style="position:absolute;bottom:6px;left:10px;font-family:var(--mono);font-size:9px;color:var(--text-dim);pointer-events:none">click a tile to preview</div>
         </div>
         <div class="row-handle" id="handle-sqs-preview" title="Drag to resize preview"></div>
-        <!-- 10-tile mini grid (collapsible) -->
-        <div id="sqs-grid" style="padding:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;align-content:start"></div>
+        <!-- Parallel SQS runs grid (collapsible) -->
+        <div class="section-header" onclick="toggleSection('sqs-grid','btn-sqs-grid-collapse','▾ Parallel SQS Runs','▸ Parallel SQS Runs')" style="display:flex;align-items:center;gap:6px;padding:3px 10px;border-top:1px solid var(--border);flex-shrink:0;cursor:pointer;user-select:none">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);flex:1">Parallel SQS Runs</span>
+          <button id="btn-sqs-grid-collapse" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-family:var(--mono);font-size:10px;padding:0">▾ Parallel SQS Runs</button>
+        </div>
+        <div id="sqs-grid" style="padding:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;align-content:start;overflow-y:auto"></div>
       </div>
     </div>
   </div>
@@ -682,10 +696,12 @@ let trajInterval = null;
 let selectedSystem = null;
 let lastStatus = null;
 let latestSystems = [];
-let liveMode = true;   // legacy alias — controls liveFrame
-let liveFrame = true;  // auto-advance to latest frame within selected system
-let liveSys = true;    // auto-switch to most active system
+let liveMode = false;  // legacy alias — controls liveFrame
+let liveFrame = false; // auto-advance to latest frame within selected system
+let liveSys = false;   // auto-switch to most active system
 let liveSQS = false;   // auto-refresh center with best SQS tile each poll
+let selectedPlotGroup = null; // null = all; string = group name filter for bottom strip
+let allPlots = [];            // full plots list from last poll
 let liveSQSPath = null; // currently displayed SQS bestsqs path
 
 // ── Init 3D viewer ─────────────────────────────────────────────────────
@@ -795,14 +811,27 @@ function initEnergyChart() {
   const ctx = document.getElementById('energy-chart').getContext('2d');
   energyChart = new Chart(ctx, {
     type: 'line',
-    data: { labels: [], datasets: [{
-      data: [],
-      borderColor: '#E8A030',
-      borderWidth: 1.5,
-      pointRadius: 0,
-      tension: 0.3,
-      fill: { target: 'origin', above: 'rgba(232,160,48,0.05)' },
-    }]},
+    data: { labels: [], datasets: [
+      {
+        data: [],
+        borderColor: '#E8A030',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.3,
+        fill: { target: 'origin', above: 'rgba(232,160,48,0.05)' },
+      },
+      {
+        // current-frame dot
+        data: [],
+        borderColor: '#A78BFA',
+        backgroundColor: '#A78BFA',
+        pointRadius: 5,
+        pointHoverRadius: 6,
+        showLine: false,
+        tension: 0,
+        fill: false,
+      },
+    ]},
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -883,13 +912,17 @@ function parseExtxyzForces(frameText) {
 }
 
 // ── Load XYZ into a 3Dmol viewer ────────────────────────────────────────
+let showBonds = true;
+
 function loadXYZ(viewer, xyz, style) {
+  // Preserve camera between frames — only zoom on first load
+  const savedView = viewer._hasContent ? (viewer.getView ? viewer.getView() : null) : null;
   viewer.clear();
+  viewer._hasContent = true;
   viewer.addModel(xyz, 'xyz');
-  viewer.setStyle({}, style || {
-    sphere: { radius: 0.35, colorscheme: 'Jmol' },
-    stick: { radius: 0.08, colorscheme: 'Jmol' },
-  });
+  const sphereStyle = { sphere: { radius: 0.35, colorscheme: 'Jmol' } };
+  const stickStyle = showBonds ? { stick: { radius: 0.08, colorscheme: 'Jmol' } } : {};
+  viewer.setStyle({}, style || { ...sphereStyle, ...stickStyle });
   if (showForces) {
     const forces = parseExtxyzForces(xyz);
     const model = viewer.getModel(0);
@@ -912,17 +945,29 @@ function loadXYZ(viewer, xyz, style) {
       });
     }
   }
-  viewer.zoomTo();
+  if (savedView) {
+    viewer.setView(savedView);
+  } else {
+    viewer.zoomTo();
+  }
   viewer.render();
+}
+
+function setShowBonds(v) {
+  showBonds = v;
+  if (trajFrames.length && trajViewer) showFrame(trajIdx);
 }
 
 // ── Trajectory playback ────────────────────────────────────────────────
 function parseFrameEnergy(frameText) {
   const lines = frameText.split('\n');
   if (lines.length < 2) return null;
+  const nAtoms = parseInt(lines[0].trim());
   const comment = lines[1];
   const m = comment.match(/energy\s*=\s*([-\d.eE+]+)/i);
-  return m ? parseFloat(m[1]) : null;
+  if (!m) return null;
+  const totalEv = parseFloat(m[1]);
+  return (nAtoms > 0) ? totalEv / nAtoms : totalEv;
 }
 
 function updateEnergyChartFromFrames() {
@@ -937,6 +982,13 @@ function updateEnergyChartFromFrames() {
   if (chip) { chip.hidden = false; chip.textContent = `E = ${last.toFixed(4)} eV/atom`; }
 }
 
+function _updateEnergyDot(idx) {
+  if (!energyChart || !trajFrames.length) return;
+  const e = parseFrameEnergy(trajFrames[idx]);
+  energyChart.data.datasets[1].data = e !== null ? [{ x: idx, y: e }] : [];
+  energyChart.update('none');
+}
+
 function showFrame(idx) {
   if (!trajFrames.length || !trajViewer) return;
   idx = Math.max(0, Math.min(trajFrames.length - 1, idx));
@@ -945,6 +997,10 @@ function showFrame(idx) {
   _syncSlider(idx);
   document.getElementById('frame-chip').hidden = false;
   document.getElementById('frame-chip').textContent = `Frame ${idx + 1}/${trajFrames.length}`;
+  const e = parseFrameEnergy(trajFrames[idx]);
+  const chip = document.getElementById('energy-chip');
+  if (chip) { chip.hidden = e === null; if (e !== null) chip.textContent = `E = ${e.toFixed(4)} eV/atom`; }
+  _updateEnergyDot(idx);
 }
 
 function onFrameSlider(val) {
@@ -997,12 +1053,13 @@ function setLiveSys(v) {
 }
 function setLiveSQS(v) {
   liveSQS = v;
+  liveSys = v;
+  liveFrame = v;
+  liveMode = v;
   const lbl = document.getElementById('live-sqs-label');
   const chk = document.getElementById('live-sqs-chk');
   if (lbl) { lbl.style.color = v ? '#A78BFA' : 'var(--text-dim)'; lbl.style.fontWeight = v ? '600' : ''; }
   if (chk) chk.checked = v;
-  // Stay on SQS tab when live SQS is enabled
-  if (v) switchTab('sqs');
 }
 
 function _applyFrames(frames) {
@@ -1016,47 +1073,58 @@ function _applyFrames(frames) {
 }
 
 function liveRefresh(sys) {
-  if (sys.has_trajectory && sys.trajectory_paths && sys.trajectory_paths.length) {
-    fetch(`/api/trajectory?path=${encodeURIComponent(sys.trajectory_paths[0])}`)
-      .then(r => r.json())
-      .then(d => { if (d.xyz) { relaxingSystems.add(sys.name); _applyFrames(splitXYZ(d.xyz)); } })
-      .catch(() => {});
-  } else {
-    // Fallback: sqsdb-based live trajectory for active relaxations
-    fetch('/api/live_trajectory')
-      .then(r => r.json())
-      .then(d => {
-        if (d.xyz) {
-          relaxingSystems.add(sys.name);
-          _applyFrames(splitXYZ(d.xyz));
-          // Update badge immediately
-          const badge = document.getElementById(`badge-${sys.name}`);
-          if (badge && badge.textContent === 'queued') {
-            badge.className = 'system-badge running';
-            badge.textContent = 'relaxing';
-          }
-          const sub = document.getElementById('active-substage');
-          if (sub && selectedSystem && selectedSystem.name === sys.name && sub.textContent === 'queued') {
-            sub.textContent = 'relaxing';
-          }
-        } else {
-          relaxingSystems.delete(sys.name);
+  // Always check live trajectory first — a new composition may have started
+  // even if a previous one already has a completed .xyz in comp_dir
+  fetch('/api/live_trajectory')
+    .then(r => r.json())
+    .then(d => {
+      if (d.xyz) {
+        // If server reports a different system is now live and liveSys is on, switch to it
+        if (liveSys && d.system && d.system !== sys.name) {
+          const newSys = latestSystems.find(s => s.name === d.system);
+          if (newSys) { selectSystem(newSys, true); return; }
         }
-      })
-      .catch(() => {});
-  }
-  if (sys.contcar_paths && sys.contcar_paths.length && !sys.has_trajectory) {
-    fetch(`/api/structure?path=${encodeURIComponent(sys.contcar_paths[0])}`)
-      .then(r => r.json())
-      .then(d => {
-        if (!d.xyz) return;
-        if (!trajFrames.length || trajFrames[0] !== d.xyz) {
-          trajFrames = [d.xyz];
-          if (!trajViewer) initTrajViewer();
-          showFrame(0);
+        relaxingSystems.add(sys.name);
+        _applyFrames(splitXYZ(d.xyz));
+        const badge = document.getElementById(`badge-${sys.name}`);
+        if (badge && badge.textContent !== 'relaxing') {
+          badge.className = 'system-badge running';
+          badge.textContent = 'relaxing';
         }
-      }).catch(() => {});
-  }
+        const sub = document.getElementById('active-substage');
+        if (sub && selectedSystem && selectedSystem.name === sys.name &&
+            !['relaxing','TDB done'].includes(sub.textContent) && !sub.textContent.includes('energies')) {
+          sub.textContent = 'relaxing';
+        }
+      } else {
+        // No live relaxation running
+        relaxingSystems.delete(sys.name);
+        // If liveSys, check if another system in relaxingSystems is now active
+        if (liveSys) {
+          const active = latestSystems.find(s => relaxingSystems.has(s.name));
+          if (active && active.name !== sys.name) { selectSystem(active, true); return; }
+        }
+        // Fallback to completed trajectory or CONTCAR
+        if (sys.has_trajectory && sys.trajectory_paths && sys.trajectory_paths.length) {
+          fetch(`/api/trajectory?path=${encodeURIComponent(sys.trajectory_paths[0])}`)
+            .then(r => r.json())
+            .then(d => { if (d.xyz) _applyFrames(splitXYZ(d.xyz)); })
+            .catch(() => {});
+        } else if (sys.contcar_paths && sys.contcar_paths.length) {
+          fetch(`/api/structure?path=${encodeURIComponent(sys.contcar_paths[0])}`)
+            .then(r => r.json())
+            .then(d => {
+              if (!d.xyz) return;
+              if (!trajFrames.length || trajFrames[0] !== d.xyz) {
+                trajFrames = [d.xyz];
+                if (!trajViewer) initTrajViewer();
+                showFrame(0);
+              }
+            }).catch(() => {});
+        }
+      }
+    })
+    .catch(() => {});
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1139,14 +1207,7 @@ function sqsPreviewTile(path, label) {
     }).catch(() => {});
 }
 
-function sqsToggleGrid() {
-  const grid = document.getElementById('sqs-grid');
-  const btn = document.getElementById('sqs-grid-toggle');
-  if (!grid) return;
-  const collapsed = grid.hidden;
-  grid.hidden = !collapsed;
-  if (btn) btn.textContent = collapsed ? '▾ tiles' : '▸ tiles';
-}
+// sqsToggleGrid removed — now handled by toggleSection('sqs-grid', ...)
 
 function toggleSection(contentId, btnId, openLabel, closedLabel) {
   const el = document.getElementById(contentId);
@@ -1202,18 +1263,20 @@ function sanitizeId(s) {
 }
 
 function sqsShowPicker() {
-  document.getElementById('sqs-center-picker').hidden = false;
-  document.getElementById('sqs-center-tiles').hidden = true;
+  const picker = document.getElementById('sqs-center-picker');
+  const tiles = document.getElementById('sqs-center-tiles');
+  if (picker) picker.style.display = picker._savedDisplay || 'grid';
+  if (tiles) tiles.style.display = 'none';
   selectedSQSSubdir = null;
 }
 
 function selectSQSComp(gk, label) {
   selectedSQSSubdir = gk;
   sqsPreviewPath = null; // reset so auto-preview triggers for new composition
-  document.getElementById('sqs-center-picker').hidden = true;
+  const picker = document.getElementById('sqs-center-picker');
+  if (picker) { picker._savedDisplay = 'grid'; picker.style.display = 'none'; }
   const tv = document.getElementById('sqs-center-tiles');
-  tv.hidden = false;
-  tv.style.display = 'flex';
+  if (tv) tv.style.display = 'flex';
   const lbl = document.getElementById('sqs-center-label');
   if (lbl) lbl.textContent = label || gk;
   document.querySelectorAll('.sqs-tile').forEach(el => {
@@ -1274,8 +1337,8 @@ function renderSQS(sqsDirs) {
 
   if (!filteredDirs.length) {
     picker.innerHTML = '<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:60px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">No active SQS runs</div>';
-    picker.hidden = false;
-    document.getElementById('sqs-center-tiles').hidden = true;
+    picker.style.display = picker._savedDisplay || 'grid';
+    document.getElementById('sqs-center-tiles').style.display = 'none';
     const dl = document.getElementById('sqs-dir-label'); if (dl) dl.textContent = '—';
     return;
   }
@@ -1294,8 +1357,8 @@ function renderSQS(sqsDirs) {
 
   if (!allRuns.length) {
     picker.innerHTML = `<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;height:80px;font-family:var(--mono);font-size:10px;color:var(--text-dim)">${filteredDirs[0].name} — waiting…</div>`;
-    picker.hidden = false;
-    document.getElementById('sqs-center-tiles').hidden = true;
+    picker.style.display = picker._savedDisplay || 'grid';
+    document.getElementById('sqs-center-tiles').style.display = 'none';
     return;
   }
 
@@ -1357,8 +1420,8 @@ function renderSQS(sqsDirs) {
   if (!groups[gk]) { sqsShowPicker(); return; }
   const { dirName, subdir, runs } = groups[gk];
 
-  picker.hidden = true;
-  document.getElementById('sqs-center-tiles').hidden = false;
+  picker._savedDisplay = 'grid';
+  picker.style.display = 'none';
   document.getElementById('sqs-center-tiles').style.display = 'flex';
 
   // Remove tiles from previous composition
@@ -1469,6 +1532,60 @@ function updateStages(stages, cfgStages) {
 
 // ── Composition drill-down ────────────────────────────────────────────
 let openCompSystem = null;
+
+// Silently refresh the open composition list without toggling
+function refreshOpenCompList(sys) {
+  const compList = document.getElementById(`comp-list-${sys.name}`);
+  if (!compList || compList.style.display === 'none') return;
+  fetch(`/api/compositions?dir=${encodeURIComponent(sys.path)}`)
+    .then(r => r.json())
+    .then(comps => {
+      if (!comps.length) return;
+      const existing = compList.querySelectorAll('[data-comp-name]');
+      const existingNames = new Set([...existing].map(el => el.dataset.compName));
+      comps.forEach(comp => {
+        const label = comp.name + (comp.energy != null ? `  ${comp.energy.toFixed(4)} eV` : '');
+        if (existingNames.has(comp.name)) {
+          const el = compList.querySelector(`[data-comp-name="${CSS.escape(comp.name)}"]`);
+          if (el && el.textContent !== label) el.textContent = label;
+        } else {
+          const div = document.createElement('div');
+          div.dataset.compName = comp.name;
+          div.style.cssText = 'padding:3px 10px;font-family:var(--mono);font-size:9px;cursor:pointer;color:var(--text-dim);border-bottom:1px solid var(--border);';
+          div.textContent = label;
+          div.addEventListener('mouseenter', () => div.style.color = 'var(--accent)');
+          div.addEventListener('mouseleave', () => div.style.color = 'var(--text-dim)');
+          div.addEventListener('click', e => {
+            e.stopPropagation();
+            setLiveMode(false);
+            if (comp.has_trajectory && comp.trajectory_paths.length) {
+              fetch(`/api/trajectory?path=${encodeURIComponent(comp.trajectory_paths[0])}`)
+                .then(r => r.json())
+                .then(d => {
+                  if (!d.xyz) return;
+                  const frames = splitXYZ(d.xyz);
+                  trajFrames = frames; initTrajViewer(); showFrame(frames.length - 1);
+                  document.getElementById('traj-controls').style.display = frames.length > 1 ? 'flex' : 'none';
+                }).catch(() => {});
+            } else {
+              fetch(`/api/structure?path=${encodeURIComponent(comp.contcar_path)}`)
+                .then(r => r.json())
+                .then(d => {
+                  if (!d.xyz) return;
+                  trajFrames = [d.xyz];
+                  document.getElementById('active-name').textContent = `${sys.name} / ${comp.name}`;
+                  document.getElementById('active-substage').textContent = comp.energy != null ? `${comp.energy.toFixed(4)} eV` : '';
+                  initTrajViewer(); showFrame(0);
+                  document.getElementById('traj-controls').style.display = 'none';
+                }).catch(() => {});
+            }
+          });
+          compList.appendChild(div);
+        }
+      });
+    }).catch(() => {});
+}
+
 function loadCompositions(sys, row) {
   // Toggle: clicking same system again collapses
   if (openCompSystem === sys.name) {
@@ -1498,6 +1615,7 @@ function loadCompositions(sys, row) {
       compList.innerHTML = '';
       comps.forEach(comp => {
         const div = document.createElement('div');
+        div.dataset.compName = comp.name;
         div.style.cssText = 'padding:3px 10px;font-family:var(--mono);font-size:9px;cursor:pointer;color:var(--text-dim);border-bottom:1px solid var(--border);';
         div.textContent = comp.name + (comp.energy != null ? `  ${comp.energy.toFixed(4)} eV` : '');
         div.addEventListener('mouseenter', () => div.style.color = 'var(--accent)');
@@ -1581,23 +1699,33 @@ function renderSystems(systems) {
   });
 }
 
-// ── Render plots strip ─────────────────────────────────────────────────
-function renderPlots(plots) {
+// ── Bottom plots strip — filtered by selectedPlotGroup ────────────────
+function renderBottomStrip(plots) {
   const strip = document.getElementById('plots-strip');
-  document.getElementById('plot-count').textContent = `${plots.length} files`;
+  if (!strip) return;
   if (!plots.length) { strip.innerHTML = '<div class="no-plots">No outputs yet</div>'; return; }
-
+  strip.innerHTML = '';
   plots.forEach(plot => {
-    const thumbId = `thumb-${plot.path.replace(/\W/g, '_')}`;
-    if (document.getElementById(thumbId)) return;
     const div = document.createElement('div');
-    div.id = thumbId;
     div.className = 'plot-thumb';
-    div.innerHTML = `<img src="" alt="${plot.name}"><div class="plot-thumb-label">${plot.name}</div>`;
-    div.addEventListener('click', () => openModal(plot.path));
-    strip.querySelector('.no-plots')?.remove();
+    div.innerHTML = `<img src="" alt="${escHtml(plot.name)}"><div class="plot-thumb-label">${escHtml(plot.name)}</div>`;
+    div.addEventListener('click', () => {
+      openModal(plot.path);
+      const img = document.getElementById('plots-center-img');
+      const ph  = document.getElementById('plots-center-placeholder');
+      if (img) {
+        fetch(`/api/image?path=${encodeURIComponent(plot.path)}`)
+          .then(r => r.json())
+          .then(d => {
+            if (d.data) {
+              img.src = `data:${d.mime};base64,${d.data}`;
+              img.style.display = 'block';
+              if (ph) ph.style.display = 'none';
+            }
+          }).catch(() => {});
+      }
+    });
     strip.appendChild(div);
-    // Lazy-load image
     fetch(`/api/image?path=${encodeURIComponent(plot.path)}`)
       .then(r => r.json())
       .then(d => { if (d.data) div.querySelector('img').src = `data:${d.mime};base64,${d.data}`; })
@@ -1653,22 +1781,42 @@ function switchTab(name) {
     document.getElementById(`tab-${t}`).classList.toggle('active', t === name);
     document.getElementById(`tab-content-${t}`).hidden = t !== name;
   });
-  const sqsCenter = document.getElementById('sqs-center');
+
+  const isSQS   = name === 'sqs';
+  const isTDB   = name === 'tdb';
+  const isPlots = name === 'plots';
+
+  // Center panel panes
+  document.getElementById('sqs-center').style.display   = isSQS   ? 'flex' : 'none';
+  document.getElementById('plots-center').style.display = isPlots  ? 'flex' : 'none';
+
   const viewerTraj = document.getElementById('viewer-traj');
   const energyWrap = document.getElementById('energy-chart-wrap');
-  const isSQS = name === 'sqs';
+  if (viewerTraj) viewerTraj.style.display = isTDB ? '' : 'none';
+  if (energyWrap) energyWrap.style.display = isTDB ? '' : 'none';
+
+  // Section headers that frame viewer-traj / energy-chart-wrap
+  document.querySelectorAll('.tdb-section-header').forEach(h => {
+    h.style.display = isTDB ? '' : 'none';
+  });
+
+  // Left panel: SQS dir-list on SQS tab, systems-list on TDB/Plots
+  const sysList      = document.getElementById('systems-list');
+  const sysHeader    = document.querySelector('#panel-left .panel-header');
+  const dirList      = document.getElementById('sqs-dir-list');
+  const sqsTabContent = document.getElementById('tab-content-sqs');
+  const leftPanel    = document.getElementById('panel-left');
+  const handleLog    = document.getElementById('handle-log');
+
   if (isSQS) {
-    sqsCenter.hidden = false;
-    sqsCenter.style.display = 'flex';
-    viewerTraj.hidden = true;
-    energyWrap.hidden = true;
+    if (sysList)   sysList.style.display = 'none';
+    if (sysHeader) sysHeader.querySelector('span:first-child').textContent = 'SQS';
+    if (dirList && leftPanel && handleLog) leftPanel.insertBefore(dirList, handleLog);
   } else {
-    sqsCenter.hidden = true;
-    viewerTraj.hidden = false;
-    energyWrap.hidden = false;
+    if (sysList)   sysList.style.display = '';
+    if (sysHeader) sysHeader.querySelector('span:first-child').textContent = 'Systems';
+    if (dirList && sqsTabContent) sqsTabContent.insertBefore(dirList, sqsTabContent.firstChild);
   }
-  // Show/hide section headers that accompany viewer-traj and energy-chart-wrap
-  document.querySelectorAll('.tdb-section-header').forEach(h => { h.hidden = isSQS; });
 }
 
 // ── TDB tab ────────────────────────────────────────────────────────────
@@ -1693,70 +1841,67 @@ function renderTDB(systems) {
   });
 }
 
-// ── Plots tab (right panel) ────────────────────────────────────────────
-function renderPlotsRight(plots) {
+// ── Plots tab — right panel category selector ─────────────────────────
+function renderPlotCategories(plots) {
+  allPlots = plots || [];
   const strip = document.getElementById('plots-strip-right');
   if (!strip) return;
 
-  // Live mode: show only the 12 most recent plots
-  const displayPlots = liveSQS
-    ? (plots || []).slice(0, 12)
-    : (plots || []);
-
-  // Group by first directory component of rel path
   const groups = {};
   const groupOrder = [];
-  displayPlots.forEach(p => {
+  allPlots.forEach(p => {
     const parts = (p.rel || p.name || '').split('/');
-    const group = parts.length > 1 ? parts[0] : '—';
+    const group = parts.length > 1 ? parts[0] : 'Other';
     if (!groups[group]) { groups[group] = []; groupOrder.push(group); }
     groups[group].push(p);
   });
 
-  // Full rebuild when live toggled or group set changes
-  const currentGroupKeys = groupOrder.join('|');
-  if (strip._groupKeys !== currentGroupKeys || liveSQS !== strip._wasLive) {
-    strip.innerHTML = '';
-    strip._groupKeys = currentGroupKeys;
-    strip._wasLive = liveSQS;
+  const currentKeys = groupOrder.join('|');
+  if (strip._groupKeys === currentKeys) {
+    _highlightPlotGroup(strip, selectedPlotGroup);
+    return;
   }
+  strip._groupKeys = currentKeys;
+  strip.innerHTML = '';
 
+  strip.appendChild(_makePlotCategoryRow('All plots', allPlots.length, null, strip));
   groupOrder.forEach(group => {
-    const gid = `plot-group-${group.replace(/\W/g,'_')}`;
-    let section = document.getElementById(gid);
-    if (!section) {
-      section = document.createElement('div');
-      section.id = gid;
-      const hdr = document.createElement('div');
-      hdr.style.cssText = 'display:flex;align-items:center;padding:4px 8px;cursor:pointer;user-select:none;border-bottom:1px solid var(--border);gap:4px';
-      hdr.innerHTML = `<span style="font-family:var(--mono);font-size:9px;color:var(--text-dim);flex:1;letter-spacing:0.04em;text-transform:uppercase">${escHtml(group)}</span><span class="plot-grp-toggle" style="font-family:var(--mono);font-size:9px;color:var(--text-dim)">▾</span>`;
-      const body = document.createElement('div');
-      body.id = `${gid}-body`;
-      body.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:4px;padding:6px;';
-      hdr.addEventListener('click', () => {
-        const open = body.hidden;
-        body.hidden = !open;
-        hdr.querySelector('.plot-grp-toggle').textContent = open ? '▾' : '▸';
-      });
-      section.appendChild(hdr);
-      section.appendChild(body);
-      strip.appendChild(section);
-    }
-
-    const body = document.getElementById(`${gid}-body`);
-    groups[group].forEach(plot => {
-      const id = `rthumb-${plot.path.replace(/\W/g,'_')}`;
-      if (document.getElementById(id)) return;
-      const div = document.createElement('div');
-      div.id = id;
-      div.className = 'plot-thumb-right';
-      div.style.cssText = 'cursor:pointer;border:1px solid var(--border);border-radius:3px;overflow:hidden;';
-      const fname = (plot.rel || plot.name || '').split('/').pop();
-      div.innerHTML = `<img src="/api/image?path=${encodeURIComponent(plot.path)}" loading="lazy" style="width:100%;display:block" onerror="this.style.display='none'"><div class="plot-name" style="font-size:8px;padding:2px 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(plot.rel||plot.name)}">${escHtml(fname)}</div>`;
-      div.addEventListener('click', () => openModal(plot.path));
-      body.appendChild(div);
-    });
+    strip.appendChild(_makePlotCategoryRow(group, groups[group].length, group, strip));
   });
+
+  const toSelect = (selectedPlotGroup !== null && groupOrder.includes(selectedPlotGroup))
+    ? selectedPlotGroup
+    : (groupOrder[0] || null);
+  _selectPlotGroup(toSelect, strip);
+}
+
+function _makePlotCategoryRow(label, count, group, strip) {
+  const row = document.createElement('div');
+  row.dataset.group = group === null ? '__all__' : group;
+  row.style.cssText = 'display:flex;align-items:center;padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);gap:8px;border-left:2px solid transparent;transition:background 0.1s';
+  row.innerHTML = `<span style="font-family:var(--mono);font-size:10px;color:var(--text);flex:1">${escHtml(label)}</span><span style="font-family:var(--mono);font-size:9px;color:var(--text-dim)">${count}</span>`;
+  row.addEventListener('click', () => _selectPlotGroup(group, strip));
+  return row;
+}
+
+function _highlightPlotGroup(strip, group) {
+  const key = group === null ? '__all__' : group;
+  strip.querySelectorAll('[data-group]').forEach(r => {
+    const active = r.dataset.group === key;
+    r.style.background = active ? 'var(--surface2)' : '';
+    r.style.borderLeftColor = active ? 'var(--accent)' : 'transparent';
+  });
+}
+
+function _selectPlotGroup(group, strip) {
+  selectedPlotGroup = group;
+  _highlightPlotGroup(strip, group);
+  const filtered = group === null
+    ? allPlots
+    : allPlots.filter(p => (p.rel || p.name || '').split('/')[0] === group);
+  renderBottomStrip(filtered);
+  const hdr = document.getElementById('plot-count');
+  if (hdr) hdr.textContent = `${filtered.length} files`;
 }
 
 // ── Poll ───────────────────────────────────────────────────────────────
@@ -1774,8 +1919,7 @@ async function poll() {
     renderSystems(statusRes.systems || []);
     renderTDB(statusRes.systems || []);
     renderSQS(sqsRes || []);
-    renderPlots(plotsRes || []);
-    renderPlotsRight(plotsRes || []);
+    renderPlotCategories(plotsRes || []);
     renderLog(logRes.lines || []);
     // Live sys: always snap back to most active system; preserve liveFrame
     if (liveSys) {
@@ -1785,7 +1929,12 @@ async function poll() {
       if (active && (!selectedSystem || selectedSystem.name !== active.name)) {
         selectSystem(active, true); // keepLive=true so liveFrame stays on
         liveFrame = true; liveMode = true;
+        openCompSystem = null; // reset so loadCompositions opens (not toggles closed)
         loadCompositions(active, document.getElementById(`sys-row-${active.name}`));
+      } else if (active && selectedSystem && selectedSystem.name === active.name) {
+        // Same system — refresh the open composition list if it's expanded
+        const fresh = latestSystems.find(s => s.name === active.name) || active;
+        refreshOpenCompList(fresh);
       }
     }
     // Live SQS: auto-navigate to most-recently updated composition and preview best tile
@@ -1827,6 +1976,12 @@ async function poll() {
     if (liveFrame && selectedSystem) {
       const fresh = latestSystems.find(s => s.name === selectedSystem.name) || selectedSystem;
       liveRefresh(fresh);
+    }
+
+    // Always refresh open composition list for selected system (so it updates without page reload)
+    if (selectedSystem && !liveSys) {
+      const fresh = latestSystems.find(s => s.name === selectedSystem.name) || selectedSystem;
+      refreshOpenCompList(fresh);
     }
 
     const now = new Date();

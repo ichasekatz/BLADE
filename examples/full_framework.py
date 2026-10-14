@@ -299,7 +299,10 @@ class FullFrameworkPipeline:
 
     def _phase_plot_systems(self) -> set[str]:
         """Return explicit plot systems or reproduce the TDB composition set."""
-        configured = self.settings.get("phase_plots", {}).get("systems")
+        configured = (
+            self.settings.get("phase_plots", {}).get("systems")
+            or self.settings.get("systems") or None
+        )
         if configured is not None:
             if not isinstance(configured, list) or not configured:
                 raise ValueError("phase_plots.systems must be a non-empty list")
@@ -796,6 +799,7 @@ class FullFrameworkPipeline:
         cfg.setdefault("primary_max", db_elems["primary_max"])
         cfg.setdefault("secondary_min", db_elems["secondary_min"])
         cfg.setdefault("secondary_max", db_elems["secondary_max"])
+        cfg.setdefault("systems", self.settings.get("systems", []))
         api_key = _database_api_key(cfg)
         cfg.pop("api_key", None)
         cfg.pop("api_key_env", None)
@@ -834,6 +838,15 @@ class FullFrameworkPipeline:
         mode = cfg.get("mode", "batch").strip().lower()
         if mode == "batch":
             batch = dict(self.settings["oxidation_batch"])
+            # Simplified aliases: run_animated → run_animations, skip_existing → both skip flags
+            if "run_animated" in batch:
+                batch.setdefault("run_animations", batch.pop("run_animated"))
+            if "skip_existing" in batch:
+                v = batch.pop("skip_existing")
+                batch.setdefault("skip_if_tables_exist", v)
+                batch.setdefault("skip_if_analysis_exists", v)
+            # Global systems filter propagation
+            batch.setdefault("systems", self.settings.get("systems", []))
             batch["temperature_values"] = _range(batch.pop("temperature_range"), integer=True)
             batch["mu_O_values"] = _range(batch.pop("mu_o_range"))
             batch["scan_mu_O"] = _range(batch.pop("scan_mu_o_range"))
