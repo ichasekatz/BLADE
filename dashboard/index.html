@@ -958,6 +958,8 @@ function initEnergyChart() {
 let energyAllChart = null;
 let activeEnergyTab = 'step';
 let allEnergyPending = false; // throttle: one request in flight at a time
+const _allTrajCache = new Map(); // trajectory path → frames[] (final files cached permanently)
+let _allTrajCacheSystem = null;  // invalidate cache when selected system changes
 
 const _ALL_CHART_COLORS = [
   '#E8A030','#60C8A8','#A78BFA','#F87171','#38BDF8','#FB923C',
@@ -1030,26 +1032,41 @@ async function renderAllEnergiesChart() {
   if (!selectedSystem || allEnergyPending) return;
   allEnergyPending = true;
   try {
+    // Invalidate trajectory cache when system changes
+    if (_allTrajCacheSystem !== selectedSystem.path) {
+      _allTrajCache.clear();
+      _allTrajCacheSystem = selectedSystem.path;
+    }
+
     const compsRes = await fetch(`/api/compositions?dir=${encodeURIComponent(selectedSystem.path)}`);
     const comps = await compsRes.json();
     if (!Array.isArray(comps) || !comps.length) return;
 
-    const datasets = [];
-    // Fetch all trajectories in parallel
+    const isLiveSys = relaxingSystems.has(selectedSystem.name);
+    const liveComp = liveComposition || '';
+
     const fetched = await Promise.all(comps.map(async (comp, i) => {
       let frames = [];
-      if (comp.has_trajectory && comp.trajectory_paths && comp.trajectory_paths.length) {
-        try {
-          const r = await fetch(`/api/trajectory?path=${encodeURIComponent(comp.trajectory_paths[0])}`);
-          const d = await r.json();
-          if (d.xyz) frames = splitXYZ(d.xyz);
-        } catch (_) {}
-      }
-      // If this comp has no completed traj but is the currently relaxing one, use live frames
-      if (!frames.length && relaxingSystems.has(selectedSystem.name) && trajFrames.length) {
-        const liveComp = liveComposition || '';
-        if (!liveComp || comp.name === liveComp || liveComp.includes(comp.name)) {
-          frames = trajFrames;
+      const isThisLive = isLiveSys && (
+        !liveComp || comp.name === liveComp || liveComp.includes(comp.name)
+      );
+
+      if (isThisLive && trajFrames.length) {
+        // Already in memory — no fetch needed, always current
+        frames = trajFrames;
+      } else if (comp.has_trajectory && comp.trajectory_paths?.length) {
+        const path = comp.trajectory_paths[0];
+        if (_allTrajCache.has(path)) {
+          frames = _allTrajCache.get(path);
+        } else {
+          try {
+            const r = await fetch(`/api/trajectory?path=${encodeURIComponent(path)}`);
+            const d = await r.json();
+            if (d.xyz) {
+              frames = splitXYZ(d.xyz);
+              _allTrajCache.set(path, frames);
+            }
+          } catch (_) {}
         }
       }
       return { label: comp.name, frames, color: _allChartColor(i) };
@@ -1058,6 +1075,7 @@ async function renderAllEnergiesChart() {
     const maxLen = Math.max(...fetched.map(f => f.frames.length), 1);
     const labels = Array.from({ length: maxLen }, (_, i) => i);
 
+    const datasets = [];
     fetched.forEach(({ label, frames, color }) => {
       if (!frames.length) return;
       const energies = frames.map(f => parseFrameEnergy(f));
@@ -2005,16 +2023,29 @@ function toggleLog() {
   btn.textContent = hidden ? '▾' : '▸';
 }
 
+let _logLineCount = 0;
 function renderLog(lines) {
   const panel = document.getElementById('log-panel');
-  panel.innerHTML = lines.map(l => {
+  if (lines.length === _logLineCount) return;
+  if (lines.length < _logLineCount) {
+    panel.innerHTML = '';
+    _logLineCount = 0;
+  }
+  const wasAtBottom = panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 4;
+  const frag = document.createDocumentFragment();
+  lines.slice(_logLineCount).forEach(l => {
+    const div = document.createElement('div');
     let cls = 'log-line';
     if (/error|fail|traceback/i.test(l)) cls += ' red';
     else if (/done|complete|success|finish/i.test(l)) cls += ' green';
     else if (/running|start|mcsqs|relaxing|fitting/i.test(l)) cls += ' accent';
-    return `<div class="${cls}">${escHtml(l)}</div>`;
-  }).join('');
-  panel.scrollTop = panel.scrollHeight;
+    div.className = cls;
+    div.textContent = l;
+    frag.appendChild(div);
+  });
+  panel.appendChild(frag);
+  _logLineCount = lines.length;
+  if (wasAtBottom) panel.scrollTop = panel.scrollHeight;
 }
 
 function escHtml(s) {
