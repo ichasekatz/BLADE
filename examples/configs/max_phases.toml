@@ -8,22 +8,23 @@
 
 # ── Elements ───────────────────────────────────────────────────────────────────
 [elements]
-primary       = ["Zr", "Hf", "Ti", "Nb", "V"]
+primary       = ["Ti", "Nb"]
 secondary     = []
 primary_min   = 2
-primary_max   = 5
+primary_max   = 2
 secondary_min = 0
 secondary_max = 0
 
 # ── TDB ────────────────────────────────────────────────────────────────────────
 [tdb]
 level        = 2
-comps_folder = "Comps_MAX"
+comps_folder = "Comps_MAX_Test"
 
 # ── SQS composition levels ─────────────────────────────────────────────────────
 # MAX: two mixed sublattices (a = M, b = A); both decorated in SQS.
 # letter = ["a", "b"] tells mcsqs to vary both sublattices.
 [tdb_sqs]
+parallel_runs = 10
 tdb_sqs_levels = [
     { level = 0, compositions = [[1.0, 0.0]],                     letter = ["a", "b"] },
     { level = 1, compositions = [[0.5, 0.5]],                     letter = ["a", "b"] },
@@ -75,7 +76,7 @@ MAX1_5 = "a=2\tb=1\tc=1"
 # Without constant = true, both sublattices vary independently in SQS.
 # Set constant = true and add composition to fix a sublattice at one composition.
 [tdb_inputs.sites.MAX1.a]
-elements = ["Zr", "Hf", "Ti", "Nb", "V"]
+elements = ["Ti", "Nb"]
 
 [tdb_inputs.sites.MAX1.b]
 elements = ["Al", "Sn"]
