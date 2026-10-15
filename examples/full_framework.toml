@@ -44,7 +44,7 @@ device = "cuda"   # "cpu" if no GPU — applies to both TDB and database stages
 fmax             = 0.001
 t_min            = 298.15
 t_max            = 10000.0
-track_trajectory = false   # write .xyz trajectory during MLIP relaxation (for dashboard viewer)
+track_trajectory = true    # write .xyz trajectory during MLIP relaxation (for dashboard viewer)
 
 [tdb_sqs]
 time          = 30    # seconds per mcsqs run
