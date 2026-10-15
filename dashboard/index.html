@@ -1951,12 +1951,13 @@ async function poll() {
       fetch('/api/live_trajectory').then(r => r.json()).catch(() => ({xyz: null})),
     ]);
 
-    // Update live composition label + system badge from trajectory data on every poll
-    if (liveTrajRes.composition) {
+    // Update live composition label + system badge + 3D viewer from trajectory data on every poll
+    if (liveTrajRes.xyz && liveTrajRes.composition) {
       liveComposition = liveTrajRes.composition;
+      // Energy header label
       const compLabel = document.getElementById('traj-comp-label');
       if (compLabel) { compLabel.textContent = liveComposition; compLabel.title = liveComposition; }
-      // Mark the first not-done system as relaxing so its badge updates
+      // Mark the first not-done system as relaxing
       const activeSys = (statusRes.systems || []).find(s => !s.tdb_done);
       if (activeSys) {
         relaxingSystems.add(activeSys.name);
@@ -1964,6 +1965,15 @@ async function poll() {
         if (badge) { badge.className = 'system-badge running'; badge.textContent = 'relaxing'; }
         const sub = document.getElementById(`comp-sub-${activeSys.name}`);
         if (sub) { sub.textContent = liveComposition; sub.hidden = false; }
+      }
+      // Update convergence info
+      trajConvergedStep = (liveTrajRes.converged && liveTrajRes.nsteps != null)
+        ? liveTrajRes.nsteps - 1 : null;
+      // Apply frames to 3D viewer + energy chart
+      const frames = splitXYZ(liveTrajRes.xyz);
+      if (frames.length) {
+        _applyFrames(frames);
+        showFrame(frames.length - 1);
       }
     } else {
       liveComposition = null;
