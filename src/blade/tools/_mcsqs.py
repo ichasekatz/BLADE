@@ -8,7 +8,9 @@ directly unless you know what you are doing.
 
 from __future__ import annotations
 
+import os
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -208,6 +210,15 @@ def _run_mcsqs_in_dir(
     finally:
         stop_monitor.set()
         monitor_thread.join()
+        # Kill any processes that survived (covers KeyboardInterrupt / SIGTERM
+        # paths where _wait_with_timeout's own cleanup did not run).
+        for ip, p in processes:
+            if p.poll() is None:
+                try:
+                    os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+                    print(f"Killed mcsqs -ip={ip} in {sqsdir}")
+                except (ProcessLookupError, OSError):
+                    pass
         if stopsqs_path.exists():
             stopsqs_path.unlink()
 
@@ -244,7 +255,10 @@ def _spawn_mcsqs(
         f"-ip={ip}",
     ]
     print(f"Starting mcsqs -ip={ip} in {sqsdir}")
-    p = subprocess.Popen(cmd, cwd=sqsdir)
+    # start_new_session isolates each process into its own process group so
+    # killpg can reach any children mcsqs forks, and Ctrl+C on the terminal
+    # does not race with our explicit cleanup.
+    p = subprocess.Popen(cmd, cwd=sqsdir, start_new_session=True)
     return ip, p
 
 
@@ -278,8 +292,11 @@ def _wait_with_timeout(
 
     for ip, p in processes:
         if p.poll() is None:
-            p.kill()
-            print(f"Killed mcsqs -ip={ip} in {sqsdir}")
+            try:
+                os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+                print(f"Killed mcsqs -ip={ip} in {sqsdir}")
+            except (ProcessLookupError, OSError):
+                pass
 
 
 def _write_objective_summary(parent_dir: Path) -> None:
