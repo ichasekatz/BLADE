@@ -1061,9 +1061,6 @@ async function renderAllEnergiesChart() {
     fetched.forEach(({ label, frames, color }) => {
       if (!frames.length) return;
       const energies = frames.map(f => parseFrameEnergy(f));
-      // Pad by repeating last known energy value
-      const lastE = energies.filter(e => e !== null).at(-1) ?? null;
-      while (energies.length < maxLen) energies.push(lastE);
       datasets.push({
         label,
         data: energies,
@@ -1072,7 +1069,7 @@ async function renderAllEnergiesChart() {
         borderWidth: 1.5,
         pointRadius: 0,
         tension: 0.2,
-        spanGaps: true,
+        spanGaps: false,
       });
     });
 
