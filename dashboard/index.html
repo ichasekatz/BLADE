@@ -1435,6 +1435,8 @@ function selectSystem(sys, keepLive = false) {
         .catch(() => {});
     }
   }
+  // Refresh all-energy chart for the new system if that tab is open
+  if (activeEnergyTab === 'all') renderAllEnergiesChart();
 }
 
 // ── SQS in-panel preview canvas ────────────────────────────────────────
