@@ -38,7 +38,7 @@ comps_folder       = "Comps"
 
 [mlip_kwargs]
 steps  = 1000
-device = "cpu"   # "cuda" if GPU available — applies to both TDB and database stages
+device = "cuda"   # "cpu" if no GPU — applies to both TDB and database stages
 
 [tdb_fit]
 fmax             = 0.001
