@@ -1436,6 +1436,11 @@ function selectSystem(sys, keepLive = false) {
         .catch(() => {});
     }
   }
+  // Clear stale composition label when switching systems manually
+  if (!keepLive) {
+    const compLabel = document.getElementById('traj-comp-label');
+    if (compLabel) { compLabel.textContent = ''; compLabel.title = ''; }
+  }
   // Refresh all-energy chart for the new system if that tab is open
   if (activeEnergyTab === 'all') renderAllEnergiesChart();
 }
@@ -1820,6 +1825,8 @@ function refreshOpenCompList(sys) {
           div.addEventListener('click', e => {
             e.stopPropagation();
             setLiveMode(false);
+            const compLabel = document.getElementById('traj-comp-label');
+            if (compLabel) { compLabel.textContent = comp.name; compLabel.title = comp.name; }
             if (comp.has_trajectory && comp.trajectory_paths.length) {
               fetch(`/api/trajectory?path=${encodeURIComponent(comp.trajectory_paths[0])}`)
                 .then(r => r.json())
@@ -1885,6 +1892,8 @@ function loadCompositions(sys, row) {
         div.addEventListener('click', e => {
           e.stopPropagation();
           setLiveMode(false);
+          const compLabel = document.getElementById('traj-comp-label');
+          if (compLabel) { compLabel.textContent = comp.name; compLabel.title = comp.name; }
           // Load composition CONTCAR into center viewer
           fetch(`/api/structure?path=${encodeURIComponent(comp.contcar_path)}`)
             .then(r => r.json())
