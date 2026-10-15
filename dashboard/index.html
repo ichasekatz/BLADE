@@ -644,7 +644,7 @@
       <div id="traj-overlay">
         <div class="overlay-chip" id="frame-chip" hidden>Frame —/—</div>
         <div class="overlay-chip" id="energy-chip" hidden>E = — eV/atom</div>
-        <div style="font-family:var(--mono);font-size:8px;color:var(--text-dim);opacity:0.45;margin-top:4px;pointer-events:none">drag: rotate · ctrl+drag: pan · scroll: zoom</div>
+        <div style="font-family:var(--mono);font-size:8px;color:#ffffff;opacity:0.55;margin-top:4px;pointer-events:none">drag: rotate · ctrl+drag: pan · scroll: zoom</div>
       </div>
       <div id="atom-tooltip" style="display:none;position:fixed;z-index:200;background:rgba(10,16,26,0.92);border:1px solid var(--border2);border-radius:4px;padding:3px 8px;font-family:var(--mono);font-size:10px;color:var(--text);pointer-events:none;white-space:nowrap"></div>
       <div id="sqsdb-warn" hidden style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:16px;pointer-events:none">
@@ -767,6 +767,7 @@ let liveComposition = null;   // sqsdb dir name of the structure currently relax
 let trajFrames = [];
 let trajIdx = 0;
 let trajPlaying = false;
+let _compLoadCtrl = null;
 let trajInterval = null;
 let selectedSystem = null;
 let lastStatus = null;
@@ -1875,20 +1876,24 @@ function refreshOpenCompList(sys) {
           div.addEventListener('mouseleave', () => div.style.color = 'var(--text-dim)');
           div.addEventListener('click', e => {
             e.stopPropagation();
+            if (_compLoadCtrl) _compLoadCtrl.abort();
+            _compLoadCtrl = new AbortController();
+            const signal = _compLoadCtrl.signal;
             setLiveMode(false);
             const compLabel = document.getElementById('traj-comp-label');
             if (compLabel) { compLabel.textContent = comp.name; compLabel.title = comp.name; }
             if (comp.has_trajectory && comp.trajectory_paths.length) {
-              fetch(`/api/trajectory?path=${encodeURIComponent(comp.trajectory_paths[0])}`)
+              fetch(`/api/trajectory?path=${encodeURIComponent(comp.trajectory_paths[0])}`, { signal })
                 .then(r => r.json())
                 .then(d => {
                   if (!d.xyz) return;
                   const frames = splitXYZ(d.xyz);
                   trajFrames = frames; initTrajViewer(); showFrame(frames.length - 1);
+                  updateEnergyChartFromFrames();
                   document.getElementById('traj-controls').style.display = frames.length > 1 ? 'flex' : 'none';
-                }).catch(() => {});
+                }).catch(err => { if (err.name !== 'AbortError') console.error(err); });
             } else {
-              fetch(`/api/structure?path=${encodeURIComponent(comp.contcar_path)}`)
+              fetch(`/api/structure?path=${encodeURIComponent(comp.contcar_path)}`, { signal })
                 .then(r => r.json())
                 .then(d => {
                   if (!d.xyz) return;
@@ -1896,8 +1901,9 @@ function refreshOpenCompList(sys) {
                   document.getElementById('active-name').textContent = `${sys.name} / ${comp.name}`;
                   document.getElementById('active-substage').textContent = comp.energy != null ? `${comp.energy.toFixed(4)} eV` : '';
                   initTrajViewer(); showFrame(0);
+                  updateEnergyChartFromFrames();
                   document.getElementById('traj-controls').style.display = 'none';
-                }).catch(() => {});
+                }).catch(err => { if (err.name !== 'AbortError') console.error(err); });
             }
           });
           compList.appendChild(div);
@@ -1942,33 +1948,39 @@ function loadCompositions(sys, row) {
         div.addEventListener('mouseleave', () => div.style.color = 'var(--text-dim)');
         div.addEventListener('click', e => {
           e.stopPropagation();
+          if (_compLoadCtrl) _compLoadCtrl.abort();
+          _compLoadCtrl = new AbortController();
+          const signal = _compLoadCtrl.signal;
           setLiveMode(false);
           const compLabel = document.getElementById('traj-comp-label');
           if (compLabel) { compLabel.textContent = comp.name; compLabel.title = comp.name; }
-          // Load composition CONTCAR into center viewer
-          fetch(`/api/structure?path=${encodeURIComponent(comp.contcar_path)}`)
-            .then(r => r.json())
-            .then(d => {
-              if (!d.xyz) return;
-              trajFrames = [d.xyz];
-              document.getElementById('active-name').textContent = `${sys.name} / ${comp.name}`;
-              document.getElementById('active-substage').textContent = comp.energy != null ? `${comp.energy.toFixed(4)} eV` : '';
-              initTrajViewer();
-              showFrame(0);
-              document.getElementById('traj-controls').style.display = 'none';
-            }).catch(() => {});
-          // If trajectory available, load that instead
           if (comp.has_trajectory && comp.trajectory_paths.length) {
-            fetch(`/api/trajectory?path=${encodeURIComponent(comp.trajectory_paths[0])}`)
+            fetch(`/api/trajectory?path=${encodeURIComponent(comp.trajectory_paths[0])}`, { signal })
               .then(r => r.json())
               .then(d => {
                 if (!d.xyz) return;
                 const frames = splitXYZ(d.xyz);
                 trajFrames = frames;
+                document.getElementById('active-name').textContent = `${sys.name} / ${comp.name}`;
+                document.getElementById('active-substage').textContent = comp.energy != null ? `${comp.energy.toFixed(4)} eV` : '';
                 initTrajViewer();
                 showFrame(frames.length - 1);
+                updateEnergyChartFromFrames();
                 document.getElementById('traj-controls').style.display = frames.length > 1 ? 'flex' : 'none';
-              }).catch(() => {});
+              }).catch(err => { if (err.name !== 'AbortError') console.error(err); });
+          } else {
+            fetch(`/api/structure?path=${encodeURIComponent(comp.contcar_path)}`, { signal })
+              .then(r => r.json())
+              .then(d => {
+                if (!d.xyz) return;
+                trajFrames = [d.xyz];
+                document.getElementById('active-name').textContent = `${sys.name} / ${comp.name}`;
+                document.getElementById('active-substage').textContent = comp.energy != null ? `${comp.energy.toFixed(4)} eV` : '';
+                initTrajViewer();
+                showFrame(0);
+                updateEnergyChartFromFrames();
+                document.getElementById('traj-controls').style.display = 'none';
+              }).catch(err => { if (err.name !== 'AbortError') console.error(err); });
           }
         });
         compList.appendChild(div);
@@ -2132,8 +2144,10 @@ function switchTab(name) {
 
   const viewerTraj = document.getElementById('viewer-traj');
   const energyBody = document.getElementById('energy-body');
+  const activeHeader = document.getElementById('active-header');
   if (viewerTraj) viewerTraj.style.display = isTDB ? '' : 'none';
   if (energyBody) energyBody.style.display = isTDB ? '' : 'none';
+  if (activeHeader) activeHeader.style.display = isTDB ? '' : 'none';
 
   // Section headers that frame viewer-traj / energy-chart-wrap
   document.querySelectorAll('.tdb-section-header').forEach(h => {
@@ -2479,7 +2493,7 @@ document.addEventListener('mousemove', e => {
     lp.style.flexShrink = '0';
   } else if (type === 'row-energy') {
     const ew = document.getElementById('energy-body');
-    const h = Math.max(50, Math.min(300, startVal + (e.clientY - startY)));
+    const h = Math.max(50, Math.min(300, startVal - (e.clientY - startY)));
     ew.style.height = h + 'px';
     ew.style.flexShrink = '0';
   } else if (type === 'row-sqs-preview') {
