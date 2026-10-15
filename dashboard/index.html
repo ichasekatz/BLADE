@@ -1989,16 +1989,21 @@ async function poll() {
       // Update convergence info
       trajConvergedStep = (liveTrajRes.converged && liveTrajRes.nsteps != null)
         ? liveTrajRes.nsteps - 1 : null;
-      // Apply frames to 3D viewer + energy chart
-      const frames = splitXYZ(liveTrajRes.xyz);
-      if (frames.length) {
-        _applyFrames(frames);
-        showFrame(frames.length - 1);
+      // Apply frames to 3D viewer + energy chart — only when live mode is active
+      if (liveSys) {
+        const frames = splitXYZ(liveTrajRes.xyz);
+        if (frames.length) {
+          _applyFrames(frames);
+          showFrame(frames.length - 1);
+        }
       }
     } else {
       liveComposition = null;
-      const compLabel = document.getElementById('traj-comp-label');
-      if (compLabel) compLabel.textContent = '';
+      // Only clear composition label when live mode is off (avoid flicker during liveRefresh cycle)
+      if (!liveSys) {
+        const compLabel = document.getElementById('traj-comp-label');
+        if (compLabel) compLabel.textContent = '';
+      }
       // Show sqsdb warning in the structure viewer when no trajectory found.
       const warn = document.getElementById('sqsdb-warn');
       const warnPaths = document.getElementById('sqsdb-warn-paths');
