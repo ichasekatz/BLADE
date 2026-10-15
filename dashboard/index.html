@@ -1135,8 +1135,11 @@ function liveRefresh(sys) {
         if (liveSys) {
           const active = latestSystems.find(s => relaxingSystems.has(s.name));
           if (active && active.name !== sys.name) { selectSystem(active, true); return; }
+          // liveSys + no live data: don't fall back to stored trajectory —
+          // that would restart old playback instead of waiting for the live structure.
+          return;
         }
-        // Fallback to completed trajectory or CONTCAR
+        // Fallback to completed trajectory or CONTCAR (manual system selection only)
         if (sys.has_trajectory && sys.trajectory_paths && sys.trajectory_paths.length) {
           fetch(`/api/trajectory?path=${encodeURIComponent(sys.trajectory_paths[0])}`)
             .then(r => r.json())
