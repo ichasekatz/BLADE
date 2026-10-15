@@ -781,6 +781,8 @@ function initTrajViewer() {
     backgroundColor: '#080D14',
     antialias: true,
   });
+  // Suppress browser context menu so right-click drag can translate the structure
+  el.addEventListener('contextmenu', e => e.preventDefault());
 }
 
 // ── 2D canvas SQS renderer (no WebGL — avoids context limit) ───────────
