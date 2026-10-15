@@ -1536,11 +1536,21 @@ function toggleSection(contentId, btnId, openLabel, closedLabel) {
     // Restore
     el.style.display = el._savedDisplay || '';
     if (btn) btn.textContent = openLabel || '▾';
+    // Restore energy-body sizing when viewer is shown
+    if (contentId === 'viewer-traj') {
+      const eb = document.getElementById('energy-body');
+      if (eb) { eb.style.flex = ''; eb.style.height = eb._savedHeight || ''; }
+    }
   } else {
     // Collapse
     el._savedDisplay = el.style.display;
     el.style.display = 'none';
     if (btn) btn.textContent = closedLabel || '▸';
+    // Energy fills remaining space when viewer is hidden
+    if (contentId === 'viewer-traj') {
+      const eb = document.getElementById('energy-body');
+      if (eb) { eb._savedHeight = eb.style.height; eb.style.height = 'auto'; eb.style.flex = '1'; }
+    }
   }
 }
 
