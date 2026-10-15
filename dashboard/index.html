@@ -377,6 +377,31 @@
     flex-shrink: 0;
   }
 
+  #plot-type-bar {
+    display: none;
+    gap: 5px;
+    padding: 5px 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #plot-type-bar.visible { display: flex; }
+  .plot-type-chip {
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 2px 7px;
+    border-radius: 10px;
+    border: 1px solid var(--border2);
+    background: var(--surface);
+    color: var(--text-dim);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.1s, color 0.1s, background 0.1s;
+  }
+  .plot-type-chip:hover { border-color: var(--accent-dim); color: var(--text); }
+  .plot-type-chip.active { border-color: var(--accent); color: var(--accent); background: var(--surface2); }
+
   #plots-strip {
     flex: 1;
     display: flex;
@@ -677,6 +702,7 @@
     <span id="plot-count" style="color:var(--text-dim)">—</span>
     <button style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:12px;padding:0;line-height:1;margin-left:auto" id="btn-collapse-bottom">▾</button>
   </div>
+  <div id="plot-type-bar"></div>
   <div id="plots-strip"><div class="no-plots">No outputs yet</div></div>
 </div>
 
@@ -1946,15 +1972,64 @@ function _highlightPlotGroup(strip, group) {
   });
 }
 
+// Extract a plot "type" from its name/path: strip trailing _SystemName combos
+// e.g. "muO_x_map_CrHf.png" → "muO x map", "onset_CrHfMo.png" → "onset"
+function _extractPlotType(plot) {
+  const stem = (plot.name || '').replace(/\.[^.]+$/, '');
+  // Strip trailing underscore-separated segments that look like element combos (CrHf, Mo, etc.)
+  const cleaned = stem.replace(/(?:_[A-Z][a-z]?(?:[A-Z][a-z]?)*)+$/, '');
+  // Replace underscores with spaces for readability
+  return cleaned.replace(/_/g, ' ').trim() || stem;
+}
+
+let selectedPlotType = null;
+
+function _renderPlotTypeBar(plots) {
+  const bar = document.getElementById('plot-type-bar');
+  if (!bar) return;
+  // Collect unique types
+  const types = [];
+  const seen = new Set();
+  plots.forEach(p => {
+    const t = _extractPlotType(p);
+    if (!seen.has(t)) { seen.add(t); types.push(t); }
+  });
+  if (types.length <= 1) { bar.innerHTML = ''; bar.classList.remove('visible'); selectedPlotType = null; return; }
+  bar.classList.add('visible');
+  bar.innerHTML = '';
+  // "All" chip
+  const allChip = document.createElement('span');
+  allChip.className = 'plot-type-chip' + (selectedPlotType === null ? ' active' : '');
+  allChip.textContent = 'all';
+  allChip.addEventListener('click', () => { selectedPlotType = null; _applyPlotTypeFilter(plots); _renderPlotTypeBar(plots); });
+  bar.appendChild(allChip);
+  types.forEach(t => {
+    const chip = document.createElement('span');
+    chip.className = 'plot-type-chip' + (selectedPlotType === t ? ' active' : '');
+    chip.textContent = t;
+    chip.addEventListener('click', () => { selectedPlotType = t; _applyPlotTypeFilter(plots); _renderPlotTypeBar(plots); });
+    bar.appendChild(chip);
+  });
+}
+
+function _applyPlotTypeFilter(plots) {
+  const filtered = selectedPlotType === null
+    ? plots
+    : plots.filter(p => _extractPlotType(p) === selectedPlotType);
+  renderBottomStrip(filtered);
+  const hdr = document.getElementById('plot-count');
+  if (hdr) hdr.textContent = `${filtered.length} files`;
+}
+
 function _selectPlotGroup(group, strip) {
   selectedPlotGroup = group;
+  selectedPlotType = null;
   _highlightPlotGroup(strip, group);
   const filtered = group === null
     ? allPlots
     : allPlots.filter(p => (p.rel || p.name || '').split('/')[0] === group);
-  renderBottomStrip(filtered);
-  const hdr = document.getElementById('plot-count');
-  if (hdr) hdr.textContent = `${filtered.length} files`;
+  _renderPlotTypeBar(filtered);
+  _applyPlotTypeFilter(filtered);
 }
 
 // ── Poll ───────────────────────────────────────────────────────────────
