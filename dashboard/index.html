@@ -295,9 +295,16 @@
     color: var(--text-muted);
   }
 
+  #energy-body {
+    display: flex;
+    flex-direction: column;
+    min-height: 94px;
+  }
+
   #energy-chart-wrap {
     padding: 4px 12px 6px;
-    flex-shrink: 0;
+    flex: 1;
+    min-height: 0;
   }
 
   #energy-all-wrap {
@@ -305,7 +312,7 @@
     flex-shrink: 0;
   }
 
-  #energy-chart { width: 100% !important; height: 94px !important; }
+  #energy-chart { width: 100% !important; height: 100% !important; }
   #energy-all-chart { width: 100% !important; height: 120px !important; }
 
   .energy-tab-btn {
@@ -1187,6 +1194,10 @@ function updateEnergyChartFromFrames() {
     energyChart.data.datasets[2].data = [];
     energyChart.data.datasets[2].pointRadius = [];
   }
+
+  // Clear stale frame marker if x position is out of bounds for this trajectory
+  const _ds1 = energyChart.data.datasets[1];
+  if (_ds1.data.length && _ds1.data[0].x >= energies.length) _ds1.data = [];
 
   energyChart.update('none');
   const last = energies.filter(e => e !== null).at(-1);
@@ -2272,8 +2283,10 @@ async function poll() {
       if (active && (!selectedSystem || selectedSystem.name !== active.name)) {
         selectSystem(active, true); // keepLive=true so liveFrame stays on
         liveFrame = true; liveMode = true;
-        openCompSystem = null; // reset so loadCompositions opens (not toggles closed)
-        loadCompositions(active, document.getElementById(`sys-row-${active.name}`));
+        // Only switch comp list if one was already open; don't force-open after user collapsed
+        if (openCompSystem !== null) {
+          loadCompositions(active, document.getElementById(`sys-row-${active.name}`));
+        }
       } else if (active && selectedSystem && selectedSystem.name === active.name) {
         // Same system — refresh the open composition list if it's expanded
         const fresh = latestSystems.find(s => s.name === active.name) || active;
