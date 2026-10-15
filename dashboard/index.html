@@ -781,8 +781,13 @@ function initTrajViewer() {
     backgroundColor: '#080D14',
     antialias: true,
   });
-  // Suppress browser context menu so right-click drag can translate the structure
-  el.addEventListener('contextmenu', e => e.preventDefault());
+  // Suppress browser context menu on the 3Dmol canvas so right-click drag translates
+  el.addEventListener('contextmenu', e => e.preventDefault(), true);
+  // Also catch on the canvas once 3Dmol inserts it (deferred one tick)
+  setTimeout(() => {
+    const canvas = el.querySelector('canvas');
+    if (canvas) canvas.addEventListener('contextmenu', e => e.preventDefault(), true);
+  }, 0);
 }
 
 // ── 2D canvas SQS renderer (no WebGL — avoids context limit) ───────────
