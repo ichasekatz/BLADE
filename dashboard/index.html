@@ -1081,6 +1081,7 @@ function setLiveSQS(v) {
   liveSys = v;
   liveFrame = v;
   liveMode = v;
+  if (v) poll(); // snap immediately
   const lbl = document.getElementById('live-sqs-label');
   const chk = document.getElementById('live-sqs-chk');
   if (lbl) { lbl.style.color = v ? '#A78BFA' : 'var(--text-dim)'; lbl.style.fontWeight = v ? '600' : ''; }
@@ -2011,6 +2012,10 @@ async function poll() {
       if (active && (!selectedSystem || selectedSystem.name !== active.name)) {
         selectSystem(active, true); // keepLive=true so liveFrame stays on
         liveFrame = true; liveMode = true;
+        // If user is on SQS or Plots tab, switch to TDB to show the live relaxation.
+        if (document.getElementById('tab-tdb') && !document.getElementById('tab-tdb').classList.contains('active')) {
+          switchTab('tdb');
+        }
         openCompSystem = null; // reset so loadCompositions opens (not toggles closed)
         loadCompositions(active, document.getElementById(`sys-row-${active.name}`));
       } else if (active && selectedSystem && selectedSystem.name === active.name) {
