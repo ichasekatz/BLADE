@@ -300,7 +300,27 @@
     flex-shrink: 0;
   }
 
+  #energy-all-wrap {
+    padding: 4px 12px 6px;
+    flex-shrink: 0;
+  }
+
   #energy-chart { width: 100% !important; height: 94px !important; }
+  #energy-all-chart { width: 100% !important; height: 120px !important; }
+
+  .energy-tab-btn {
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--border2);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: border-color 0.1s, color 0.1s;
+  }
+  .energy-tab-btn.active { border-color: var(--accent); color: var(--accent); }
+  .energy-tab-btn:hover:not(.active) { border-color: var(--accent-dim); color: var(--text); }
 
   /* ── Right: SQS tiles ────────────────────────────────────── */
   #panel-right {
@@ -618,13 +638,20 @@
       </div>
     </div>
     <div class="row-handle tdb-section-header" id="handle-energy" title="Drag to resize"></div>
-    <div class="section-header tdb-section-header" onclick="toggleSection('energy-chart-wrap','btn-echart-collapse','▾ energy','▸ energy')" style="display:flex;align-items:center;gap:6px;padding:3px 10px;border-top:1px solid var(--border);flex-shrink:0;cursor:pointer;user-select:none">
+    <div class="section-header tdb-section-header" onclick="toggleSection('energy-body','btn-echart-collapse','▾ energy','▸ energy')" style="display:flex;align-items:center;gap:6px;padding:3px 10px;border-top:1px solid var(--border);flex-shrink:0;cursor:pointer;user-select:none">
       <span id="energy-label" style="font-family:var(--mono);font-size:9px;color:var(--text-dim);letter-spacing:0.06em;text-transform:uppercase;flex:1">Energy (eV/atom)</span>
-      <span id="traj-comp-label" style="font-family:var(--mono);font-size:9px;color:var(--accent);letter-spacing:0.03em;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title=""></span>
+      <span id="traj-comp-label" style="font-family:var(--mono);font-size:9px;color:var(--accent);letter-spacing:0.03em;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title=""></span>
+      <button class="energy-tab-btn active" id="etab-step" onclick="event.stopPropagation();switchEnergyTab('step')">step</button>
+      <button class="energy-tab-btn" id="etab-all" onclick="event.stopPropagation();switchEnergyTab('all')">all</button>
       <button id="btn-echart-collapse" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-family:var(--mono);font-size:10px;padding:0">▾ energy</button>
     </div>
-    <div id="energy-chart-wrap">
-      <canvas id="energy-chart"></canvas>
+    <div id="energy-body">
+      <div id="energy-chart-wrap">
+        <canvas id="energy-chart"></canvas>
+      </div>
+      <div id="energy-all-wrap" hidden>
+        <canvas id="energy-all-chart"></canvas>
+      </div>
     </div>
     <!-- Plots center — large preview, shown when Plots tab active -->
     <div id="plots-center" style="display:none;flex:1;min-height:0;flex-direction:column;align-items:center;justify-content:center;background:#070C12;padding:16px">
@@ -917,6 +944,137 @@ function initEnergyChart() {
       },
     },
   });
+}
+
+// ── All-compositions energy chart ─────────────────────────────────────
+let energyAllChart = null;
+let activeEnergyTab = 'step';
+let allEnergyPending = false; // throttle: one request in flight at a time
+
+const _ALL_CHART_COLORS = [
+  '#E8A030','#60C8A8','#A78BFA','#F87171','#38BDF8','#FB923C',
+  '#A3E635','#F472B6','#34D399','#818CF8','#FACC15','#22D3EE',
+];
+function _allChartColor(i) { return _ALL_CHART_COLORS[i % _ALL_CHART_COLORS.length]; }
+
+function switchEnergyTab(tab) {
+  activeEnergyTab = tab;
+  document.getElementById('etab-step').classList.toggle('active', tab === 'step');
+  document.getElementById('etab-all').classList.toggle('active', tab === 'all');
+  document.getElementById('energy-chart-wrap').hidden = tab !== 'step';
+  document.getElementById('energy-all-wrap').hidden = tab !== 'all';
+  if (tab === 'all' && selectedSystem) renderAllEnergiesChart();
+}
+
+function _initAllEnergiesChart() {
+  const canvas = document.getElementById('energy-all-chart');
+  if (!canvas) return;
+  if (energyAllChart) { energyAllChart.destroy(); energyAllChart = null; }
+  energyAllChart = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: { labels: [], datasets: [] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          mode: 'nearest',
+          intersect: false,
+          backgroundColor: 'rgba(10,16,26,0.92)',
+          borderColor: 'rgba(90,104,128,0.4)',
+          borderWidth: 1,
+          titleColor: '#A78BFA',
+          bodyColor: '#C8D4E8',
+          titleFont: { family: 'JetBrains Mono', size: 9 },
+          bodyFont: { family: 'JetBrains Mono', size: 9 },
+          padding: 6,
+          callbacks: {
+            title: items => items[0].dataset.label,
+            label: item => {
+              const v = item.raw;
+              return v !== null ? `E = ${parseFloat(v).toFixed(4)} eV/atom  step ${item.dataIndex}` : '—';
+            },
+          },
+        },
+      },
+      layout: { padding: { left: 8, right: 4, top: 4, bottom: 2 } },
+      scales: {
+        x: {
+          display: true,
+          ticks: { color: '#5A6880', font: { family: 'JetBrains Mono', size: 8 }, maxTicksLimit: 8 },
+          grid: { display: false },
+          border: { display: false },
+          title: { display: true, text: 'step', color: '#3A4860', font: { family: 'JetBrains Mono', size: 8 } },
+        },
+        y: {
+          grid: { color: '#1E2A3E', lineWidth: 0.5 },
+          ticks: { color: '#5A6880', font: { family: 'JetBrains Mono', size: 9 }, maxTicksLimit: 4, padding: 8 },
+          border: { display: false },
+        },
+      },
+    },
+  });
+}
+
+async function renderAllEnergiesChart() {
+  if (!selectedSystem || allEnergyPending) return;
+  allEnergyPending = true;
+  try {
+    const compsRes = await fetch(`/api/compositions?dir=${encodeURIComponent(selectedSystem.path)}`);
+    const comps = await compsRes.json();
+    if (!Array.isArray(comps) || !comps.length) return;
+
+    const datasets = [];
+    // Fetch all trajectories in parallel
+    const fetched = await Promise.all(comps.map(async (comp, i) => {
+      let frames = [];
+      if (comp.has_trajectory && comp.trajectory_paths && comp.trajectory_paths.length) {
+        try {
+          const r = await fetch(`/api/trajectory?path=${encodeURIComponent(comp.trajectory_paths[0])}`);
+          const d = await r.json();
+          if (d.xyz) frames = splitXYZ(d.xyz);
+        } catch (_) {}
+      }
+      // If this comp has no completed traj but is the currently relaxing one, use live frames
+      if (!frames.length && relaxingSystems.has(selectedSystem.name) && trajFrames.length) {
+        const liveComp = liveComposition || '';
+        if (!liveComp || comp.name === liveComp || liveComp.includes(comp.name)) {
+          frames = trajFrames;
+        }
+      }
+      return { label: comp.name, frames, color: _allChartColor(i) };
+    }));
+
+    const maxLen = Math.max(...fetched.map(f => f.frames.length), 1);
+    const labels = Array.from({ length: maxLen }, (_, i) => i);
+
+    fetched.forEach(({ label, frames, color }) => {
+      if (!frames.length) return;
+      const energies = frames.map(f => parseFrameEnergy(f));
+      // Pad by repeating last known energy value
+      const lastE = energies.filter(e => e !== null).at(-1) ?? null;
+      while (energies.length < maxLen) energies.push(lastE);
+      datasets.push({
+        label,
+        data: energies,
+        borderColor: color,
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.2,
+        spanGaps: true,
+      });
+    });
+
+    if (!energyAllChart) _initAllEnergiesChart();
+    energyAllChart.data.labels = labels;
+    energyAllChart.data.datasets = datasets;
+    energyAllChart.update('none');
+  } finally {
+    allEnergyPending = false;
+  }
 }
 
 let showForces = false;
@@ -1870,9 +2028,9 @@ function switchTab(name) {
   document.getElementById('plots-center').style.display = isPlots  ? 'flex' : 'none';
 
   const viewerTraj = document.getElementById('viewer-traj');
-  const energyWrap = document.getElementById('energy-chart-wrap');
+  const energyBody = document.getElementById('energy-body');
   if (viewerTraj) viewerTraj.style.display = isTDB ? '' : 'none';
-  if (energyWrap) energyWrap.style.display = isTDB ? '' : 'none';
+  if (energyBody) energyBody.style.display = isTDB ? '' : 'none';
 
   // Section headers that frame viewer-traj / energy-chart-wrap
   document.querySelectorAll('.tdb-section-header').forEach(h => {
@@ -2072,6 +2230,10 @@ async function poll() {
           showFrame(frames.length - 1);
         }
       }
+      // Refresh all-compositions chart when that tab is active and system is running
+      if (activeEnergyTab === 'all' && selectedSystem && relaxingSystems.has(selectedSystem.name)) {
+        renderAllEnergiesChart();
+      }
     } else {
       liveComposition = null;
       // Only clear composition label when live mode is off (avoid flicker during liveRefresh cycle)
@@ -2211,7 +2373,7 @@ document.addEventListener('mousemove', e => {
     lp.style.height = h + 'px';
     lp.style.flexShrink = '0';
   } else if (type === 'row-energy') {
-    const ew = document.getElementById('energy-chart-wrap');
+    const ew = document.getElementById('energy-body');
     const h = Math.max(50, Math.min(300, startVal + (e.clientY - startY)));
     ew.style.height = h + 'px';
     ew.style.flexShrink = '0';
@@ -2260,7 +2422,7 @@ function _initHandles() {
 
   const he = document.getElementById('handle-energy');
   if (he) he.addEventListener('mousedown', e => {
-    const ew = document.getElementById('energy-chart-wrap');
+    const ew = document.getElementById('energy-body');
     _rhStart('row-energy', e, ew ? ew.offsetHeight : 100);
   });
 
