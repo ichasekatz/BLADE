@@ -2390,6 +2390,16 @@ async function poll() {
         if (frames.length) {
           _applyFrames(frames);
           showFrame(frames.length - 1);
+          // Update header name + energy when no comp was manually selected
+          if (liveMode && selectedSystem && liveComposition) {
+            const nameEl = document.getElementById('active-name');
+            if (nameEl && !nameEl.textContent.includes(liveComposition)) {
+              nameEl.textContent = `${selectedSystem.name} / ${liveComposition}`;
+            }
+            const lastE = parseFrameEnergy(frames[frames.length - 1]);
+            const subEl = document.getElementById('active-substage');
+            if (subEl && lastE !== null) subEl.textContent = `${lastE.toFixed(4)} eV/atom`;
+          }
         }
       }
       // Refresh all-compositions chart when that tab is active and system is running
