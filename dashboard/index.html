@@ -1112,6 +1112,9 @@ function liveRefresh(sys) {
     .then(r => r.json())
     .then(d => {
       if (d.xyz) {
+        // If liveSys is off, only apply the trajectory if it belongs to this system.
+        // The path contains the system name under Files/Comps/<name>/.
+        if (!liveSys && d.path && !d.path.includes(`/${sys.name}/`)) return;
         // If server reports a different system is now live and liveSys is on, switch to it
         if (liveSys && d.system && d.system !== sys.name) {
           const newSys = latestSystems.find(s => s.name === d.system);
