@@ -18,7 +18,7 @@ secondary_max = 0
 # ── TDB ────────────────────────────────────────────────────────────────────────
 [tdb]
 level        = 2
-comps_folder = "Comps_MAX_Test"
+comps_folder = "Comps_MAX"
 
 # ── SQS composition levels ─────────────────────────────────────────────────────
 # MAX: two mixed sublattices (a = M, b = A); both decorated in SQS.
