@@ -834,16 +834,15 @@ function initEnergyChart() {
         fill: false,
       },
       {
-        // convergence marker — vertical line drawn as two-point segment
+        // convergence marker — highlighted dot on the energy curve
         data: [],
-        borderColor: 'rgba(52,211,153,0.7)',
-        borderWidth: 1.5,
-        borderDash: [3, 3],
-        pointRadius: 0,
-        showLine: true,
+        borderColor: 'rgba(52,211,153,0.9)',
+        backgroundColor: 'rgba(52,211,153,0.9)',
+        pointRadius: [],
+        pointHoverRadius: 7,
+        showLine: false,
         tension: 0,
         fill: false,
-        tooltip: { enabled: false },
       },
     ]},
     options: {
@@ -991,16 +990,13 @@ function updateEnergyChartFromFrames() {
   energyChart.data.labels = labels;
   energyChart.data.datasets[0].data = energies.map(e => e ?? null);
 
-  // Convergence marker: vertical dashed line at trajConvergedStep
+  // Convergence marker: green dot at the step where fmax was reached
   if (trajConvergedStep !== null && trajConvergedStep < energies.length) {
-    const eMin = Math.min(...energies.filter(e => e !== null));
-    const eMax = Math.max(...energies.filter(e => e !== null));
-    energyChart.data.datasets[2].data = [
-      { x: trajConvergedStep, y: eMin },
-      { x: trajConvergedStep, y: eMax },
-    ];
+    energyChart.data.datasets[2].data = energies.map((e, i) => i === trajConvergedStep ? e : null);
+    energyChart.data.datasets[2].pointRadius = energies.map((_, i) => i === trajConvergedStep ? 6 : 0);
   } else {
     energyChart.data.datasets[2].data = [];
+    energyChart.data.datasets[2].pointRadius = [];
   }
 
   energyChart.update('none');
