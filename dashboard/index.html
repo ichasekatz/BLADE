@@ -691,6 +691,7 @@ let selectedSQSSubdir = null; // currently selected composition chip key "dirNam
 let selectedSQSDir = null;    // currently selected dir name (right panel)
 let energyChart = null;
 let trajConvergedStep = null;  // step index where convergence was reached (null = unknown/not converged)
+let liveComposition = null;   // sqsdb dir name of the structure currently relaxing
 let trajFrames = [];
 let trajIdx = 0;
 let trajPlaying = false;
@@ -1702,7 +1703,8 @@ function renderSystems(systems) {
       row.dataset.name = sys.name;
       row.innerHTML = `
         <span class="system-name">${sys.name}</span>
-        <span class="system-badge" id="badge-${sys.name}"></span>`;
+        <span class="system-badge" id="badge-${sys.name}"></span>
+        <span id="comp-sub-${sys.name}" hidden style="font-family:var(--mono);font-size:8px;color:var(--text-dim);width:100%;padding:0 8px 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>`;
       // Always look up current data by name so clicks after new CONTCAR/trajectory appear work correctly
       row.addEventListener('click', () => {
         const current = latestSystems.find(s => s.name === sys.name) || sys;
@@ -1719,7 +1721,11 @@ function renderSystems(systems) {
     // Update badge
     const badge = document.getElementById(`badge-${sys.name}`);
     if (badge) {
-      if (sys.tdb_done) { badge.className = 'system-badge done'; badge.textContent = 'done'; }
+      if (sys.tdb_done) {
+        badge.className = 'system-badge done'; badge.textContent = 'done';
+        const sub = document.getElementById(`comp-sub-${sys.name}`);
+        if (sub) { sub.hidden = true; sub.textContent = ''; }
+      }
       else if (sys.energy_count > 0) { badge.className = 'system-badge running'; badge.textContent = `${sys.energy_count}E`; }
       else if (relaxingSystems.has(sys.name)) { badge.className = 'system-badge running'; badge.textContent = 'relaxing'; }
       else { badge.className = 'system-badge queued'; badge.textContent = 'queued'; }
@@ -1937,12 +1943,33 @@ function _selectPlotGroup(group, strip) {
 // ── Poll ───────────────────────────────────────────────────────────────
 async function poll() {
   try {
-    const [statusRes, sqsRes, plotsRes, logRes] = await Promise.all([
+    const [statusRes, sqsRes, plotsRes, logRes, liveTrajRes] = await Promise.all([
       fetch('/api/status').then(r => r.json()),
       fetch('/api/sqs').then(r => r.json()),
       fetch('/api/plots').then(r => r.json()),
       fetch('/api/log').then(r => r.json()),
+      fetch('/api/live_trajectory').then(r => r.json()).catch(() => ({xyz: null})),
     ]);
+
+    // Update live composition label + system badge from trajectory data on every poll
+    if (liveTrajRes.composition) {
+      liveComposition = liveTrajRes.composition;
+      const compLabel = document.getElementById('traj-comp-label');
+      if (compLabel) { compLabel.textContent = liveComposition; compLabel.title = liveComposition; }
+      // Mark the first not-done system as relaxing so its badge updates
+      const activeSys = (statusRes.systems || []).find(s => !s.tdb_done);
+      if (activeSys) {
+        relaxingSystems.add(activeSys.name);
+        const badge = document.getElementById(`badge-${activeSys.name}`);
+        if (badge) { badge.className = 'system-badge running'; badge.textContent = 'relaxing'; }
+        const sub = document.getElementById(`comp-sub-${activeSys.name}`);
+        if (sub) { sub.textContent = liveComposition; sub.hidden = false; }
+      }
+    } else {
+      liveComposition = null;
+      const compLabel = document.getElementById('traj-comp-label');
+      if (compLabel) compLabel.textContent = '';
+    }
 
     lastStatus = statusRes;
     updateStages(statusRes.stages, null);
