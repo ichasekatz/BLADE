@@ -453,12 +453,12 @@ def find_live_trajectory(sqsdb_dir: Path | None, blade_root: Path | None = None)
         info_file = p.parent / "relaxation_info.json"
         if info_file.exists():
             try:
-                import json as _json
-                info.update(_json.loads(info_file.read_text()))
+                info.update(json.loads(info_file.read_text()))
             except Exception:
                 pass
         return info
-    return None
+    # Return searched dirs so the client can surface a diagnostic message.
+    return {"_search_dirs": [str(d) for d in search_dirs]}
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -569,7 +569,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
         elif path == "/api/live_trajectory":
             result = find_live_trajectory(self.sqsdb_dir, self.blade_root)
-            if result:
+            if result and result.get("path"):
                 p = Path(result["path"])
                 self._json({
                     "xyz": p.read_text(errors="ignore"),
@@ -581,7 +581,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "composition": p.parent.name,
                 })
             else:
-                self._json({"xyz": None, "path": None})
+                self._json({
+                    "xyz": None,
+                    "path": None,
+                    "search_dirs": (result or {}).get("_search_dirs", []),
+                })
 
         elif path == "/api/log":
             lines = read_log_tail(self.log_path)
