@@ -587,6 +587,10 @@
         <div class="overlay-chip" id="frame-chip" hidden>Frame —/—</div>
         <div class="overlay-chip" id="energy-chip" hidden>E = — eV/atom</div>
       </div>
+      <div id="sqsdb-warn" hidden style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:16px;pointer-events:none">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);text-align:center">no sqsdb found — set <code style="color:var(--accent)">[paths] sqsdb_dir</code> in your TOML</span>
+        <span id="sqsdb-warn-paths" style="font-family:var(--mono);font-size:9px;color:var(--text-dim);opacity:0.6;text-align:center;word-break:break-all"></span>
+      </div>
     </div>
     <div class="row-handle tdb-section-header" id="handle-energy" title="Drag to resize"></div>
     <div class="section-header tdb-section-header" onclick="toggleSection('energy-chart-wrap','btn-echart-collapse','▾ energy','▸ energy')" style="display:flex;align-items:center;gap:6px;padding:3px 10px;border-top:1px solid var(--border);flex-shrink:0;cursor:pointer;user-select:none">
@@ -1964,6 +1968,9 @@ async function poll() {
     // Update live composition label + system badge + 3D viewer from trajectory data on every poll
     if (liveTrajRes.xyz && liveTrajRes.composition) {
       liveComposition = liveTrajRes.composition;
+      // Hide sqsdb warning when trajectory is found
+      const warnEl = document.getElementById('sqsdb-warn');
+      if (warnEl) { warnEl.hidden = true; warnEl.style.display = 'none'; }
       // Energy header label
       const compLabel = document.getElementById('traj-comp-label');
       if (compLabel) { compLabel.textContent = liveComposition; compLabel.title = liveComposition; }
@@ -1989,14 +1996,19 @@ async function poll() {
       liveComposition = null;
       const compLabel = document.getElementById('traj-comp-label');
       if (compLabel) compLabel.textContent = '';
-      // Surface sqsdb diagnostic in console so user can verify the path.
-      if (liveTrajRes.search_dirs !== undefined) {
-        const dirs = liveTrajRes.search_dirs;
-        if (dirs.length === 0) {
-          console.warn('[dashboard] live_trajectory: sqsdb_dir not set and no fallback paths found. Set [paths] sqsdb_dir in your TOML config.');
-        } else {
-          console.info('[dashboard] live_trajectory: searched', dirs, '— no relaxation_live.xyz or relaxation_final.xyz found.');
-        }
+      // Show sqsdb warning in the structure viewer when no trajectory found.
+      const warn = document.getElementById('sqsdb-warn');
+      const warnPaths = document.getElementById('sqsdb-warn-paths');
+      if (warn && liveTrajRes.search_dirs !== undefined) {
+        const dirs = liveTrajRes.search_dirs || [];
+        warn.hidden = false;
+        warn.style.display = 'flex';
+        if (warnPaths) warnPaths.textContent = dirs.length
+          ? 'searched: ' + dirs.join(', ')
+          : 'no sqsdb path configured and no fallback found';
+      } else if (warn) {
+        warn.hidden = true;
+        warn.style.display = 'none';
       }
     }
 
