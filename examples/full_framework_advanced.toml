@@ -1,106 +1,350 @@
 # full_framework_advanced.toml
-# Advanced settings for full_framework.py. These are rarely changed defaults.
-# Pass this file as a second argument to merge its values into the main config:
+#
+# Advanced and rarely-changed settings for full_framework.py.
+#
+# HOW TO USE
+# ──────────
+# Pass this file after your main config on the command line. BLADE deep-merges
+# TOML files left-to-right, so keys defined in full_framework.toml take
+# precedence over this file — this file only fills in what you haven't set.
 #
 #   uv run --extra workflow python examples/full_framework.py \
 #       examples/full_framework.toml examples/full_framework_advanced.toml
 #
-# Settings here are overridden by any key already present in the main toml.
+# You can also use a project-specific override after this file:
+#
+#   uv run --extra workflow python examples/full_framework.py \
+#       examples/full_framework.toml \
+#       examples/full_framework_advanced.toml \
+#       examples/configs/my_system.toml
+#
+# WHAT BELONGS HERE vs full_framework.toml
+# ─────────────────────────────────────────
+# full_framework.toml       — settings you change per project (elements, phase
+#                             prototype, SQS levels, TDB level, paths)
+# full_framework_advanced.toml — defaults you rarely touch: CALPHAD fit knobs,
+#                             SQS cutoffs, plot resolution, per-stage MLIP
+#                             overrides, per-system TDB composition overrides
 
-# ── Per-stage MLIP overrides ──────────────────────────────────────────────────
-# Override [mlip_kwargs] for a specific stage only.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Per-stage MLIP overrides
+# ═══════════════════════════════════════════════════════════════════════════════
+# [mlip_kwargs] in the main config applies to both TDB fitting and the
+# oxidation database stage. Use these sections to override for one stage only.
+# Keys match [mlip_kwargs] exactly (steps, device, etc.).
+#
+# Example: run TDB fitting on GPU but database relaxations on CPU:
 # [tdb_mlip_kwargs]
 # steps  = 1000
-# device = "cpu"
-
+# device = "cuda"
+#
 # [database_mlip_kwargs]
 # steps  = 1000
 # device = "cpu"
 
-# ── TDB fitting (advanced) ────────────────────────────────────────────────────
-# prototype_driver selects the stage-runner script used by full_framework.py.
-# "multibasis" uses tdb_gen_max.py (default); "standard" uses tdb_gen_hedb.py.
-# [tdb]
-# prototype_driver = "multibasis"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TDB generation (advanced)
+# ═══════════════════════════════════════════════════════════════════════════════
 
 [tdb]
-refit_existing_tdb = false   # refit from existing energies without re-relaxing structures
+# refit_existing_tdb: when true, skip MLIP relaxation and re-run only the
+# CALPHAD fitting step using energies already written to disk. Useful for
+# tuning fit parameters (bv, sro, t_min/t_max) without re-relaxing structures.
+refit_existing_tdb = false
 
+# prototype_driver: selects the stage-runner used by full_framework.py.
+#   "multibasis" → tdb_gen_max.py  (multi-sublattice MAX/Heusler phases)
+#   "standard"   → tdb_gen_hedb.py (single-sublattice HEDB/simple phases)
+# Default is "multibasis". Uncomment to switch:
+# prototype_driver = "standard"
+
+# TDB element pool override — inherits from [elements] in the main config.
+# Uncomment to restrict which elements participate in TDB fitting without
+# changing the SQS generation pool.
+# primary     = ["Cr", "Hf", "Mo"]
+# primary_min = 2
+# primary_max = 3
+
+
+# ── CALPHAD fit parameters ────────────────────────────────────────────────────
 [tdb_fit]
-verbose      = true
-sro          = false    # short-range order correction
-bv           = 0.001   # Bragg-Williams penalty
-phonon       = false    # include phonon contributions
-open_calphad = false    # open result in OpenCalphad after fitting
+# verbose: print ATAT sqs2tdb fit output to stdout. Useful for debugging
+# convergence issues; noisy for batch runs.
+verbose = true
 
+# sro: apply short-range order correction during fitting. Adds a Warren-Cowley
+# correction term. Rarely needed for dilute solid solutions.
+sro = false
+
+# bv: Bragg-Williams penalty weight. Controls regularisation of interaction
+# parameters. Increase (e.g. 0.01) to suppress overfitting on sparse data;
+# decrease toward 0 for near-perfect fit to DFT/MLIP energies.
+bv = 0.001
+
+# phonon: include phonon (vibrational) contributions to Gibbs energy.
+# Requires phonon calculations to be present in the sqsdb subdirectories.
+phonon = false
+
+# open_calphad: open the fitted TDB in OpenCalphad immediately after fitting.
+# Requires oc on $PATH.
+open_calphad = false
+
+
+# ── SQS correlation cutoffs ───────────────────────────────────────────────────
 [tdb_sqs]
-cutoff_mode       = "nn"   # "nn" = nearest-neighbour, "manual" = explicit distances
+# cutoff_mode: how to determine the cluster cutoff distances passed to mcsqs.
+#   "nn"     → nearest-neighbour multiples (recommended; lattice-agnostic)
+#   "manual" → explicit Å values via pair_cutoff / triplet_cutoff / quadruplet_cutoff
+cutoff_mode = "nn"
+
+# Cutoffs in nearest-neighbour units (cutoff_mode = "nn") or Å (cutoff_mode = "manual").
+# Larger values → more clusters → better SQS quality but slower mcsqs runs.
 pair_cutoff       = 5
 triplet_cutoff    = 4
 quadruplet_cutoff = 3
 
-# ── SCRAPS SQS settings ───────────────────────────────────────────────────────
-# Only used when tdb.sqs_method = "scraps".
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCRAPS SQS settings
+# ═══════════════════════════════════════════════════════════════════════════════
+# Only used when tdb.sqs_method = "scraps" in the main config.
+# SCRAPS is an alternative to mcsqs for SQS generation using a genetic
+# algorithm; it can be faster for large supercells or high component counts.
 [tdb_scraps]
-ranks                     = 10
-auto_budget               = 3
-max_shellnum              = 4
+# ranks: number of parallel SCRAPS workers per composition.
+ranks = 10
+
+# auto_budget: maximum CPU-hours per composition before SCRAPS stops.
+auto_budget = 3
+
+# max_shellnum: number of coordination shells included in the objective.
+max_shellnum = 4
+
+# fix_multibasis_sublattice: pin one sublattice to its pure-element reference
+# when generating multi-sublattice SQS. Set true for MAX phases where the
+# X-site (B, C) is always single-species.
 fix_multibasis_sublattice = false
 
-# ── Phase diagram plot details ─────────────────────────────────────────────────
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Phase diagram plot details
+# ═══════════════════════════════════════════════════════════════════════════════
 [phase_plots]
-gif_t_step               = 10
-gif_fps                  = 20
-n_grid                   = 40
-two_phase_threshold      = 5.0
-pressure                 = 101325.0
+# gif_t_step: temperature step (K) between frames in animated GIF phase diagrams.
+# Smaller → smoother animation but larger file.
+gif_t_step = 10
+
+# gif_fps: frames per second for animated GIF output.
+gif_fps = 20
+
+# n_grid: number of grid points along each composition axis for phase boundary
+# calculation. Higher → sharper boundaries but slower plotting.
+n_grid = 40
+
+# two_phase_threshold: minimum mole fraction (%) of a phase to count it as
+# present in a two-phase region. Filters numerical noise near boundaries.
+two_phase_threshold = 5.0
+
+# pressure: system pressure in Pa for Gibbs energy calculations.
+pressure = 101325.0
+
+# skip_missing_calculations: if true, silently skip systems whose TDB is absent
+# rather than raising an error. Useful for partial runs.
 skip_missing_calculations = false
 
-# ── Phase grid video ──────────────────────────────────────────────────────────
-[phase_grid]
-phase_diagrams_folder = "Phase_Diagrams"
-panel_width           = 150
-panel_height          = 130
-fps                   = 20
-background_rgb        = [255, 255, 255]
-header_height         = 40
-colorbar_width        = 60
-t_start               = 200
-t_end                 = 2000
-t_step                = 10
 
-# ── Oxidation database (advanced) ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# Phase grid video
+# ═══════════════════════════════════════════════════════════════════════════════
+# Controls the tiled phase-diagram video assembled from individual PNG frames.
+[phase_grid]
+phase_diagrams_folder = "Phase_Diagrams"   # folder containing per-system PNG frames
+panel_width           = 150                # pixel width of each system panel
+panel_height          = 130                # pixel height of each system panel
+fps                   = 20                 # video frame rate
+background_rgb        = [255, 255, 255]    # background fill colour (RGB 0–255)
+header_height         = 40                 # pixel height of the temperature label bar
+colorbar_width        = 60                 # pixel width reserved for the shared colorbar
+t_start               = 200               # first temperature frame (K)
+t_end                 = 2000              # last temperature frame (K)
+t_step                = 10                # temperature increment per frame (K)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Oxidation database (advanced)
+# ═══════════════════════════════════════════════════════════════════════════════
 [database]
-stable_only            = true
-skip_blade_formulas    = true
-skip_existing_poscars  = true
+# stable_only: download only thermodynamically stable structures from the
+# Materials Project. Set false to include metastable structures (larger database,
+# longer relaxation time).
+stable_only = true
+
+# skip_blade_formulas: exclude chemical formulas already present in your BLADE
+# Comps directories from the MP download (avoids redundant relaxations).
+skip_blade_formulas = true
+
+# skip_existing_poscars: skip downloading POSCARs that already exist on disk.
+skip_existing_poscars = true
+
+# skip_existing_energies: skip MLIP relaxation for structures whose energy
+# file already exists in the database directory.
 skip_existing_energies = true
-# mlip_label and mlip_folder are auto-derived from database.mlip (e.g. "orb" → "MP+ORB").
-# Override here only if you need a custom name:
+
+# mlip_label and mlip_folder are auto-derived from database.mlip
+# (e.g. "orb" → label "MP+ORB", folder "MaterialsProject_Comps_ORB").
+# Override here only if you need a custom directory or plot label:
 # mlip_label  = "MP+ORB"
 # mlip_folder = "MaterialsProject_Comps_ORB"
-poscar_folder          = "MaterialsProject_Comps_POSCARs"
-blade_comp_folders     = ["Comps"]
 
-# ── Oxidation display settings ─────────────────────────────────────────────────
+# poscar_folder: subdirectory inside blade_root/Files where MP POSCARs are saved.
+poscar_folder = "MaterialsProject_Comps_POSCARs"
+
+# blade_comp_folders: list of Comps-style folders to scan for BLADE energies
+# when building the combined reference database.
+blade_comp_folders = ["Comps"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Oxidation display settings
+# ═══════════════════════════════════════════════════════════════════════════════
 [oxidation]
-region_label_mode     = "phases"   # "phases" or "id"
-region_label_fontsize = 7
-slice_axis_priority   = ["Cr", "Hf", "Mo", "Nb", "Ta", "Ti", "V", "W", "Zr"]
+# region_label_mode: how to label phase regions in Ellingham/stability diagrams.
+#   "phases" → formula labels (e.g. "Cr₂O₃ + HfO₂")
+#   "id"     → numeric region IDs (useful when formulas overlap)
+region_label_mode = "phases"
 
-# ── Single-composition oxidation ───────────────────────────────────────────────
-# Used when oxidation.mode = "single".
+# region_label_fontsize: font size (pt) for phase region labels in plots.
+region_label_fontsize = 7
+
+# slice_axis_priority: when plotting ternary composition slices, this ordered
+# list determines which element goes on the primary x-axis. First match wins.
+slice_axis_priority = ["Cr", "Hf", "Mo", "Nb", "Ta", "Ti", "V", "W", "Zr"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Single-composition oxidation
+# ═══════════════════════════════════════════════════════════════════════════════
+# Used when oxidation.mode = "single" in the main config.
+# Calculates and plots oxidation stability for one specific alloy composition.
 [oxidation_single]
-system            = "CrHfMoB"
-metals            = ["Cr", "Hf", "Mo"]
-composition       = [0.3333333333333333, 0.3333333333333333, 0.3333333333333333]
+# system: name of the alloy system to analyse (used for output directory naming).
+system = "CrHfMoB"
+
+# metals: the metallic elements in this composition (excludes the phase element).
+metals = ["Cr", "Hf", "Mo"]
+
+# composition: metal mole fractions in the same order as `metals`.
+# Must sum to 1.0.
+composition = [0.3333333333333333, 0.3333333333333333, 0.3333333333333333]
+
+# temperature_range: [T_min, T_max, T_step] in K for the stability calculation.
 temperature_range = [250, 2000, 10]
-mu_o_range        = [-12.0, -4.0, 0.1]
-scan_temperatures  = [700, 1000, 1273, 1300]
-x_range           = [0.0, 1.0, 0.01]
-skip_if_exists    = true
-run_calculations  = true
-run_plots         = true
+
+# mu_o_range: [μ_O_min, μ_O_max, μ_O_step] in eV for the oxygen chemical
+# potential sweep. -4 eV corresponds roughly to ambient O₂ partial pressure.
+mu_o_range = [-12.0, -4.0, 0.1]
+
+# scan_temperatures: specific temperatures (K) to highlight in composition scans.
+scan_temperatures = [700, 1000, 1273, 1300]
+
+# x_range: [x_min, x_max, x_step] composition range for the x-axis scan.
+x_range = [0.0, 1.0, 0.01]
+
+skip_if_exists   = true    # skip if analysis outputs already exist
+run_calculations = true    # run μ_O / T stability calculations
+run_plots        = true    # generate all plot types
+
+# include_0p01_to_0p05_components: include trace-level oxide phases
+# (mole fraction 0.01–0.05) in the stability diagrams. Reveals minority phases
+# that appear near oxidation onset but may clutter dense diagrams.
 include_0p01_to_0p05_components = true
-rk_order          = 3
-y_step            = 0.01
+
+# rk_order: Redlich-Kister polynomial order for excess Gibbs energy mixing.
+# 3 is standard for most CALPHAD descriptions.
+rk_order = 3
+
+# y_step: composition step size along the y-axis for 2D stability map grids.
+y_step = 0.01
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Per-site element and composition overrides
+# ═══════════════════════════════════════════════════════════════════════════════
+# Override which elements occupy each sublattice site for all systems, or pin
+# a site to a fixed composition. Replace HEDB1/MAX1/etc. with your phase key
+# and "a"/"b"/etc. with your sublattice letter.
+
+# ── Site form: elements + optional constant composition ───────────────────────
+# Assigns elements to a sublattice and optionally fixes the site fractions.
+# "constant = true" prevents ATAT from varying this sublattice during SQS search.
+#
+# [tdb_inputs.sites.HEDB1.a]
+# elements    = ["Cr", "Hf"]          # elements on this site
+# constant    = true                  # fix composition (do not generate SQS for this site)
+# composition = [0.75, 0.25]          # fixed site fractions (order matches elements)
+
+# ── Sublattice-map form: element list only ────────────────────────────────────
+# Simpler alternative when you only need to restrict which elements go on each
+# site without fixing compositions.
+#
+# [tdb_inputs.sublattice_map.HEDB1]
+# a = ["Cr", "Hf", "Mo", "V"]        # all elements allowed on sublattice a
+# b = ["B"]                           # single-species site b
+
+# ── Fixed-composition form ────────────────────────────────────────────────────
+# Fix site fractions globally (element order follows sublattice_map above).
+#
+# [tdb_inputs.fixed_compositions]
+# a = [0.5, 0.5]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Per-system TDB overrides
+# ═══════════════════════════════════════════════════════════════════════════════
+# Apply site/composition overrides to specific binary or ternary systems only.
+# System names are order-independent ("CrHf" == "HfCr").
+
+# Example: fix CrHf binary to a specific composition on sublattice a:
+#
+# [tdb_system_overrides.CrHf.sites.HEDB1.a]
+# elements    = ["Cr", "Hf"]
+# constant    = true
+# composition = [0.75, 0.25]
+#
+# [tdb_system_overrides.CrHf.sublattice_map.HEDB1]
+# a = ["Cr", "Hf"]
+#
+# [tdb_system_overrides.CrHf.fixed_compositions]
+# a = [0.75, 0.25]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Oxidation batch — granular plot controls
+# ═══════════════════════════════════════════════════════════════════════════════
+# When oxidation_batch.run_plots = true (set in main config), all plot types
+# are enabled. Uncomment this section to enable or disable individual plot
+# types without touching the main config.
+#
+# [oxidation_batch]
+# run_calculations          = true    # μ_O / T thermodynamic calculations
+# run_scan                  = true    # composition scan at fixed T and μ_O
+# run_muO_x_map             = true    # 2D map: μ_O vs composition
+# run_onset                 = true    # oxidation onset temperature map
+# run_3d_onset              = false   # 3D onset surface (slow for large grids)
+# run_composition_slices    = true    # ternary composition-slice diagrams
+# run_composition_slice_muT = true    # μ_O–T slices at fixed composition
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Oxidation batch — onset resolution
+# ═══════════════════════════════════════════════════════════════════════════════
+# Controls grid spacing for oxidation onset calculations. Finer steps give
+# smoother onset maps but increase compute time quadratically for ternaries.
+#
+# onset_comp_step_binary  = 0.02     # composition step for binary systems
+# onset_comp_step_ternary = 0.025    # composition step for ternary systems
+# onset_comp_step_nary    = 0.1      # composition step for 4+ component systems
+# onset_threshold         = 1e-8     # mole fraction below which a phase is
+#                                    # considered absent (onset detection cutoff)
