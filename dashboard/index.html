@@ -913,7 +913,7 @@ function initEnergyChart() {
         borderWidth: 1.5,
         pointRadius: 0,
         tension: 0.3,
-        fill: { target: 'origin', above: 'rgba(232,160,48,0.05)' },
+        fill: { target: 'start', above: 'rgba(232,160,48,0.05)' },
       },
       {
         // current-frame dot
@@ -1267,6 +1267,19 @@ function updateEnergyChartFromFrames() {
   // Clear stale frame marker if x position is out of bounds for this trajectory
   const _ds1 = energyChart.data.datasets[1];
   if (_ds1.data.length && _ds1.data[0].x >= energies.length) _ds1.data = [];
+
+  // Auto-scale y-axis to data range with 10% padding
+  const _valid = energies.filter(e => e !== null);
+  if (_valid.length) {
+    const eMin = Math.min(..._valid);
+    const eMax = Math.max(..._valid);
+    const pad = (eMax - eMin) * 0.1 || 0.5;
+    energyChart.options.scales.y.min = eMin - pad;
+    energyChart.options.scales.y.max = eMax + pad;
+  } else {
+    energyChart.options.scales.y.min = undefined;
+    energyChart.options.scales.y.max = undefined;
+  }
 
   energyChart.update('none');
   const last = energies.filter(e => e !== null).at(-1);
