@@ -408,7 +408,11 @@ def read_log_tail(log_path: Path, n_lines: int = 80) -> list[str]:
 # HTTP handler
 # ---------------------------------------------------------------------------
 
-def find_live_trajectory(sqsdb_dir: Path | None, blade_root: Path | None = None) -> dict | None:
+def find_live_trajectory(
+    sqsdb_dir: Path | None,
+    blade_root: Path | None = None,
+    files_dir: Path | None = None,
+) -> dict | None:
     """Return the most recently modified relaxation_live.xyz (or relaxation_final.xyz), or None.
 
     Prefers a live file; falls back to the most recent relaxation_final.xyz so the
@@ -416,9 +420,16 @@ def find_live_trajectory(sqsdb_dir: Path | None, blade_root: Path | None = None)
     live file is deleted by the next run.
     """
     search_dirs: list[Path] = []
-    if sqsdb_dir and sqsdb_dir.exists():
+    # Files/Comps is where BLADE writes trajectories during relaxation
+    if files_dir and files_dir.exists():
+        search_dirs.append(files_dir)
+    if sqsdb_dir and sqsdb_dir.exists() and sqsdb_dir not in search_dirs:
         search_dirs.append(sqsdb_dir)
     if blade_root:
+        # Also check blade_root/Files in case files_dir wasn't passed
+        blade_files = blade_root / "Files"
+        if blade_files.exists() and blade_files not in search_dirs:
+            search_dirs.append(blade_files)
         parent = blade_root.parent
         for guess in [
             parent / "PhaseForge" / "atat" / "data" / "sqsdb",
@@ -569,7 +580,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json({"data": b64, "mime": mime, "name": p.name})
 
         elif path == "/api/live_trajectory":
-            result = find_live_trajectory(self.sqsdb_dir, self.blade_root)
+            result = find_live_trajectory(self.sqsdb_dir, self.blade_root, self.files_dir)
             if result and result.get("path"):
                 p = Path(result["path"])
                 self._json({
