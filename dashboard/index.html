@@ -1194,18 +1194,20 @@ function selectSystem(sys, keepLive = false) {
     : 'queued';
   document.getElementById('active-substage').textContent = substage;
 
-  // Load trajectory if available
-  trajFrames = [];
-  if (sys.has_trajectory && sys.trajectory_paths.length) {
-    fetch(`/api/trajectory?path=${encodeURIComponent(sys.trajectory_paths[0])}`)
-      .then(r => r.json())
-      .then(d => { if (d.xyz) { _applyFrames(splitXYZ(d.xyz)); showFrame(trajFrames.length - 1); } })
-      .catch(() => {});
-  } else if (sys.contcar_paths && sys.contcar_paths.length) {
-    fetch(`/api/structure?path=${encodeURIComponent(sys.contcar_paths[0])}`)
-      .then(r => r.json())
-      .then(d => { if (d.xyz) { trajFrames = [d.xyz]; initTrajViewer(); showFrame(0); } })
-      .catch(() => {});
+  // Load trajectory if available — skip when keepLive: liveRefresh handles frames
+  if (!keepLive) {
+    trajFrames = [];
+    if (sys.has_trajectory && sys.trajectory_paths.length) {
+      fetch(`/api/trajectory?path=${encodeURIComponent(sys.trajectory_paths[0])}`)
+        .then(r => r.json())
+        .then(d => { if (d.xyz) { _applyFrames(splitXYZ(d.xyz)); showFrame(trajFrames.length - 1); } })
+        .catch(() => {});
+    } else if (sys.contcar_paths && sys.contcar_paths.length) {
+      fetch(`/api/structure?path=${encodeURIComponent(sys.contcar_paths[0])}`)
+        .then(r => r.json())
+        .then(d => { if (d.xyz) { trajFrames = [d.xyz]; initTrajViewer(); showFrame(0); } })
+        .catch(() => {});
+    }
   }
 }
 
