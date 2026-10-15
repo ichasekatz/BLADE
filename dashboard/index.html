@@ -1074,6 +1074,7 @@ function setLiveMode(v) {
 }
 function setLiveSys(v) {
   liveSys = v;
+  if (v) poll(); // snap immediately without waiting for next interval
 }
 function setLiveSQS(v) {
   liveSQS = v;
@@ -1981,6 +1982,15 @@ async function poll() {
       liveComposition = null;
       const compLabel = document.getElementById('traj-comp-label');
       if (compLabel) compLabel.textContent = '';
+      // Surface sqsdb diagnostic in console so user can verify the path.
+      if (liveTrajRes.search_dirs !== undefined) {
+        const dirs = liveTrajRes.search_dirs;
+        if (dirs.length === 0) {
+          console.warn('[dashboard] live_trajectory: sqsdb_dir not set and no fallback paths found. Set [paths] sqsdb_dir in your TOML config.');
+        } else {
+          console.info('[dashboard] live_trajectory: searched', dirs, '— no relaxation_live.xyz or relaxation_final.xyz found.');
+        }
+      }
     }
 
     lastStatus = statusRes;
