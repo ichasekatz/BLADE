@@ -1074,14 +1074,17 @@ function setLiveMode(v) {
 }
 function setLiveSys(v) {
   liveSys = v;
-  if (v) poll(); // snap immediately without waiting for next interval
+  if (v) {
+    switchTab('tdb');
+    poll();
+  }
 }
 function setLiveSQS(v) {
   liveSQS = v;
   liveSys = v;
   liveFrame = v;
   liveMode = v;
-  if (v) poll(); // snap immediately
+  if (v) { switchTab('tdb'); poll(); }
   const lbl = document.getElementById('live-sqs-label');
   const chk = document.getElementById('live-sqs-chk');
   if (lbl) { lbl.style.color = v ? '#A78BFA' : 'var(--text-dim)'; lbl.style.fontWeight = v ? '600' : ''; }
@@ -2012,10 +2015,6 @@ async function poll() {
       if (active && (!selectedSystem || selectedSystem.name !== active.name)) {
         selectSystem(active, true); // keepLive=true so liveFrame stays on
         liveFrame = true; liveMode = true;
-        // If user is on SQS or Plots tab, switch to TDB to show the live relaxation.
-        if (document.getElementById('tab-tdb') && !document.getElementById('tab-tdb').classList.contains('active')) {
-          switchTab('tdb');
-        }
         openCompSystem = null; // reset so loadCompositions opens (not toggles closed)
         loadCompositions(active, document.getElementById(`sys-row-${active.name}`));
       } else if (active && selectedSystem && selectedSystem.name === active.name) {
