@@ -282,8 +282,19 @@ def scan_comps(files_dir: Path, comps_folder: str = "Comps") -> list[dict]:
             continue
         tdb_files = list(comp_dir.glob("*.tdb"))
         energy_files = list(comp_dir.rglob("energy"))
-        traj_files = list(comp_dir.rglob("*.xyz"))
         contcar_files = list(comp_dir.rglob("CONTCAR"))
+        # Prefer completed trajectories (relaxation_final.xyz) over live ones,
+        # and most-recently-modified first so trajectory_paths[0] is always the
+        # most relevant finished relaxation.
+        final_traj = sorted(
+            comp_dir.rglob("relaxation_final.xyz"),
+            key=lambda p: p.stat().st_mtime, reverse=True,
+        )
+        live_traj = sorted(
+            comp_dir.rglob("relaxation_live.xyz"),
+            key=lambda p: p.stat().st_mtime, reverse=True,
+        )
+        traj_files = final_traj + live_traj
 
         results.append({
             "name": comp_dir.name,
@@ -320,7 +331,8 @@ def scan_compositions(system_dir: Path) -> list[dict]:
     results = []
     for contcar in sorted(system_dir.rglob("CONTCAR")):
         parent = contcar.parent
-        traj = sorted(parent.rglob("*.xyz"))
+        # Prefer relaxation_final.xyz (complete) over relaxation_live.xyz
+        traj = sorted(parent.glob("relaxation_final.xyz")) + sorted(parent.glob("relaxation_live.xyz"))
         energy_file = parent / "energy"
         energy = None
         if energy_file.exists():
