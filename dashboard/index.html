@@ -1047,6 +1047,7 @@ function _initAllEnergiesChart() {
           title: { display: true, text: 'step', color: '#3A4860', font: { family: 'JetBrains Mono', size: 8 } },
         },
         y: {
+          grace: 0,
           grid: { color: '#1E2A3E', lineWidth: 0.5 },
           ticks: { color: '#5A6880', font: { family: 'JetBrains Mono', size: 9 }, maxTicksLimit: 4, padding: 8 },
           border: { display: false },
@@ -1122,6 +1123,17 @@ async function renderAllEnergiesChart() {
     if (!energyAllChart) _initAllEnergiesChart();
     energyAllChart.data.labels = labels;
     energyAllChart.data.datasets = datasets;
+
+    // Auto-scale y-axis to data range across all compositions
+    const _allVals = datasets.flatMap(ds => ds.data.filter(v => v !== null && v !== undefined));
+    if (_allVals.length) {
+      energyAllChart.options.scales.y.min = Math.min(..._allVals);
+      energyAllChart.options.scales.y.max = Math.max(..._allVals);
+    } else {
+      energyAllChart.options.scales.y.min = undefined;
+      energyAllChart.options.scales.y.max = undefined;
+    }
+
     energyAllChart.update('none');
   } finally {
     allEnergyPending = false;
