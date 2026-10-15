@@ -626,6 +626,10 @@
           <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--text-dim);user-select:none">
             <input type="checkbox" id="show-bonds-chk" onchange="setShowBonds(this.checked)" checked style="accent-color:var(--teal)"> Bonds
           </label>
+          <input type="number" id="bond-cutoff" min="0.5" max="8" step="0.1" value="3.5"
+            oninput="setBondCutoff(parseFloat(this.value))"
+            title="Max bond length (Å)"
+            style="width:46px;background:var(--surface2);border:1px solid var(--border2);color:var(--text-dim);font-family:var(--mono);font-size:10px;padding:2px 4px;border-radius:3px">
           <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--text-dim);user-select:none">
             <input type="checkbox" id="show-forces-chk" onchange="setShowForces(this.checked)" style="accent-color:var(--red)"> F
           </label>
@@ -642,6 +646,7 @@
         <div class="overlay-chip" id="energy-chip" hidden>E = — eV/atom</div>
         <div style="font-family:var(--mono);font-size:8px;color:var(--text-dim);opacity:0.45;margin-top:4px;pointer-events:none">drag: rotate · ctrl+drag: pan · scroll: zoom</div>
       </div>
+      <div id="atom-tooltip" style="display:none;position:fixed;z-index:200;background:rgba(10,16,26,0.92);border:1px solid var(--border2);border-radius:4px;padding:3px 8px;font-family:var(--mono);font-size:10px;color:var(--text);pointer-events:none;white-space:nowrap"></div>
       <div id="sqsdb-warn" hidden style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:16px;pointer-events:none">
         <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);text-align:center">no sqsdb found — set <code style="color:var(--accent)">[paths] sqsdb_dir</code> in your TOML</span>
         <span id="sqsdb-warn-paths" style="font-family:var(--mono);font-size:9px;color:var(--text-dim);opacity:0.6;text-align:center;word-break:break-all"></span>
@@ -784,11 +789,23 @@ function initTrajViewer() {
   });
   // Suppress browser context menu on the 3Dmol canvas so right-click drag translates
   el.addEventListener('contextmenu', e => e.preventDefault(), true);
-  // Also catch on the canvas once 3Dmol inserts it (deferred one tick)
   setTimeout(() => {
     const canvas = el.querySelector('canvas');
     if (canvas) canvas.addEventListener('contextmenu', e => e.preventDefault(), true);
   }, 0);
+
+  // Atom hover tooltip
+  const tooltip = document.getElementById('atom-tooltip');
+  trajViewer.setHoverable({}, true,
+    (atom, _v, event) => {
+      if (!tooltip) return;
+      tooltip.textContent = `${atom.elem}  (${atom.x.toFixed(3)}, ${atom.y.toFixed(3)}, ${atom.z.toFixed(3)})`;
+      tooltip.style.display = 'block';
+      tooltip.style.left = (event.clientX + 12) + 'px';
+      tooltip.style.top  = (event.clientY + 12) + 'px';
+    },
+    () => { if (tooltip) tooltip.style.display = 'none'; }
+  );
 }
 
 // ── 2D canvas SQS renderer (no WebGL — avoids context limit) ───────────
@@ -1147,6 +1164,31 @@ function parseExtxyzForces(frameText) {
 
 // ── Load XYZ into a 3Dmol viewer ────────────────────────────────────────
 let showBonds = true;
+let bondCutoff = 3.5; // Å — bonds longer than this are hidden
+
+function setBondCutoff(val) {
+  bondCutoff = isNaN(val) || val <= 0 ? Infinity : val;
+  if (trajFrames.length && trajViewer) showFrame(trajIdx);
+}
+
+function applyBondCutoff(model, cutoff) {
+  if (!isFinite(cutoff)) return;
+  const atoms = model.selectedAtoms({});
+  atoms.forEach(atom => {
+    const keepB = [], keepO = [];
+    (atom.bonds || []).forEach((bIdx, j) => {
+      const other = atoms[bIdx];
+      if (!other) return;
+      const dx = atom.x - other.x, dy = atom.y - other.y, dz = atom.z - other.z;
+      if (Math.sqrt(dx*dx + dy*dy + dz*dz) <= cutoff) {
+        keepB.push(bIdx);
+        keepO.push((atom.bondOrder || [])[j] ?? 1);
+      }
+    });
+    atom.bonds = keepB;
+    atom.bondOrder = keepO;
+  });
+}
 
 function loadXYZ(viewer, xyz, style) {
   // Preserve camera between frames — only zoom on first load
@@ -1154,6 +1196,7 @@ function loadXYZ(viewer, xyz, style) {
   viewer.clear();
   viewer._hasContent = true;
   viewer.addModel(xyz, 'xyz');
+  applyBondCutoff(viewer.getModel(0), showBonds ? bondCutoff : 0);
   const sphereStyle = { sphere: { radius: 0.35, colorscheme: 'Jmol' } };
   const stickStyle = showBonds ? { stick: { radius: 0.08, colorscheme: 'Jmol' } } : {};
   viewer.setStyle({}, style || { ...sphereStyle, ...stickStyle });
