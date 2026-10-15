@@ -327,11 +327,17 @@ def scan_plots(files_dir: Path) -> list[dict]:
 
 
 def scan_compositions(system_dir: Path) -> list[dict]:
-    """List individual SQS composition subdirs within a system (each has a CONTCAR)."""
+    """List individual SQS composition subdirs within a system.
+
+    Discovers dirs via CONTCAR (completed runs) and relaxation_live.xyz
+    (in-progress runs without a CONTCAR yet) so the all-energies chart
+    includes actively relaxing compositions.
+    """
+    seen: set[Path] = set()
     results = []
-    for contcar in sorted(system_dir.rglob("CONTCAR")):
-        parent = contcar.parent
-        # Prefer relaxation_final.xyz (complete) over relaxation_live.xyz
+
+    def _make_entry(parent: Path) -> dict:
+        contcar = parent / "CONTCAR"
         traj = sorted(parent.glob("relaxation_final.xyz")) + sorted(parent.glob("relaxation_live.xyz"))
         energy_file = parent / "energy"
         energy = None
@@ -340,14 +346,30 @@ def scan_compositions(system_dir: Path) -> list[dict]:
                 energy = float(energy_file.read_text().strip().split()[0])
             except (ValueError, IndexError):
                 pass
-        results.append({
+        return {
             "name": parent.name,
             "path": str(parent),
-            "contcar_path": str(contcar),
+            "contcar_path": str(contcar) if contcar.exists() else "",
             "has_trajectory": bool(traj),
             "trajectory_paths": [str(f) for f in traj],
             "energy": energy,
-        })
+        }
+
+    # Completed runs: discovered via CONTCAR
+    for contcar in sorted(system_dir.rglob("CONTCAR")):
+        parent = contcar.parent
+        if parent not in seen:
+            seen.add(parent)
+            results.append(_make_entry(parent))
+
+    # In-progress runs: discovered via relaxation_live.xyz (no CONTCAR yet)
+    for live in sorted(system_dir.rglob("relaxation_live.xyz")):
+        parent = live.parent
+        if parent not in seen:
+            seen.add(parent)
+            results.append(_make_entry(parent))
+
+    results.sort(key=lambda r: r["name"])
     return results
 
 
