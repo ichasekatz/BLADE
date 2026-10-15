@@ -409,9 +409,11 @@ def read_log_tail(log_path: Path, n_lines: int = 80) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def find_live_trajectory(sqsdb_dir: Path | None, blade_root: Path | None = None) -> dict | None:
-    """Return the most recently modified relaxation_live.xyz, or None.
+    """Return the most recently modified relaxation_live.xyz (or relaxation_final.xyz), or None.
 
-    Searches sqsdb_dir first, then common sqsdb locations relative to blade_root.
+    Prefers a live file; falls back to the most recent relaxation_final.xyz so the
+    dashboard can still display the full trajectory after a structure finishes and the
+    live file is deleted by the next run.
     """
     search_dirs: list[Path] = []
     if sqsdb_dir and sqsdb_dir.exists():
@@ -426,17 +428,36 @@ def find_live_trajectory(sqsdb_dir: Path | None, blade_root: Path | None = None)
             if guess.exists() and guess not in search_dirs:
                 search_dirs.append(guess)
 
-    best: tuple[float, Path] | None = None
+    best_live: tuple[float, Path] | None = None
+    best_final: tuple[float, Path] | None = None
     for base in search_dirs:
         for p in base.rglob("relaxation_live.xyz"):
             try:
                 st = p.stat()
-                if st.st_size > 0 and (best is None or st.st_mtime > best[0]):
-                    best = (st.st_mtime, p)
+                if st.st_size > 0 and (best_live is None or st.st_mtime > best_live[0]):
+                    best_live = (st.st_mtime, p)
             except OSError:
                 continue
+        for p in base.rglob("relaxation_final.xyz"):
+            try:
+                st = p.stat()
+                if st.st_size > 0 and (best_final is None or st.st_mtime > best_final[0]):
+                    best_final = (st.st_mtime, p)
+            except OSError:
+                continue
+
+    best = best_live or best_final
     if best:
-        return {"path": str(best[1]), "mtime": best[0]}
+        p = best[1]
+        info: dict = {"path": str(p), "mtime": best[0], "live": best is best_live}
+        info_file = p.parent / "relaxation_info.json"
+        if info_file.exists():
+            try:
+                import json as _json
+                info.update(_json.loads(info_file.read_text()))
+            except Exception:
+                pass
+        return info
     return None
 
 
@@ -550,7 +571,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             result = find_live_trajectory(self.sqsdb_dir, self.blade_root)
             if result:
                 p = Path(result["path"])
-                self._json({"xyz": p.read_text(errors="ignore"), "path": result["path"], "mtime": result["mtime"]})
+                self._json({
+                    "xyz": p.read_text(errors="ignore"),
+                    "path": result["path"],
+                    "mtime": result["mtime"],
+                    "live": result.get("live", True),
+                    "nsteps": result.get("nsteps"),
+                    "converged": result.get("converged"),
+                    "composition": p.parent.name,
+                })
             else:
                 self._json({"xyz": None, "path": None})
 

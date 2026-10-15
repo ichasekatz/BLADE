@@ -591,6 +591,7 @@
     <div class="row-handle tdb-section-header" id="handle-energy" title="Drag to resize"></div>
     <div class="section-header tdb-section-header" onclick="toggleSection('energy-chart-wrap','btn-echart-collapse','▾ energy','▸ energy')" style="display:flex;align-items:center;gap:6px;padding:3px 10px;border-top:1px solid var(--border);flex-shrink:0;cursor:pointer;user-select:none">
       <span id="energy-label" style="font-family:var(--mono);font-size:9px;color:var(--text-dim);letter-spacing:0.06em;text-transform:uppercase;flex:1">Energy (eV/atom)</span>
+      <span id="traj-comp-label" style="font-family:var(--mono);font-size:9px;color:var(--accent);letter-spacing:0.03em;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title=""></span>
       <button id="btn-echart-collapse" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-family:var(--mono);font-size:10px;padding:0">▾ energy</button>
     </div>
     <div id="energy-chart-wrap">
@@ -689,6 +690,7 @@ let sqsDrawn = {};  // viewKey → true once canvas rendered
 let selectedSQSSubdir = null; // currently selected composition chip key "dirName|subdir"
 let selectedSQSDir = null;    // currently selected dir name (right panel)
 let energyChart = null;
+let trajConvergedStep = null;  // step index where convergence was reached (null = unknown/not converged)
 let trajFrames = [];
 let trajIdx = 0;
 let trajPlaying = false;
@@ -831,6 +833,18 @@ function initEnergyChart() {
         tension: 0,
         fill: false,
       },
+      {
+        // convergence marker — vertical line drawn as two-point segment
+        data: [],
+        borderColor: 'rgba(52,211,153,0.7)',
+        borderWidth: 1.5,
+        borderDash: [3, 3],
+        pointRadius: 0,
+        showLine: true,
+        tension: 0,
+        fill: false,
+        tooltip: { enabled: false },
+      },
     ]},
     options: {
       responsive: true,
@@ -972,14 +986,27 @@ function parseFrameEnergy(frameText) {
 
 function updateEnergyChartFromFrames() {
   if (!energyChart || !trajFrames.length) return;
-  const energies = trajFrames.map(f => parseFrameEnergy(f)).filter(e => e !== null);
-  if (!energies.length) return;
-  energyChart.data.labels = energies.map((_, i) => i);
-  energyChart.data.datasets[0].data = energies;
+  const energies = trajFrames.map(f => parseFrameEnergy(f));
+  const labels = energies.map((_, i) => i);
+  energyChart.data.labels = labels;
+  energyChart.data.datasets[0].data = energies.map(e => e ?? null);
+
+  // Convergence marker: vertical dashed line at trajConvergedStep
+  if (trajConvergedStep !== null && trajConvergedStep < energies.length) {
+    const eMin = Math.min(...energies.filter(e => e !== null));
+    const eMax = Math.max(...energies.filter(e => e !== null));
+    energyChart.data.datasets[2].data = [
+      { x: trajConvergedStep, y: eMin },
+      { x: trajConvergedStep, y: eMax },
+    ];
+  } else {
+    energyChart.data.datasets[2].data = [];
+  }
+
   energyChart.update('none');
-  const last = energies[energies.length - 1];
+  const last = energies.filter(e => e !== null).at(-1);
   const chip = document.getElementById('energy-chip');
-  if (chip) { chip.hidden = false; chip.textContent = `E = ${last.toFixed(4)} eV/atom`; }
+  if (chip && last != null) { chip.hidden = false; chip.textContent = `E = ${last.toFixed(4)} eV/atom`; }
 }
 
 function _updateEnergyDot(idx) {
@@ -1085,6 +1112,13 @@ function liveRefresh(sys) {
           if (newSys) { selectSystem(newSys, true); return; }
         }
         relaxingSystems.add(sys.name);
+        // Update convergence step and composition label
+        trajConvergedStep = (d.converged && d.nsteps != null) ? d.nsteps - 1 : null;
+        const compLabel = document.getElementById('traj-comp-label');
+        if (compLabel && d.composition) {
+          compLabel.textContent = d.composition;
+          compLabel.title = d.composition;
+        }
         _applyFrames(splitXYZ(d.xyz));
         const badge = document.getElementById(`badge-${sys.name}`);
         if (badge && badge.textContent !== 'relaxing') {
