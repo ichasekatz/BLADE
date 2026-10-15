@@ -1271,11 +1271,8 @@ function updateEnergyChartFromFrames() {
   // Auto-scale y-axis to data range with 10% padding
   const _valid = energies.filter(e => e !== null);
   if (_valid.length) {
-    const eMin = Math.min(..._valid);
-    const eMax = Math.max(..._valid);
-    const pad = (eMax - eMin) * 0.1 || 0.5;
-    energyChart.options.scales.y.min = eMin - pad;
-    energyChart.options.scales.y.max = eMax + pad;
+    energyChart.options.scales.y.min = Math.min(..._valid);
+    energyChart.options.scales.y.max = Math.max(..._valid);
   } else {
     energyChart.options.scales.y.min = undefined;
     energyChart.options.scales.y.max = undefined;
