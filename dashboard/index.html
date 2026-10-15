@@ -2324,9 +2324,9 @@ async function poll() {
       // Hide sqsdb warning when trajectory is found
       const warnEl = document.getElementById('sqsdb-warn');
       if (warnEl) { warnEl.hidden = true; warnEl.style.display = 'none'; }
-      // Energy header label
+      // Energy header label — only overwrite when live mode is active
       const compLabel = document.getElementById('traj-comp-label');
-      if (compLabel) { compLabel.textContent = liveComposition; compLabel.title = liveComposition; }
+      if (compLabel && liveMode) { compLabel.textContent = liveComposition; compLabel.title = liveComposition; }
       // Mark the first not-done system as relaxing
       const activeSys = (statusRes.systems || []).find(s => !s.tdb_done);
       if (activeSys) {
