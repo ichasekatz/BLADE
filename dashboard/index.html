@@ -1223,6 +1223,14 @@ function loadXYZ(viewer, xyz, style) {
   viewer.clear();
   viewer._hasContent = true;
   viewer.addModel(xyz, 'xyz');
+  // viewer.clear() resets hover — re-register each time
+  const _tip = document.getElementById('atom-tooltip');
+  if (_tip) {
+    viewer.setHoverable({}, true,
+      (atom, _v, ev) => { _tip.textContent = `${atom.elem}  (${atom.x.toFixed(3)}, ${atom.y.toFixed(3)}, ${atom.z.toFixed(3)})`; _tip.style.display='block'; _tip.style.left=(ev.clientX+12)+'px'; _tip.style.top=(ev.clientY+12)+'px'; },
+      () => { _tip.style.display='none'; }
+    );
+  }
   applyBondCutoff(viewer.getModel(0), showBonds ? bondCutoff : 0);
   const sphereStyle = { sphere: { radius: 0.35, colorscheme: 'Jmol' } };
   const stickStyle = showBonds ? { stick: { radius: 0.08, colorscheme: 'Jmol' } } : {};
@@ -1909,7 +1917,7 @@ function refreshOpenCompList(sys) {
       const existing = compList.querySelectorAll('[data-comp-name]');
       const existingNames = new Set([...existing].map(el => el.dataset.compName));
       comps.forEach(comp => {
-        const label = comp.name + (comp.energy != null ? `  ${comp.energy.toFixed(4)} eV` : '');
+        const label = formatCompLabel(comp.name, comp.energy);
         if (existingNames.has(comp.name)) {
           const el = compList.querySelector(`[data-comp-name="${CSS.escape(comp.name)}"]`);
           if (el && el.textContent !== label) el.textContent = label;
@@ -1918,6 +1926,7 @@ function refreshOpenCompList(sys) {
           div.dataset.compName = comp.name;
           div.style.cssText = 'padding:3px 10px;font-family:var(--mono);font-size:9px;cursor:pointer;color:var(--text-dim);border-bottom:1px solid var(--border);';
           div.textContent = label;
+          div.title = comp.name;
           div.addEventListener('mouseenter', () => div.style.color = 'var(--accent)');
           div.addEventListener('mouseleave', () => div.style.color = 'var(--text-dim)');
           div.addEventListener('click', e => {
@@ -1989,7 +1998,8 @@ function loadCompositions(sys, row) {
         const div = document.createElement('div');
         div.dataset.compName = comp.name;
         div.style.cssText = 'padding:3px 10px;font-family:var(--mono);font-size:9px;cursor:pointer;color:var(--text-dim);border-bottom:1px solid var(--border);';
-        div.textContent = comp.name + (comp.energy != null ? `  ${comp.energy.toFixed(4)} eV` : '');
+        div.textContent = formatCompLabel(comp.name, comp.energy);
+        div.title = comp.name;
         div.addEventListener('mouseenter', () => div.style.color = 'var(--accent)');
         div.addEventListener('mouseleave', () => div.style.color = 'var(--text-dim)');
         div.addEventListener('click', e => {
@@ -2173,6 +2183,16 @@ function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+// Format composition name: "sqs_lev=1_a_Cr=0.5,a_W=0.5,b_B=1.0" → "Cr0.5 W0.5 B1.0"
+function formatCompLabel(name, energy) {
+  const pairs = [];
+  const re = /[a-z]_([A-Z][a-z]?)=([\d.]+)/g;
+  let m;
+  while ((m = re.exec(name)) !== null) pairs.push(`${m[1]}${m[2]}`);
+  const base = pairs.length ? pairs.join(' ') : name;
+  return energy != null ? `${base}  ${energy.toFixed(4)} eV` : base;
+}
+
 // ── Stage tabs ─────────────────────────────────────────────────────────
 function switchTab(name) {
   ['sqs', 'tdb', 'plots'].forEach(t => {
@@ -2211,11 +2231,21 @@ function switchTab(name) {
   if (isSQS) {
     if (sysList)   sysList.style.display = 'none';
     if (sysHeader) sysHeader.querySelector('span:first-child').textContent = 'SQS';
-    if (dirList && leftPanel && handleLog) leftPanel.insertBefore(dirList, handleLog);
+    if (dirList && leftPanel && handleLog) {
+      dirList.style.flex = '1';
+      dirList.style.overflowY = 'auto';
+      dirList.style.minHeight = '0';
+      leftPanel.insertBefore(dirList, handleLog);
+    }
   } else {
     if (sysList)   sysList.style.display = '';
     if (sysHeader) sysHeader.querySelector('span:first-child').textContent = 'Systems';
-    if (dirList && sqsTabContent) sqsTabContent.insertBefore(dirList, sqsTabContent.firstChild);
+    if (dirList && sqsTabContent) {
+      dirList.style.flex = '';
+      dirList.style.overflowY = '';
+      dirList.style.minHeight = '';
+      sqsTabContent.insertBefore(dirList, sqsTabContent.firstChild);
+    }
   }
 }
 
