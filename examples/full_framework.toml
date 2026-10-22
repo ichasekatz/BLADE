@@ -24,11 +24,12 @@ secondary_max = 0
 # Only set these if your layout differs from the defaults.
 [paths]
 sqsdb_dir  = "path/to/atat/data/sqsdb"
-# scraps_repo = "/path/to/SCRAPS/scraps-perpair"   # required only when tdb.sqs_method = "scraps"
+# scraps_repo  = "/path/to/SCRAPS/scraps-perpair"   # required only when tdb.sqs_method = "scraps"
+# mscraps_repo = "/path/to/m_scraps"                # required only when tdb.sqs_method = "mscraps"
 
 # ── TDB fitting ───────────────────────────────────────────────────────────────
 [tdb]
-sqs_method         = "mcsqs"   # "mcsqs" or "scraps"
+sqs_method         = "mcsqs"   # "mcsqs", "scraps", or "mscraps"
 level              = 6
 skip_existing      = true      # skip SQS, TDB, and plots when outputs already exist
 run_movie          = false     # generate MP4 trajectory videos (requires FFmpeg)
@@ -52,6 +53,38 @@ wr            = 20
 wn            = 0.75
 wd            = 1
 parallel_runs = 10
+
+# ── SCRAPS SQS options (used when tdb.sqs_method = "scraps") ─────────────────
+# [tdb_scraps]
+# bin                      = "/path/to/scraps-perpair/SCRAPs/scraps"
+# tools                    = "/path/to/scraps-perpair/tools"
+# ranks                    = 10
+# auto_budget              = 3      # 1=basic, 2=thorough, 3=exhaustive
+# max_shellnum             = 4      # max Warren-Cowley shell number
+# fix_multibasis_sublattice = true  # per-atom spectators for multi-basis sublattices
+
+# ── m_scraps SQS options (used when tdb.sqs_method = "mscraps") ──────────────
+# [tdb_mscraps]
+# bin                      = "/path/to/m_scraps/SCRAPs/scraps"
+# ranks                    = 10
+# auto_budget              = 3          # 1=basic, 2=thorough, 3=exhaustive
+# max_shellnum             = 4          # max Warren-Cowley shell number
+# fix_multibasis_sublattice = true      # per-atom spectators for multi-basis sublattices
+# mc_kernel                = "sa"       # "sa" (simulated annealing) or "pt" (parallel tempering)
+# figure_objective         = "minimize" # "minimize" or "match"
+# figure_wd                = 1.0        # distance weight for figure objective
+# figure_wn                = 0.75       # neighbour-count weight
+# figure_wr                = 1.0        # rank weight
+# figure_tol               = 1e-4       # convergence tolerance
+#
+# SRO targets: list of [species_i, species_j, shell, alpha] (0-based species indices)
+# sro_targets = [[0, 1, 1, -0.5]]
+#
+# Figure cutoff distances in Å for higher-order cluster correlations
+# figure_cutoffs = [4.5, 6.0]
+#
+# Species indices included in figure targets (None = all species)
+# figure_species = [0, 1]
 
 # ── SQS composition levels ────────────────────────────────────────────────────
 # Each row defines one level: the compositions (site fractions) and sublattice

@@ -249,6 +249,9 @@ class FullFrameworkPipeline:
         self.scraps_repo = (
             Path(paths.get("scraps_repo", self.blade_root.parent / "SCRAPS" / "scraps-perpair")).expanduser().resolve()
         )
+        self.mscraps_repo = (
+            Path(paths.get("mscraps_repo", self.blade_root.parent / "m_scraps")).expanduser().resolve()
+        )
         source_root = str(self.blade_root / "src")
         if source_root not in sys.path:
             sys.path.insert(0, source_root)
@@ -282,8 +285,8 @@ class FullFrameworkPipeline:
 
     def _sqs_method(self) -> str:
         method = str(self.settings.get("tdb", {}).get("sqs_method", "mcsqs")).lower()
-        if method not in {"mcsqs", "scraps"}:
-            raise ValueError("tdb.sqs_method must be 'mcsqs' or 'scraps'")
+        if method not in {"mcsqs", "scraps", "mscraps"}:
+            raise ValueError("tdb.sqs_method must be 'mcsqs', 'scraps', or 'mscraps'")
         return method
 
     def _tdb_driver(self) -> Path:
@@ -294,7 +297,8 @@ class FullFrameworkPipeline:
         if mode not in drivers:
             raise ValueError("tdb.prototype_driver must be 'standard' or 'multibasis'")
         family = drivers[mode]
-        suffix = "_scraps" if self._sqs_method() == "scraps" else ""
+        method = self._sqs_method()
+        suffix = "_scraps" if method == "scraps" else ("_mscraps" if method == "mscraps" else "")
         return self.examples_dir / "structures" / f"tdb_gen_{family}{suffix}.py"
 
     def _phase_plot_systems(self) -> set[str]:
@@ -612,6 +616,15 @@ class FullFrameworkPipeline:
                     errors.append(f"tdb: SCRAPS tools directory does not exist: {scraps_tools}")
                 if not _module_available("ase"):
                     errors.append("tdb: SCRAPS requires Python dependency 'ase'")
+            elif self._sqs_method() == "mscraps":
+                mscraps = self.settings.get("tdb_mscraps", {})
+                mscraps_bin = Path(mscraps.get("bin", self.mscraps_repo / "SCRAPs" / "scraps"))
+                if not mscraps_bin.is_file():
+                    errors.append(f"tdb: m_scraps executable does not exist: {mscraps_bin}")
+                if not _module_available("m_scraps"):
+                    errors.append("tdb: m_scraps method requires the 'm_scraps' Python package")
+                if not _module_available("ase"):
+                    errors.append("tdb: m_scraps requires Python dependency 'ase'")
         if self.enabled("phase_grid") and shutil.which("ffmpeg") is None:
             errors.append("phase_grid: ffmpeg is not on PATH")
         if self.enabled("database") and database.get("run_download", False):
@@ -699,6 +712,7 @@ class FullFrameworkPipeline:
                 if letter not in selected_level["letter"]:
                     selected_level["letter"].append(letter)
         scraps = self.settings.get("tdb_scraps", {})
+        mscraps = self.settings.get("tdb_mscraps", {})
         overrides = {
             "path0": self.blade_root.parent,
             "path1": self.blade_root,
@@ -749,6 +763,26 @@ class FullFrameworkPipeline:
                     str(phase.get("generator_name", "")).upper() == "MAX",
                 )
             ),
+            "MSCRAPS_REPO": self.mscraps_repo,
+            "MSCRAPS_BIN": Path(mscraps.get("bin", self.mscraps_repo / "SCRAPs" / "scraps")),
+            "mscraps_ranks": int(mscraps.get("ranks", 10)),
+            "mscraps_auto_budget": int(mscraps.get("auto_budget", 3)),
+            "mscraps_max_shellnum": int(mscraps.get("max_shellnum", 4)),
+            "mscraps_fix_multibasis_sublattice": bool(
+                mscraps.get(
+                    "fix_multibasis_sublattice",
+                    str(phase.get("generator_name", "")).upper() == "MAX",
+                )
+            ),
+            "mscraps_sro_targets": mscraps.get("sro_targets", None),
+            "mscraps_figure_cutoffs": mscraps.get("figure_cutoffs", None),
+            "mscraps_figure_species": mscraps.get("figure_species", None),
+            "mscraps_figure_wd": float(mscraps.get("figure_wd", 1.0)),
+            "mscraps_figure_wn": float(mscraps.get("figure_wn", 0.75)),
+            "mscraps_figure_wr": float(mscraps.get("figure_wr", 1.0)),
+            "mscraps_figure_tol": float(mscraps.get("figure_tol", 1e-4)),
+            "mscraps_figure_objective": str(mscraps.get("figure_objective", "minimize")),
+            "mscraps_mc_kernel": str(mscraps.get("mc_kernel", "sa")),
             "comps_dir": self.files_dir / cfg.get("comps_folder", "Comps"),
         }
         _run_configured_script(self._tdb_driver(), overrides)
