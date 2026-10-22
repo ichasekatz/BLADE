@@ -20,6 +20,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import shutil
 import subprocess
 from collections import defaultdict
 from pathlib import Path
@@ -702,41 +703,44 @@ def make_phase_gif(tdb, metals, phases, gif_path: Path, data_dir: Path | None = 
     imageio.mimsave(gif_path, imgs, fps=gif_fps, loop=0)
 
     # MP4 via ffmpeg — high CRF (smaller file, minor quality loss)
-    mp4_path = gif_path.with_suffix(".mp4")
-    frame0 = imgs[0]
-    h, w = frame0.shape[:2]
-    mp4_cmd = [
-        "ffmpeg",
-        "-y",
-        "-f",
-        "rawvideo",
-        "-vcodec",
-        "rawvideo",
-        "-s",
-        f"{w}x{h}",
-        "-pix_fmt",
-        "rgb24",
-        "-r",
-        str(gif_fps),
-        "-i",
-        "-",
-        "-vcodec",
-        "libx264",
-        "-crf",
-        "28",
-        "-pix_fmt",
-        "yuv420p",
-        "-vf",
-        f"scale={w // 2 * 2}:{h // 2 * 2},setpts=PTS/1.5",  # 3x speed
-        str(mp4_path),
-    ]
-    mp4_proc = subprocess.Popen(mp4_cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    for img_raw in imgs:
-        img = img_raw[:, :, :3] if img_raw.shape[2] == 4 else img_raw
-        mp4_proc.stdin.write(img.tobytes())
-    mp4_proc.stdin.close()
-    mp4_proc.wait()
-    print(f"  Saved MP4: {mp4_path.name} ({mp4_path.stat().st_size / 1e3:.0f} KB)")
+    if shutil.which("ffmpeg"):
+        mp4_path = gif_path.with_suffix(".mp4")
+        frame0 = imgs[0]
+        h, w = frame0.shape[:2]
+        mp4_cmd = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "rawvideo",
+            "-vcodec",
+            "rawvideo",
+            "-s",
+            f"{w}x{h}",
+            "-pix_fmt",
+            "rgb24",
+            "-r",
+            str(gif_fps),
+            "-i",
+            "-",
+            "-vcodec",
+            "libx264",
+            "-crf",
+            "28",
+            "-pix_fmt",
+            "yuv420p",
+            "-vf",
+            f"scale={w // 2 * 2}:{h // 2 * 2},setpts=PTS/1.5",  # 3x speed
+            str(mp4_path),
+        ]
+        mp4_proc = subprocess.Popen(mp4_cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        for img_raw in imgs:
+            img = img_raw[:, :, :3] if img_raw.shape[2] == 4 else img_raw
+            mp4_proc.stdin.write(img.tobytes())
+        mp4_proc.stdin.close()
+        mp4_proc.wait()
+        print(f"  Saved MP4: {mp4_path.name} ({mp4_path.stat().st_size / 1e3:.0f} KB)")
+    else:
+        print("  Skipping MP4: ffmpeg not found on PATH")
 
     for f in frames + clean_frames:
         with contextlib.suppress(OSError):
@@ -1037,6 +1041,9 @@ def get_gif_frame(reader: Image.Image, frame_index: int) -> Image.Image:
 # Main writer
 # ------------------------------------------------------------------
 def write_grid(gif_paths: list[Path], out_mp4: Path, label: str) -> None:
+    if not shutil.which("ffmpeg"):
+        print(f"  Skipping grid MP4 ({label}): ffmpeg not found on PATH")
+        return
     n = len(gif_paths)
 
     nc = n_cols if n_cols is not None else math.ceil(math.sqrt(n))
