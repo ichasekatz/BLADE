@@ -8,12 +8,12 @@
 
 # ── Elements ───────────────────────────────────────────────────────────────────
 [elements]
-primary       = ["Ti", "Nb"]
-secondary     = []
-primary_min   = 2
-primary_max   = 2
-secondary_min = 0
-secondary_max = 0
+primary       = ["Zr", "Hf", "Ti"]
+secondary     = ["Ni", "Fe", "Cu"]
+primary_min   = 1
+primary_max   = 3
+secondary_min = 1
+secondary_max = 3
 
 # ── TDB ────────────────────────────────────────────────────────────────────────
 [tdb]
@@ -76,10 +76,14 @@ MAX1_5 = "a=2\tb=1\tc=1"
 # Without constant = true, both sublattices vary independently in SQS.
 # Set constant = true and add composition to fix a sublattice at one composition.
 [tdb_inputs.sites.MAX1.a]
-elements = ["Ti", "Nb"]
+elements  = ["Zr", "Hf", "Ti"]
+# constant  = true
+# composition = [0.20, 0.20, 0.20, 0.25, 0.15]
 
 [tdb_inputs.sites.MAX1.b]
-elements = ["Al", "Sn"]
+elements  = ["Ni", "Fe", "Cu"]
+# constant  = true
+# composition = [0.40, 0.60]
 
 # ── Phase diagram plots ────────────────────────────────────────────────────────
 [phase_plots]
