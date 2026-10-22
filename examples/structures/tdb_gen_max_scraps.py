@@ -195,7 +195,7 @@ sqsgen_levels = [
 # ------------------------------------------------------------------
 scraps_ranks = 10
 auto_budget = 3  # 1=basic, 2=thorough, 3=exhaustive
-max_shellnum = 2
+max_shellnum = 4
 # True  → multi-basis variable sublattices use per-atom spectators (fixes MAX 2d Wyckoff issue)
 # False → standard SUBLATTICE block (fails for MAX b-sites, may work for other structures)
 fix_multibasis_sublattice = True
