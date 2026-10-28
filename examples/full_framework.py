@@ -608,8 +608,8 @@ class FullFrameworkPipeline:
                 errors.append("tdb: mcsqs is not on PATH")
             elif self._sqs_method() == "scraps":
                 scraps = self.settings.get("tdb_scraps", {})
-                scraps_bin = Path(scraps.get("bin", self.scraps_repo / "SCRAPs" / "scraps"))
-                scraps_tools = Path(scraps.get("tools", self.scraps_repo / "tools"))
+                scraps_bin = self.scraps_repo / "SCRAPs" / "scraps"
+                scraps_tools = self.scraps_repo / "tools"
                 if not scraps_bin.is_file():
                     errors.append(f"tdb: SCRAPS executable does not exist: {scraps_bin}")
                 if not scraps_tools.is_dir():
@@ -618,7 +618,7 @@ class FullFrameworkPipeline:
                     errors.append("tdb: SCRAPS requires Python dependency 'ase'")
             elif self._sqs_method() == "mscraps":
                 mscraps = self.settings.get("tdb_mscraps", {})
-                mscraps_bin = Path(mscraps.get("bin", self.mscraps_repo / "SCRAPs" / "scraps"))
+                mscraps_bin = self.mscraps_repo / "SCRAPs" / "scraps"
                 if not mscraps_bin.is_file():
                     errors.append(f"tdb: m_scraps executable does not exist: {mscraps_bin}")
                 if not _module_available("m_scraps"):
@@ -752,8 +752,8 @@ class FullFrameworkPipeline:
             "sqsgen_levels": sqsgen_levels,
             "mcsqs_params": sqs,
             "SCRAPS_REPO": self.scraps_repo,
-            "SCRAPS_BIN": Path(scraps.get("bin", self.scraps_repo / "SCRAPs" / "scraps")),
-            "SCRAPS_TOOLS": Path(scraps.get("tools", self.scraps_repo / "tools")),
+            "SCRAPS_BIN": self.scraps_repo / "SCRAPs" / "scraps",
+            "SCRAPS_TOOLS": self.scraps_repo / "tools",
             "scraps_ranks": int(scraps.get("ranks", 10)),
             "auto_budget": int(scraps.get("auto_budget", 3)),
             "max_shellnum": int(scraps.get("max_shellnum", 4)),
@@ -764,7 +764,7 @@ class FullFrameworkPipeline:
                 )
             ),
             "MSCRAPS_REPO": self.mscraps_repo,
-            "MSCRAPS_BIN": Path(mscraps.get("bin", self.mscraps_repo / "SCRAPs" / "scraps")),
+            "MSCRAPS_BIN": self.mscraps_repo / "SCRAPs" / "scraps",
             "mscraps_ranks": int(mscraps.get("ranks", 10)),
             "mscraps_auto_budget": int(mscraps.get("auto_budget", 3)),
             "mscraps_max_shellnum": int(mscraps.get("max_shellnum", 4)),
