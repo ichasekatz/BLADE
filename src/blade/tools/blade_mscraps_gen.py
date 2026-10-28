@@ -549,9 +549,7 @@ class MScrapsSQSGen:
             return
 
         # MC kernel is passed as an extra INPUT line; not a direct make_scraps_inputs param.
-        extra_lines: list[str] = []
-        if self.mc_kernel:
-            extra_lines.append(f"MC_KERNEL {self.mc_kernel}")
+        extra_lines: str = f"MC_KERNEL {self.mc_kernel}\n" if self.mc_kernel else ""
 
         work_dir = sqsdir / "_mscraps_run"
         work_dir.mkdir(exist_ok=True)
