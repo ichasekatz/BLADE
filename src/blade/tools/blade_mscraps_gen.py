@@ -557,6 +557,17 @@ class MScrapsSQSGen:
         work_dir.mkdir(exist_ok=True)
 
         figure_cutoffs = self.figure_cutoffs or None
+        figure_kwargs: dict = {}
+        if figure_cutoffs:
+            figure_kwargs = {
+                "figure_cutoffs": figure_cutoffs,
+                "figure_species": self.figure_species or None,
+                "figure_objective": self.figure_objective,
+                "figure_wd": self.figure_wd,
+                "figure_wn": self.figure_wn,
+                "figure_wr": self.figure_wr,
+                "figure_tol": self.figure_tol,
+            }
         self._make_scraps_inputs(
             work_dir=work_dir,
             atoms=prim_atoms,
@@ -567,14 +578,8 @@ class MScrapsSQSGen:
             sublattices=cfg["sublattice_blocks"] or None,
             spectator_basis_species=cfg["spectator_pairs"] or None,
             sro_targets=self.sro_targets or None,
-            figure_cutoffs=figure_cutoffs,
-            figure_species=self.figure_species or None if figure_cutoffs else None,
-            figure_objective=self.figure_objective if figure_cutoffs else None,
-            figure_wd=self.figure_wd if figure_cutoffs else None,
-            figure_wn=self.figure_wn if figure_cutoffs else None,
-            figure_wr=self.figure_wr if figure_cutoffs else None,
-            figure_tol=self.figure_tol if figure_cutoffs else None,
             extra_lines=extra_lines or None,
+            **figure_kwargs,
         )
 
         scraps_dest = work_dir / "scraps"
