@@ -2386,13 +2386,13 @@ function _selectPlotGroup(group, strip) {
 // ── Poll ───────────────────────────────────────────────────────────────
 async function poll() {
   try {
-    const [statusRes, sqsRes, plotsRes, logRes, liveTrajRes] = await Promise.all([
+    const [statusRes, plotsRes, logRes, liveTrajRes] = await Promise.all([
       fetch('/api/status').then(r => r.json()),
-      fetch('/api/sqs').then(r => r.json()),
       fetch('/api/plots').then(r => r.json()),
       fetch('/api/log').then(r => r.json()),
       fetch('/api/live_trajectory').then(r => r.json()).catch(() => ({xyz: null})),
     ]);
+    const sqsRes = statusRes.sqs || [];
 
     // Update live composition label + system badge + 3D viewer from trajectory data on every poll
     if (liveTrajRes.xyz && liveTrajRes.composition) {

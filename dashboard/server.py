@@ -203,6 +203,23 @@ def parse_bestcorr(text: str) -> float | None:
 
 
 # ---------------------------------------------------------------------------
+# Server-side response caches
+# ---------------------------------------------------------------------------
+
+_cache: dict[str, dict] = {}  # keyed by endpoint name → {"data": ..., "ts": float}
+
+
+def _cached(key: str, ttl: float, fn):
+    """Return cached result for *key* if fresher than *ttl* seconds, else recompute."""
+    entry = _cache.get(key)
+    if entry and (time.time() - entry["ts"]) < ttl:
+        return entry["data"]
+    data = fn()
+    _cache[key] = {"data": data, "ts": time.time()}
+    return data
+
+
+# ---------------------------------------------------------------------------
 # Filesystem scanners
 # ---------------------------------------------------------------------------
 
@@ -548,15 +565,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._serve_file(html, "text/html; charset=utf-8")
 
         elif path == "/api/status":
+            comps_folder = self.cfg.get("tdb", {}).get("comps_folder", "Comps")
+            sqs   = _cached("sqs",     ttl=4,  fn=lambda: scan_sqs(self.files_dir))
+            comps = _cached("comps",   ttl=4,  fn=lambda: scan_comps(self.files_dir, comps_folder))
+            stages = _cached("stages", ttl=4,  fn=lambda: infer_stage_status(self.files_dir, self.cfg))
             self._json({
-                "stages": infer_stage_status(self.files_dir, self.cfg),
-                "sqs": scan_sqs(self.files_dir),
-                "systems": scan_comps(self.files_dir, self.cfg.get("tdb", {}).get("comps_folder", "Comps")),
+                "stages":    stages,
+                "sqs":       sqs,
+                "systems":   comps,
                 "timestamp": time.time(),
             })
 
         elif path == "/api/sqs":
-            self._json(scan_sqs(self.files_dir))
+            self._json(_cached("sqs", ttl=4, fn=lambda: scan_sqs(self.files_dir)))
 
         elif path == "/api/structure":
             file_path = qs.get("path", [None])[0]
@@ -597,7 +618,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json(scan_energy(Path(dir_path)))
 
         elif path == "/api/plots":
-            self._json(scan_plots(self.files_dir))
+            self._json(_cached("plots", ttl=30, fn=lambda: scan_plots(self.files_dir)))
 
         elif path == "/api/image":
             file_path = qs.get("path", [None])[0]
