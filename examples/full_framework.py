@@ -833,7 +833,7 @@ class FullFrameworkPipeline:
         cfg.setdefault("primary_max", db_elems["primary_max"])
         cfg.setdefault("secondary_min", db_elems["secondary_min"])
         cfg.setdefault("secondary_max", db_elems["secondary_max"])
-        cfg.setdefault("systems", self.settings.get("systems", []))
+        cfg["systems"] = self.settings.get("systems", [])
         api_key = _database_api_key(cfg)
         cfg.pop("api_key", None)
         cfg.pop("api_key_env", None)

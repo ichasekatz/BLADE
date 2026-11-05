@@ -45,6 +45,8 @@ class PipelineConfig:
     poscar_folder: str = "MaterialsProject_Comps_POSCARs"
     blade_comp_folders: list[str] = field(default_factory=lambda: ["Comps"])
 
+    systems: list[str] = field(default_factory=list)
+
     run_compositions: bool = True
     run_download: bool = True
     run_energies: bool = True
@@ -151,6 +153,11 @@ class OxidationPipeline:
                     }
                 )
         systems_df = pd.DataFrame(systems).drop_duplicates(subset=["chemsys"])
+        if cfg.systems:
+            requested = {"-".join(sorted(Composition(s).elements, key=str)) for s in cfg.systems}
+            systems_df = systems_df[systems_df["chemsys"].isin(requested)].reset_index(drop=True)
+            if systems_df.empty:
+                print(f"Warning: systems filter {cfg.systems!r} matched no entries in composition_list.xlsx")
         fields = [
             "material_id",
             "formula_pretty",
