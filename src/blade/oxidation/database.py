@@ -796,10 +796,17 @@ class OxideDatabase:
             allowed = get_blade_allowed_elements(blade_row)
 
             # Compute oxide summary metadata for this parent
-            possible = mp_oxides[mp_oxides["formula"].apply(lambda f, _a=allowed: oxide_allowed_for_elements(f, _a))]
-            stable = possible[possible["is_stable"].fillna(False).astype(bool)] if "is_stable" in possible.columns else possible.iloc[:0]
-            possible_formulas = sorted(possible["formula"].dropna().unique())
-            stable_formulas = sorted(stable["formula"].dropna().unique())
+            if not mp_oxides.empty and "formula" in mp_oxides.columns:
+                _mask = mp_oxides["formula"].apply(lambda f, _a=allowed: oxide_allowed_for_elements(f, _a))
+                possible = mp_oxides.loc[_mask.astype(bool)]
+            else:
+                possible = mp_oxides.iloc[:0]
+            if not possible.empty and "is_stable" in possible.columns:
+                stable = possible.loc[possible["is_stable"].fillna(False).astype(bool)]
+            else:
+                stable = possible.iloc[:0]
+            possible_formulas = sorted(possible["formula"].dropna().unique()) if "formula" in possible.columns else []
+            stable_formulas = sorted(stable["formula"].dropna().unique()) if "formula" in stable.columns else []
 
             # Lowest eHull/dH/energy per source
             ehull_cols: dict[str, tuple] = {}
