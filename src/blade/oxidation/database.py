@@ -797,7 +797,7 @@ class OxideDatabase:
 
             # Compute oxide summary metadata for this parent
             possible = mp_oxides[mp_oxides["formula"].apply(lambda f, _a=allowed: oxide_allowed_for_elements(f, _a))]
-            stable = possible[possible["is_stable"]]
+            stable = possible[possible["is_stable"].fillna(False).astype(bool)] if "is_stable" in possible.columns else possible.iloc[:0]
             possible_formulas = sorted(possible["formula"].dropna().unique())
             stable_formulas = sorted(stable["formula"].dropna().unique())
 
