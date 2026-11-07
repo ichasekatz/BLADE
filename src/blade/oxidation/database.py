@@ -738,7 +738,7 @@ class OxideDatabase:
             mp_oxides = mp_summary[mp_summary["formula"].apply(is_oxide_formula)].copy()
         else:
             mp_summary = pd.DataFrame(columns=["formula", "formula_norm"])
-            mp_oxides = pd.DataFrame()
+            mp_oxides = pd.DataFrame(columns=["formula", "formula_norm", "energy_above_hull", "formation_energy_per_atom", "energy_per_atom", "is_stable", "material_id"])
         mp_oxides["energy_above_hull"] = pd.to_numeric(mp_oxides.get("energy_above_hull", None), errors="coerce")
         mp_oxides["formation_energy_per_atom"] = pd.to_numeric(mp_oxides.get("formation_energy_per_atom", None), errors="coerce")
 
