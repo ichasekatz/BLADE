@@ -691,7 +691,8 @@ class OxideDatabase:
 
         blade_df = pd.read_excel(self.files_dir / "blade_generated_data.xlsx")
         blade_df = blade_df.drop_duplicates(subset=["formula"], keep="first").reset_index(drop=True)
-        mp_summary = pd.read_excel(self.mp_comps_dir / "materials_project_summary.xlsx")
+        _mp_summary_path = self.mp_comps_dir / "materials_project_summary.xlsx"
+        mp_summary = pd.read_excel(_mp_summary_path) if _mp_summary_path.exists() else pd.DataFrame()
 
         _meta_cols = {
             "formula",
@@ -732,30 +733,40 @@ class OxideDatabase:
             return out
 
         # Index MP summary by normalized formula
-        mp_summary["formula_norm"] = mp_summary["formula"].astype(str).apply(normalize_formula)
-        mp_oxides = mp_summary[mp_summary["formula"].apply(is_oxide_formula)].copy()
+        if not mp_summary.empty and "formula" in mp_summary.columns:
+            mp_summary["formula_norm"] = mp_summary["formula"].astype(str).apply(normalize_formula)
+            mp_oxides = mp_summary[mp_summary["formula"].apply(is_oxide_formula)].copy()
+        else:
+            mp_summary = pd.DataFrame(columns=["formula", "formula_norm"])
+            mp_oxides = pd.DataFrame()
         mp_oxides["energy_above_hull"] = pd.to_numeric(mp_oxides.get("energy_above_hull", None), errors="coerce")
         mp_oxides["formation_energy_per_atom"] = pd.to_numeric(mp_oxides.get("formation_energy_per_atom", None), errors="coerce")
 
         # Best-per-formula for MP DFT
-        sort_col = "energy_above_hull" if "energy_above_hull" in mp_oxides.columns else "formation_energy_per_atom"
-        mp_best = mp_oxides.sort_values(sort_col).drop_duplicates("formula_norm", keep="first").set_index("formula_norm")
+        if not mp_oxides.empty:
+            sort_col = "energy_above_hull" if "energy_above_hull" in mp_oxides.columns else "formation_energy_per_atom"
+            mp_best = mp_oxides.sort_values(sort_col).drop_duplicates("formula_norm", keep="first").set_index("formula_norm")
+        else:
+            mp_best = pd.DataFrame()
 
         # Stable material_id set for MLIP lookup filtering
-        stable_mp_ids: set[str] = set(
-            self.mp_summary_df[
-                self.mp_summary_df["is_stable"].apply(lambda v: str(v).strip().lower() in {"true", "1", "yes"})
-                | (
-                    pd.to_numeric(
-                        self.mp_summary_df.get("energy_above_hull", pd.Series(dtype=float)),
-                        errors="coerce",
+        if not self.mp_summary_df.empty and "is_stable" in self.mp_summary_df.columns:
+            stable_mp_ids: set[str] = set(
+                self.mp_summary_df[
+                    self.mp_summary_df["is_stable"].apply(lambda v: str(v).strip().lower() in {"true", "1", "yes"})
+                    | (
+                        pd.to_numeric(
+                            self.mp_summary_df.get("energy_above_hull", pd.Series(dtype=float)),
+                            errors="coerce",
+                        )
+                        == 0
                     )
-                    == 0
-                )
-            ]["material_id"]
-            .astype(str)
-            .str.strip()
-        )
+                ]["material_id"]
+                .astype(str)
+                .str.strip()
+            )
+        else:
+            stable_mp_ids: set[str] = set()
 
         # Stable-only MLIP lookups — used for dH refs and system_energy_dH
         self.mlip_lookups = {
