@@ -1437,6 +1437,8 @@ class OxideDatabase:
         # Build pure element row lookup from mp_df
         pure_element_rows: dict[str, pd.Series] = {}
         for el in all_element_order:
+            if mp_df.empty or "formula" not in mp_df.columns:
+                break
             el_rows = mp_df[mp_df["formula"].apply(lambda f, _el=el: is_single_element_formula(f, _el))].copy()
             if el_rows.empty:
                 continue
@@ -1498,15 +1500,18 @@ class OxideDatabase:
                     rows.append(standardize_blade_row(sub_row))
 
             # Stable MP oxides
-            for _, oxide_row in mp_oxides_df[
-                mp_oxides_df["formula"].apply(lambda f, _a=allowed: oxide_allowed_for_elements(f, _a))
-            ].iterrows():
-                rows.append(standardize_mp_row(oxide_row))
+            if not mp_oxides_df.empty and "formula" in mp_oxides_df.columns:
+                _oxide_mask = mp_oxides_df["formula"].apply(lambda f, _a=allowed: oxide_allowed_for_elements(f, _a))
+                for _, oxide_row in mp_oxides_df.loc[_oxide_mask.astype(bool)].iterrows():
+                    rows.append(standardize_mp_row(oxide_row))
 
             # MP compounds containing neither oxygen nor fixed species; stable only.
             metal_allowed = {el for el in allowed if el in metal_elements}
-            alloy_mask = mp_df["formula"].apply(lambda f, _ma=metal_allowed: is_metal_only_formula(f, _ma))
-            alloy_df = mp_df[alloy_mask]
+            if not mp_df.empty and "formula" in mp_df.columns:
+                alloy_mask = mp_df["formula"].apply(lambda f, _ma=metal_allowed: is_metal_only_formula(f, _ma))
+                alloy_df = mp_df[alloy_mask]
+            else:
+                alloy_df = pd.DataFrame()
             if "is_stable" in alloy_df.columns:
                 alloy_df = alloy_df[alloy_df["is_stable"].apply(is_true_stable)]
             for _, alloy_row in alloy_df.iterrows():
@@ -1601,7 +1606,7 @@ class OxideDatabase:
         for el in all_ref_elements:
             mp_er = pure_element_rows.get(el)
             if mp_er is None:
-                mp_all = mp_df[mp_df["formula"].apply(lambda f, _el=el: is_single_element_formula(f, _el))].copy()
+                mp_all = mp_df[mp_df["formula"].apply(lambda f, _el=el: is_single_element_formula(f, _el))].copy() if not mp_df.empty and "formula" in mp_df.columns else pd.DataFrame()
                 if not mp_all.empty:
                     if "energy_above_hull" in mp_all.columns:
                         mp_all["energy_above_hull"] = pd.to_numeric(mp_all["energy_above_hull"], errors="coerce")
