@@ -218,6 +218,10 @@ class OxideDatabase:
                 print(f"Element refs from {mlip_ref_label} ({len(element_refs)} elements):")
                 for _el, _v in sorted(element_refs.items()):
                     print(f"  {_el}: {_v:.6f} eV/atom")
+        # Fill missing elements from fallback_refs so dH is not None when mlip_dir is absent
+        for _el, _v in self.fallback_refs.items():
+            if _el not in element_refs:
+                element_refs[_el] = _v
         return element_refs
 
     def collect_structures(
