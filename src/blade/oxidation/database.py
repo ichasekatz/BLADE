@@ -1235,10 +1235,12 @@ class OxideDatabase:
         print(f"  Found {len(self._s6_contcar_index)} CONTCARs")
 
         blade_df = pd.read_excel(self.files_dir / "blade_generated_data.xlsx")
-        mp_df = pd.read_excel(self.mp_comps_dir / "materials_project_summary.xlsx")
+        _mp_summary_path = self.mp_comps_dir / "materials_project_summary.xlsx"
+        mp_df = pd.read_excel(_mp_summary_path) if _mp_summary_path.exists() else pd.DataFrame()
 
         blade_df.columns = blade_df.columns.str.strip()
-        mp_df.columns = mp_df.columns.str.strip()
+        if not mp_df.empty:
+            mp_df.columns = mp_df.columns.str.strip()
 
         formula_col = "parent_formula" if "parent_formula" in blade_df.columns else "formula"
         blade_df = blade_df.drop_duplicates(subset=[formula_col], keep="first").copy()
@@ -1271,10 +1273,15 @@ class OxideDatabase:
         for d in source_dirs.values():
             d.mkdir(parents=True, exist_ok=True)
 
-        mp_df["formula"] = mp_df["formula"].astype(str)
-        mp_oxides_df = mp_df[mp_df["formula"].apply(is_oxide_formula)].copy()
-        if "is_stable" in mp_oxides_df.columns:
-            mp_oxides_df = mp_oxides_df[mp_oxides_df["is_stable"].apply(is_true_stable)].copy()
+        if not mp_df.empty and "formula" in mp_df.columns:
+            mp_df["formula"] = mp_df["formula"].astype(str)
+            _mask = mp_df["formula"].apply(is_oxide_formula)
+            mp_oxides_df = mp_df.loc[_mask.astype(bool)].copy()
+            if "is_stable" in mp_oxides_df.columns:
+                mp_oxides_df = mp_oxides_df[mp_oxides_df["is_stable"].apply(is_true_stable)].copy()
+        else:
+            mp_oxides_df = pd.DataFrame(columns=["formula", "energy_per_atom", "formation_energy_per_atom",
+                                                   "entry_id", "material_id", "is_stable", "source", "volume"])
 
         def get_blade_allowed_elements(row: pd.Series) -> set[str]:
             allowed: set[str] = set()
