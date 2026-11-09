@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-from scipy.optimize import linprog
+from scipy.optimize import OptimizeWarning, linprog
 
 
 def solve_grand_lp_batch(A_eq, b_eq, grand_stack):
@@ -43,6 +43,7 @@ def solve_grand_lp(A_eq, b_eq, grand):
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
+            warnings.simplefilter("ignore", OptimizeWarning)
             result = linprog(grand, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method="revised simplex", options=opts)
     except Exception:
         result = linprog(grand, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method="highs", options=opts)

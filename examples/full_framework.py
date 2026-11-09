@@ -236,7 +236,7 @@ def _system_elements(value: str) -> list[str]:
 
 
 class FullFrameworkPipeline:
-    STAGE_ORDER = ("tdb", "phase_visualization", "database", "oxidation")
+    STAGE_ORDER = ("tdb", "phase_visualization", "database", "oxidation", "stability")
 
     def __init__(self, input_paths: list[Path]):
         self.input_path = input_paths[0].resolve()
@@ -917,6 +917,25 @@ class FullFrameworkPipeline:
         else:
             raise ValueError("oxidation.mode must be 'batch' or 'single'")
 
+    def run_stability(self) -> None:
+        from blade.analysis.blade_stability import BladeStability
+
+        cfg = self.settings.get("stability", {})
+        t_range = cfg.get("temperature_range", [300.0, 2000.0, 100.0])
+        BladeStability(
+            files_dir=self.files_dir,
+            phase_element=cfg.get("phase_element", "B"),
+            phase_stoich=cfg.get("phase_element_stoichiometry", 2.0),
+            comps_folder=cfg.get("comps_folder", "Comps"),
+            output_folder=cfg.get("output_folder", "Stability"),
+            t_min=float(t_range[0]),
+            t_max=float(t_range[1]),
+            t_step=float(t_range[2]),
+            composition_step=float(cfg.get("composition_step", 0.02)),
+            skip_existing=bool(cfg.get("skip_existing", True)),
+            rk_order=int(cfg.get("rk_order", 3)),
+        ).run()
+
     def run(self, *, dry_run: bool = False) -> None:
         self.describe()
         methods = {
@@ -924,6 +943,7 @@ class FullFrameworkPipeline:
             "phase_visualization": self.run_phase_visualization,
             "database": self.run_database,
             "oxidation": self.run_oxidation,
+            "stability": self.run_stability,
         }
         for stage in self.STAGE_ORDER:
             if not self.enabled(stage):

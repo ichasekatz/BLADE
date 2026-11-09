@@ -4,6 +4,7 @@ tdb_fitting      = true
 phase_diagrams   = true
 oxide_database   = true
 oxidation_graphs = true
+stability        = false
 
 # ── Global system filter ───────────────────────────────────────────────────────
 # Uncomment to limit all stages to specific named systems.
@@ -23,9 +24,9 @@ secondary_max = 0
 # blade_root is auto-detected as the parent of the examples/ directory.
 # Only set these if your layout differs from the defaults.
 [paths]
-sqsdb_dir  = "path/to/atat/data/sqsdb"
-# scraps_repo  = "/path/to/SCRAPS/scraps-perpair"   # required only when tdb.sqs_method = "scraps"
-# mscraps_repo = "/path/to/m_scraps"                # required only when tdb.sqs_method = "mscraps"
+sqsdb_dir  = "/Users/chasekatz/Desktop/School/Research/PhaseForge/PhaseForge/atat/data/sqsdb"
+scraps_repo  = "/Users/chasekatz/Desktop/School/Research/SCRAPS/scraps-perpair-arroyave"
+mscraps_repo = "/Users/chasekatz/Desktop/School/Research/SCRAPS/m_scraps"
 
 # ── TDB fitting ───────────────────────────────────────────────────────────────
 [tdb]
@@ -56,8 +57,6 @@ parallel_runs = 10
 
 # ── SCRAPS SQS options (used when tdb.sqs_method = "scraps") ─────────────────
 # [tdb_scraps]
-# bin                      = "/path/to/scraps-perpair/SCRAPs/scraps"
-# tools                    = "/path/to/scraps-perpair/tools"
 # ranks                    = 10
 # auto_budget              = 3      # 1=basic, 2=thorough, 3=exhaustive
 # max_shellnum             = 4      # max Warren-Cowley shell number
@@ -65,7 +64,6 @@ parallel_runs = 10
 
 # ── m_scraps SQS options (used when tdb.sqs_method = "mscraps") ──────────────
 # [tdb_mscraps]
-# bin                      = "/path/to/m_scraps/SCRAPs/scraps"
 # ranks                    = 10
 # auto_budget              = 3          # 1=basic, 2=thorough, 3=exhaustive
 # max_shellnum             = 4          # max Warren-Cowley shell number
@@ -184,4 +182,17 @@ scan_mu_o_range        = [-10.0, -4.0, 0.05]
 map_x_range            = [0.0, 1.0, 0.01]
 slice_remainder_ratios = [0.0, 0.25, 0.3333333333333333, 0.5, 0.6666666666666666, 0.75, 1.0]
 slice_muT_comp_step    = 0.1
+
+# ── Pure solid-state stability ────────────────────────────────────────────────
+# Runs LP stability scan over the diboride SS phase + SQS fixed-phase competitors
+# with no oxygen. Enable with stages.stability = true.
+[stability]
+phase_element               = "B"
+phase_element_stoichiometry = 2.0
+comps_folder                = "Comps"       # subfolder of Files/ holding BladeTDBGen outputs
+output_folder               = "Stability"   # Files/Stability/ — per-system parquet + combined
+temperature_range           = [300.0, 2000.0, 100.0]   # [T_min, T_max, T_step] in K
+composition_step            = 0.02          # simplex grid spacing (0.02 → ~1326 pts for ternary)
+skip_existing               = true
+rk_order                    = 3
 

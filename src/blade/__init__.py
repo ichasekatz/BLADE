@@ -27,6 +27,7 @@ _MAP: dict[str, tuple[str, str]] = {
     "BladeVisualizer": ("blade.analysis.blade_visual", "BladeVisualizer"),
     "BLADEData": ("blade.analysis.blade_data", "BLADEData"),
     "BLADEVolume": ("blade.analysis.blade_data", "BLADEVolume"),
+    "BladeStability": ("blade.analysis.blade_stability", "BladeStability"),
     # oxidation
     "OxideCompositions": ("blade.oxidation.compositions", "OxideCompositions"),
     "OxideDatabase": ("blade.oxidation.database", "OxideDatabase"),
