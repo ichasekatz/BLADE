@@ -1081,34 +1081,36 @@ class OxideDatabase:
                     blade_systems[sys] = els
 
         # MP base: stable structures + all pure elements
-        mp_base = self.mp_summary_df.copy()
-        mp_base["energy_above_hull"] = pd.to_numeric(mp_base.get("energy_above_hull", pd.Series(dtype=float)), errors="coerce")
-        mp_base["energy_per_atom"] = pd.to_numeric(mp_base.get("energy_per_atom", pd.Series(dtype=float)), errors="coerce")
-        mp_base["formation_energy_per_atom"] = pd.to_numeric(
-            mp_base.get("formation_energy_per_atom", pd.Series(dtype=float)), errors="coerce"
-        )
-        mp_base["_is_stable"] = (
-            mp_base["is_stable"].apply(lambda v: str(v).strip().lower() in {"true", "1", "yes"})
-            if "is_stable" in mp_base.columns
-            else False
-        )
-        mp_base["_is_pure_el"] = mp_base["formula"].apply(lambda f: len(get_formula_elements(str(f))) == 1)
-        mp_base = (
-            mp_base[mp_base["_is_stable"] | (mp_base["energy_above_hull"] == 0) | mp_base["_is_pure_el"]]
-            .sort_values("energy_above_hull", na_position="last")
-            .drop_duplicates(subset=["formula"], keep="first")
-            .reset_index(drop=True)
-        )
-        cs_mp = mp_base[["formula"]].copy()
-        cs_mp["energy_mp"] = mp_base["energy_per_atom"].values
-        cs_mp["dH_mp"] = mp_base["formation_energy_per_atom"].values
-        # Pure elements: normalize formula to element symbol (e.g. O2 → O), set fallback energy, dH=0
-        _pure_mask = cs_mp["formula"].apply(lambda f: len(get_formula_elements(str(f))) == 1)
-        cs_mp.loc[_pure_mask, "formula"] = cs_mp.loc[_pure_mask, "formula"].apply(
-            lambda f: next(iter(get_formula_elements(str(f))), f)
-        )
-        cs_mp.loc[_pure_mask, "energy_mp"] = cs_mp.loc[_pure_mask, "formula"].apply(self.fallback_refs.get)
-        cs_mp.loc[_pure_mask, "dH_mp"] = 0.0
+        if not self.mp_summary_df.empty and "formula" in self.mp_summary_df.columns:
+            mp_base = self.mp_summary_df.copy()
+            mp_base["energy_above_hull"] = pd.to_numeric(mp_base.get("energy_above_hull", pd.Series(dtype=float)), errors="coerce")
+            mp_base["energy_per_atom"] = pd.to_numeric(mp_base.get("energy_per_atom", pd.Series(dtype=float)), errors="coerce")
+            mp_base["formation_energy_per_atom"] = pd.to_numeric(
+                mp_base.get("formation_energy_per_atom", pd.Series(dtype=float)), errors="coerce"
+            )
+            mp_base["_is_stable"] = (
+                mp_base["is_stable"].apply(lambda v: str(v).strip().lower() in {"true", "1", "yes"})
+                if "is_stable" in mp_base.columns
+                else False
+            )
+            mp_base["_is_pure_el"] = mp_base["formula"].apply(lambda f: len(get_formula_elements(str(f))) == 1)
+            mp_base = (
+                mp_base[mp_base["_is_stable"] | (mp_base["energy_above_hull"] == 0) | mp_base["_is_pure_el"]]
+                .sort_values("energy_above_hull", na_position="last")
+                .drop_duplicates(subset=["formula"], keep="first")
+                .reset_index(drop=True)
+            )
+            cs_mp = mp_base[["formula"]].copy()
+            cs_mp["energy_mp"] = mp_base["energy_per_atom"].values
+            cs_mp["dH_mp"] = mp_base["formation_energy_per_atom"].values
+            _pure_mask = cs_mp["formula"].apply(lambda f: len(get_formula_elements(str(f))) == 1)
+            cs_mp.loc[_pure_mask, "formula"] = cs_mp.loc[_pure_mask, "formula"].apply(
+                lambda f: next(iter(get_formula_elements(str(f))), f)
+            )
+            cs_mp.loc[_pure_mask, "energy_mp"] = cs_mp.loc[_pure_mask, "formula"].apply(self.fallback_refs.get)
+            cs_mp.loc[_pure_mask, "dH_mp"] = 0.0
+        else:
+            cs_mp = pd.DataFrame(columns=["formula", "energy_mp", "dH_mp"])
 
         # BLADE lookup: formula → lowest-energy SQS entry
         blade_lkp: dict[str, dict] = {}
@@ -1144,18 +1146,21 @@ class OxideDatabase:
             )
 
         # Keep only stable MP structures (BLADE rows always kept)
-        stable_mp_norms = set(
-            self.mp_summary_df[
-                self.mp_summary_df["is_stable"].apply(lambda v: str(v).strip().lower() in {"true", "1", "yes"})
-                | (
-                    pd.to_numeric(
-                        self.mp_summary_df.get("energy_above_hull", pd.Series(dtype=float)),
-                        errors="coerce",
+        if not self.mp_summary_df.empty and "is_stable" in self.mp_summary_df.columns and "formula" in self.mp_summary_df.columns:
+            stable_mp_norms = set(
+                self.mp_summary_df[
+                    self.mp_summary_df["is_stable"].apply(lambda v: str(v).strip().lower() in {"true", "1", "yes"})
+                    | (
+                        pd.to_numeric(
+                            self.mp_summary_df.get("energy_above_hull", pd.Series(dtype=float)),
+                            errors="coerce",
+                        )
+                        == 0
                     )
-                    == 0
-                )
-            ]["formula"].apply(normalize_formula)
-        )
+                ]["formula"].apply(normalize_formula)
+            )
+        else:
+            stable_mp_norms: set[str] = set()
         blade_norms = set(blade_lkp.keys())
         cs_mp = cs_mp[cs_mp["formula"].apply(normalize_formula).isin(stable_mp_norms | blade_norms)].copy().reset_index(drop=True)
 
