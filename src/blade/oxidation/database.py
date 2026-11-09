@@ -398,6 +398,7 @@ class OxideDatabase:
 
             # System energy Excel
             if xlsx.exists():
+                sys_out.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(xlsx, sys_out / f"{system}_system_energy.xlsx")
 
             # Parent formula Excels
