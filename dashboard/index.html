@@ -539,6 +539,19 @@
 
   .tab-content { display: flex; flex-direction: column; overflow-y: auto; flex: 1; min-height: 0; }
 
+  /* ── Config tab form ─────────────────────────────────────── */
+  .cfg-sec { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .cfg-sec-title { font-family: var(--mono); font-size: 10px; font-weight: 600; color: var(--text-muted); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 6px; }
+  .cfg-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 5px; }
+  .cfg-row label { font-size: 11px; color: var(--text); white-space: nowrap; flex-shrink: 0; }
+  .cfg-inp { background: var(--bg); border: 1px solid var(--border2); border-radius: 4px; color: var(--text); font-family: var(--mono); font-size: 11px; padding: 3px 7px; outline: none; width: 100%; }
+  .cfg-inp:focus { border-color: var(--accent); }
+  .cfg-num { width: 70px; }
+  select.cfg-inp { cursor: pointer; }
+  .cfg-checks { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 2px; }
+  .cfg-chk { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text); cursor: pointer; user-select: none; }
+  .cfg-chk input { accent-color: var(--accent); cursor: pointer; }
+
   #tdb-list { display: flex; flex-direction: column; gap: 1px; padding: 6px; }
   .tdb-row {
     display: flex; align-items: center; gap: 8px;
@@ -722,6 +735,7 @@
       <button class="stage-tab active" id="tab-sqs" onclick="switchTab('sqs')">SQS</button>
       <button class="stage-tab" id="tab-tdb" onclick="switchTab('tdb')">TDB</button>
       <button class="stage-tab" id="tab-plots" onclick="switchTab('plots')">Plots</button>
+      <button class="stage-tab" id="tab-config" onclick="switchTab('config')">Config</button>
       <label id="live-sqs-label" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--text-dim);user-select:none;margin-left:auto;padding:0 8px;">
         <input type="checkbox" id="live-sqs-chk" style="accent-color:#A78BFA"> Live
       </label>
@@ -735,6 +749,123 @@
     </div>
     <div id="tab-content-plots" class="tab-content" hidden>
       <div id="plots-strip-right"></div>
+    </div>
+    <div id="tab-content-config" class="tab-content" hidden style="overflow-y:auto;flex-direction:column;">
+      <!-- header bar -->
+      <div style="display:flex;align-items:center;gap:5px;padding:6px 8px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface);">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-muted);white-space:nowrap;">TOML:</span>
+        <input id="toml-path-input" type="text" placeholder="examples/full_framework.toml"
+          style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border2);border-radius:4px;color:var(--text);font-family:var(--mono);font-size:11px;padding:3px 7px;outline:none;">
+        <button onclick="loadTomlConfig()" title="Reload from file"
+          style="background:none;border:1px solid var(--border2);border-radius:4px;color:var(--text-muted);font-size:11px;padding:2px 7px;cursor:pointer;white-space:nowrap;">↻</button>
+        <button id="cfg-save-btn" onclick="saveTomlConfig()"
+          style="background:var(--accent);border:none;border-radius:4px;color:#000;font-size:11px;font-weight:600;padding:3px 10px;cursor:pointer;white-space:nowrap;">Save</button>
+        <span id="cfg-status" style="font-family:var(--mono);font-size:10px;color:var(--green);white-space:nowrap;"></span>
+      </div>
+
+      <!-- form body -->
+      <div style="padding:0 0 20px;">
+
+        <!-- Stages -->
+        <div class="cfg-sec">
+          <div class="cfg-sec-title">Stages</div>
+          <div class="cfg-checks">
+            <label class="cfg-chk"><input type="checkbox" id="cfg-stages-sqs_generation"> SQS Generation</label>
+            <label class="cfg-chk"><input type="checkbox" id="cfg-stages-tdb_fitting"> TDB Fitting</label>
+            <label class="cfg-chk"><input type="checkbox" id="cfg-stages-phase_diagrams"> Phase Diagrams</label>
+            <label class="cfg-chk"><input type="checkbox" id="cfg-stages-oxide_database"> Oxide Database</label>
+            <label class="cfg-chk"><input type="checkbox" id="cfg-stages-oxidation_graphs"> Oxidation Graphs</label>
+            <label class="cfg-chk"><input type="checkbox" id="cfg-stages-stability"> Stability</label>
+          </div>
+        </div>
+
+        <!-- Elements -->
+        <div class="cfg-sec">
+          <div class="cfg-sec-title">Elements</div>
+          <div class="cfg-row"><label>Primary</label><input id="cfg-elements-primary" class="cfg-inp" placeholder="Hf, Cr, Mo"></div>
+          <div class="cfg-row"><label>Secondary</label><input id="cfg-elements-secondary" class="cfg-inp" placeholder=""></div>
+          <div class="cfg-row"><label>Primary min/max</label>
+            <div style="display:flex;gap:4px;">
+              <input id="cfg-elements-primary_min" class="cfg-inp cfg-num" type="number" min="1" max="10">
+              <input id="cfg-elements-primary_max" class="cfg-inp cfg-num" type="number" min="1" max="10">
+            </div>
+          </div>
+          <div class="cfg-row"><label>Secondary min/max</label>
+            <div style="display:flex;gap:4px;">
+              <input id="cfg-elements-secondary_min" class="cfg-inp cfg-num" type="number" min="0" max="10">
+              <input id="cfg-elements-secondary_max" class="cfg-inp cfg-num" type="number" min="0" max="10">
+            </div>
+          </div>
+        </div>
+
+        <!-- TDB -->
+        <div class="cfg-sec">
+          <div class="cfg-sec-title">TDB</div>
+          <div class="cfg-row"><label>MLIP</label>
+            <select id="cfg-tdb-mlip" class="cfg-inp">
+              <option>grace</option><option>orb</option><option>mace</option>
+              <option>chgnet</option><option>m3gnet</option><option>alignn</option>
+              <option>mattersim</option><option>sevennet</option>
+            </select>
+          </div>
+          <div class="cfg-row"><label>SQS method</label>
+            <select id="cfg-tdb-sqs_method" class="cfg-inp">
+              <option>mcsqs</option><option>scraps</option><option>mscraps</option>
+            </select>
+          </div>
+          <div class="cfg-row"><label>Level</label><input id="cfg-tdb-level" class="cfg-inp cfg-num" type="number" min="1" max="10"></div>
+          <div class="cfg-checks">
+            <label class="cfg-chk"><input type="checkbox" id="cfg-tdb-skip_existing"> Skip existing</label>
+            <label class="cfg-chk"><input type="checkbox" id="cfg-tdb-liquid"> Liquid</label>
+            <label class="cfg-chk"><input type="checkbox" id="cfg-tdb-run_movie"> Run movie</label>
+          </div>
+        </div>
+
+        <!-- MLIP kwargs -->
+        <div class="cfg-sec">
+          <div class="cfg-sec-title">MLIP</div>
+          <div class="cfg-row"><label>Device</label>
+            <select id="cfg-mlip_kwargs-device" class="cfg-inp">
+              <option>cpu</option><option>cuda</option><option>cuda:0</option><option>mps</option>
+            </select>
+          </div>
+          <div class="cfg-row"><label>Steps</label><input id="cfg-mlip_kwargs-steps" class="cfg-inp cfg-num" type="number" min="100"></div>
+        </div>
+
+        <!-- TDB fit -->
+        <div class="cfg-sec">
+          <div class="cfg-sec-title">Fit</div>
+          <div class="cfg-row"><label>fmax</label><input id="cfg-tdb_fit-fmax" class="cfg-inp" type="number" step="0.0001" min="0.0001"></div>
+          <div class="cfg-row"><label>T min (K)</label><input id="cfg-tdb_fit-t_min" class="cfg-inp cfg-num" type="number"></div>
+          <div class="cfg-row"><label>T max (K)</label><input id="cfg-tdb_fit-t_max" class="cfg-inp cfg-num" type="number"></div>
+          <div class="cfg-checks">
+            <label class="cfg-chk"><input type="checkbox" id="cfg-tdb_fit-track_trajectory"> Track trajectory</label>
+          </div>
+        </div>
+
+        <!-- TDB SQS -->
+        <div class="cfg-sec">
+          <div class="cfg-sec-title">mcsqs</div>
+          <div class="cfg-row"><label>Time (s)</label><input id="cfg-tdb_sqs-time" class="cfg-inp cfg-num" type="number" min="1"></div>
+          <div class="cfg-row"><label>Parallel runs</label><input id="cfg-tdb_sqs-parallel_runs" class="cfg-inp cfg-num" type="number" min="1"></div>
+          <div class="cfg-row"><label>wr</label><input id="cfg-tdb_sqs-wr" class="cfg-inp" type="number" step="0.01"></div>
+          <div class="cfg-row"><label>wn</label><input id="cfg-tdb_sqs-wn" class="cfg-inp" type="number" step="0.01"></div>
+          <div class="cfg-row"><label>wd</label><input id="cfg-tdb_sqs-wd" class="cfg-inp" type="number" step="0.01"></div>
+        </div>
+
+        <!-- Phase plots -->
+        <div class="cfg-sec" style="border:none;">
+          <div class="cfg-sec-title">Phase Plots</div>
+          <div class="cfg-row"><label>T start (K)</label><input id="cfg-phase_plots-t_start" class="cfg-inp cfg-num" type="number"></div>
+          <div class="cfg-row"><label>T end (K)</label><input id="cfg-phase_plots-t_end" class="cfg-inp cfg-num" type="number"></div>
+          <div class="cfg-row"><label>T step (K)</label><input id="cfg-phase_plots-t_step" class="cfg-inp cfg-num" type="number"></div>
+          <div class="cfg-row"><label>GIF T step</label><input id="cfg-phase_plots-gif_t_step" class="cfg-inp cfg-num" type="number"></div>
+          <div class="cfg-checks">
+            <label class="cfg-chk"><input type="checkbox" id="cfg-phase_plots-make_gif"> Make GIF</label>
+          </div>
+        </div>
+
+      </div>
     </div>
   </div>
 
@@ -2195,10 +2326,11 @@ function formatCompLabel(name, energy) {
 
 // ── Stage tabs ─────────────────────────────────────────────────────────
 function switchTab(name) {
-  ['sqs', 'tdb', 'plots'].forEach(t => {
+  ['sqs', 'tdb', 'plots', 'config'].forEach(t => {
     document.getElementById(`tab-${t}`).classList.toggle('active', t === name);
     document.getElementById(`tab-content-${t}`).hidden = t !== name;
   });
+  if (name === 'config') { loadToml(); return; }
 
   const isSQS   = name === 'sqs';
   const isTDB   = name === 'tdb';
@@ -2643,6 +2775,165 @@ function _initHandles() {
     _rhStart('row-bottom', e, pb ? pb.offsetHeight : 150);
   });
 }
+
+// ── TOML config form ───────────────────────────────────────────────────
+let _tomlCfg = null;
+
+function _cfgSetVal(id, val) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (el.type === 'checkbox') el.checked = !!val;
+  else if (el.tagName === 'SELECT') el.value = String(val ?? '');
+  else el.value = val ?? '';
+}
+
+function _cfgGetVal(id) {
+  const el = document.getElementById(id);
+  if (!el) return undefined;
+  if (el.type === 'checkbox') return el.checked;
+  if (el.type === 'number') return el.value === '' ? undefined : Number(el.value);
+  return el.value;
+}
+
+function _applyTomlToForm(cfg) {
+  if (!cfg) return;
+  const st = cfg.stages || {};
+  ['sqs_generation','tdb_fitting','phase_diagrams','oxide_database','oxidation_graphs','stability']
+    .forEach(k => _cfgSetVal(`cfg-stages-${k}`, st[k]));
+
+  const el = cfg.elements || {};
+  _cfgSetVal('cfg-elements-primary',       (el.primary   || []).join(', '));
+  _cfgSetVal('cfg-elements-secondary',     (el.secondary || []).join(', '));
+  _cfgSetVal('cfg-elements-primary_min',   el.primary_min   ?? '');
+  _cfgSetVal('cfg-elements-primary_max',   el.primary_max   ?? '');
+  _cfgSetVal('cfg-elements-secondary_min', el.secondary_min ?? '');
+  _cfgSetVal('cfg-elements-secondary_max', el.secondary_max ?? '');
+
+  const tdb = cfg.tdb || {};
+  _cfgSetVal('cfg-tdb-mlip',          tdb.mlip         ?? 'orb');
+  _cfgSetVal('cfg-tdb-sqs_method',    tdb.sqs_method   ?? 'mcsqs');
+  _cfgSetVal('cfg-tdb-level',         tdb.level        ?? '');
+  _cfgSetVal('cfg-tdb-skip_existing', tdb.skip_existing ?? true);
+  _cfgSetVal('cfg-tdb-liquid',        tdb.liquid        ?? false);
+  _cfgSetVal('cfg-tdb-run_movie',     tdb.run_movie     ?? false);
+
+  const mk = cfg.mlip_kwargs || {};
+  _cfgSetVal('cfg-mlip_kwargs-device', mk.device ?? 'cpu');
+  _cfgSetVal('cfg-mlip_kwargs-steps',  mk.steps  ?? '');
+
+  const fit = cfg.tdb_fit || {};
+  _cfgSetVal('cfg-tdb_fit-fmax',              fit.fmax              ?? '');
+  _cfgSetVal('cfg-tdb_fit-t_min',             fit.t_min             ?? '');
+  _cfgSetVal('cfg-tdb_fit-t_max',             fit.t_max             ?? '');
+  _cfgSetVal('cfg-tdb_fit-track_trajectory',  fit.track_trajectory  ?? true);
+
+  const sqs = cfg.tdb_sqs || {};
+  _cfgSetVal('cfg-tdb_sqs-time',          sqs.time          ?? '');
+  _cfgSetVal('cfg-tdb_sqs-parallel_runs', sqs.parallel_runs ?? '');
+  _cfgSetVal('cfg-tdb_sqs-wr',            sqs.wr            ?? '');
+  _cfgSetVal('cfg-tdb_sqs-wn',            sqs.wn            ?? '');
+  _cfgSetVal('cfg-tdb_sqs-wd',            sqs.wd            ?? '');
+
+  const pp = cfg.phase_plots || {};
+  _cfgSetVal('cfg-phase_plots-t_start',   pp.t_start   ?? '');
+  _cfgSetVal('cfg-phase_plots-t_end',     pp.t_end     ?? '');
+  _cfgSetVal('cfg-phase_plots-t_step',    pp.t_step    ?? '');
+  _cfgSetVal('cfg-phase_plots-gif_t_step',pp.gif_t_step ?? '');
+  _cfgSetVal('cfg-phase_plots-make_gif',  pp.make_gif  ?? false);
+}
+
+function _collectTomlUpdates() {
+  const parseList = s => s.split(',').map(x => x.trim()).filter(Boolean);
+  return {
+    stages: {
+      sqs_generation:   _cfgGetVal('cfg-stages-sqs_generation'),
+      tdb_fitting:      _cfgGetVal('cfg-stages-tdb_fitting'),
+      phase_diagrams:   _cfgGetVal('cfg-stages-phase_diagrams'),
+      oxide_database:   _cfgGetVal('cfg-stages-oxide_database'),
+      oxidation_graphs: _cfgGetVal('cfg-stages-oxidation_graphs'),
+      stability:        _cfgGetVal('cfg-stages-stability'),
+    },
+    elements: {
+      primary:       parseList(document.getElementById('cfg-elements-primary')?.value || ''),
+      secondary:     parseList(document.getElementById('cfg-elements-secondary')?.value || ''),
+      primary_min:   _cfgGetVal('cfg-elements-primary_min'),
+      primary_max:   _cfgGetVal('cfg-elements-primary_max'),
+      secondary_min: _cfgGetVal('cfg-elements-secondary_min'),
+      secondary_max: _cfgGetVal('cfg-elements-secondary_max'),
+    },
+    tdb: {
+      mlip:          _cfgGetVal('cfg-tdb-mlip'),
+      sqs_method:    _cfgGetVal('cfg-tdb-sqs_method'),
+      level:         _cfgGetVal('cfg-tdb-level'),
+      skip_existing: _cfgGetVal('cfg-tdb-skip_existing'),
+      liquid:        _cfgGetVal('cfg-tdb-liquid'),
+      run_movie:     _cfgGetVal('cfg-tdb-run_movie'),
+    },
+    mlip_kwargs: {
+      device: _cfgGetVal('cfg-mlip_kwargs-device'),
+      steps:  _cfgGetVal('cfg-mlip_kwargs-steps'),
+    },
+    tdb_fit: {
+      fmax:              _cfgGetVal('cfg-tdb_fit-fmax'),
+      t_min:             _cfgGetVal('cfg-tdb_fit-t_min'),
+      t_max:             _cfgGetVal('cfg-tdb_fit-t_max'),
+      track_trajectory:  _cfgGetVal('cfg-tdb_fit-track_trajectory'),
+    },
+    tdb_sqs: {
+      time:          _cfgGetVal('cfg-tdb_sqs-time'),
+      parallel_runs: _cfgGetVal('cfg-tdb_sqs-parallel_runs'),
+      wr:            _cfgGetVal('cfg-tdb_sqs-wr'),
+      wn:            _cfgGetVal('cfg-tdb_sqs-wn'),
+      wd:            _cfgGetVal('cfg-tdb_sqs-wd'),
+    },
+    phase_plots: {
+      t_start:    _cfgGetVal('cfg-phase_plots-t_start'),
+      t_end:      _cfgGetVal('cfg-phase_plots-t_end'),
+      t_step:     _cfgGetVal('cfg-phase_plots-t_step'),
+      gif_t_step: _cfgGetVal('cfg-phase_plots-gif_t_step'),
+      make_gif:   _cfgGetVal('cfg-phase_plots-make_gif'),
+    },
+  };
+}
+
+async function loadTomlConfig() {
+  const path = document.getElementById('toml-path-input')?.value.trim();
+  const status = document.getElementById('cfg-status');
+  if (!path) return;
+  if (status) status.textContent = 'Loading…';
+  try {
+    const r = await fetch(`/blade/api/toml_read?path=${encodeURIComponent(path)}`);
+    const d = await r.json();
+    if (d.error) { if (status) status.textContent = `Error: ${d.error}`; return; }
+    _tomlCfg = d.data;
+    _applyTomlToForm(_tomlCfg);
+    if (status) { status.textContent = 'Loaded'; setTimeout(() => { status.textContent = ''; }, 2000); }
+  } catch(e) {
+    if (status) status.textContent = `Error: ${e}`;
+  }
+}
+
+async function saveTomlConfig() {
+  const path = document.getElementById('toml-path-input')?.value.trim();
+  const status = document.getElementById('cfg-status');
+  if (!path) return;
+  if (status) status.textContent = 'Saving…';
+  try {
+    const r = await fetch('/blade/api/toml_write', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path, updates: _collectTomlUpdates()}),
+    });
+    const d = await r.json();
+    if (d.error) { if (status) status.textContent = `Error: ${d.error}`; return; }
+    if (status) { status.textContent = 'Saved ✓'; setTimeout(() => { status.textContent = ''; }, 3000); }
+  } catch(e) {
+    if (status) status.textContent = `Error: ${e}`;
+  }
+}
+
+// Keep old loadToml as alias so the boot switchTab('config') call still works
+function loadToml() { loadTomlConfig(); }
 
 // ── Boot ───────────────────────────────────────────────────────────────
 initTrajViewer();
