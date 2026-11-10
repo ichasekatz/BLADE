@@ -14,6 +14,7 @@ the same TOML config as `full_framework.py` and watches the output filesystem.
 | SQS tiles | 10 parallel `mcsqs` runs — structure + correlation score per run |
 | Outputs strip | All PNG/GIF outputs as they appear; click to expand |
 | Log panel | Last 80 lines of `nohup.out` |
+| Config tab | View and edit all `full_framework.toml` settings as a structured form; save writes back to the TOML without touching comments |
 
 ## Setup
 
@@ -67,3 +68,9 @@ pkill -f "dashboard/server.py"
 - No dependencies beyond Python 3.11+ stdlib (uses `tomllib`)
 - The server serves only your `Files/` directory — no other paths are accessible
 - Images are sent as base64; large GIF files may be slow to load in the strip
+
+## Config tab
+
+The Config tab connects directly to the TOML file you pass to `server.py`. It presents all settings as an editable form grouped by section (Stages, Elements, TDB, MLIP kwargs, TDB fit, mcsqs, Phase Plots). Click **Refresh** to reload from disk; click **Save** to write changes back using a comment-preserving line patcher — no reformatting of your config.
+
+The TOML path defaults to `examples/full_framework.toml` relative to the BLADE root. Enter a different path in the input box to point at another config.
