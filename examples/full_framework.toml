@@ -22,11 +22,15 @@ secondary_max = 0
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 # blade_root is auto-detected as the parent of the examples/ directory.
-# Only set these if your layout differs from the defaults.
+# Defaults assume the standard Research/ layout (sibling dirs to BLADE/):
+#   sqsdb_dir  → <blade_root>/../PhaseForge/PhaseForge/atat/data/sqsdb
+#   scraps_repo  → <blade_root>/../SCRAPS/scraps-perpair-arroyave
+#   mscraps_repo → <blade_root>/../SCRAPS/m_scraps
+# Override only if your layout differs.
 [paths]
-sqsdb_dir  = "/Users/chasekatz/Desktop/School/Research/PhaseForge/PhaseForge/atat/data/sqsdb"
-scraps_repo  = "/Users/chasekatz/Desktop/School/Research/SCRAPS/scraps-perpair-arroyave"
-mscraps_repo = "/Users/chasekatz/Desktop/School/Research/SCRAPS/m_scraps"
+# sqsdb_dir  = "~/path/to/atat/data/sqsdb"
+# scraps_repo  = "~/path/to/SCRAPS/scraps-perpair-arroyave"   # required only when tdb.sqs_method = "scraps"
+# mscraps_repo = "~/path/to/SCRAPS/m_scraps"                  # required only when tdb.sqs_method = "mscraps"
 
 # ── TDB fitting ───────────────────────────────────────────────────────────────
 [tdb]

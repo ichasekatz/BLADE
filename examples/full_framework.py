@@ -251,11 +251,16 @@ class FullFrameworkPipeline:
         _auto_root = Path(__file__).parent.parent.resolve()
         self.blade_root = Path(paths["blade_root"]).expanduser().resolve() if "blade_root" in paths else _auto_root
         self.files_dir = self.blade_root / "Files"
-        self.sqsdb_dir = Path(paths["sqsdb_dir"]).expanduser().resolve()
+        self.sqsdb_dir = Path(
+            paths.get(
+                "sqsdb_dir",
+                self.blade_root.parent / "PhaseForge" / "PhaseForge" / "atat" / "data" / "sqsdb",
+            )
+        ).expanduser().resolve()
         self.scraps_repo = (
-            Path(paths.get("scraps_repo", self.blade_root.parent / "SCRAPS" / "scraps-perpair")).expanduser().resolve()
+            Path(paths.get("scraps_repo", self.blade_root.parent / "SCRAPS" / "scraps-perpair-arroyave")).expanduser().resolve()
         )
-        self.mscraps_repo = Path(paths.get("mscraps_repo", self.blade_root.parent / "m_scraps")).expanduser().resolve()
+        self.mscraps_repo = Path(paths.get("mscraps_repo", self.blade_root.parent / "SCRAPS" / "m_scraps")).expanduser().resolve()
         source_root = str(self.blade_root / "src")
         if source_root not in sys.path:
             sys.path.insert(0, source_root)
@@ -608,7 +613,6 @@ class FullFrameworkPipeline:
             if self._sqs_method() == "mcsqs" and shutil.which("mcsqs") is None:
                 errors.append("tdb: mcsqs is not on PATH")
             elif self._sqs_method() == "scraps":
-                scraps = self.settings.get("tdb_scraps", {})
                 scraps_bin = self.scraps_repo / "SCRAPs" / "scraps"
                 scraps_tools = self.scraps_repo / "tools"
                 if not scraps_bin.is_file():
@@ -618,7 +622,6 @@ class FullFrameworkPipeline:
                 if not _module_available("ase"):
                     errors.append("tdb: SCRAPS requires Python dependency 'ase'")
             elif self._sqs_method() == "mscraps":
-                mscraps = self.settings.get("tdb_mscraps", {})
                 mscraps_bin = self.mscraps_repo / "SCRAPs" / "scraps"
                 if not mscraps_bin.is_file():
                     errors.append(f"tdb: m_scraps executable does not exist: {mscraps_bin}")

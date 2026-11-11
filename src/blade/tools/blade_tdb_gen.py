@@ -614,7 +614,7 @@ class BladeTDBGen:
 
         For each ``sqs_lev=*`` subdir in *sqsdb_dir* where one or more element
         fractions are 0.0 (a sub-order composition point) and no ``energy``
-        file is already present, searches ``Files/SQS/<lattice>_<n>/`` for a
+        file is already present, searches ``Files/Comps/*/<lattice>_<n>/`` for a
         matching dir with identical non-zero element-fraction pairs and copies
         ``energy``, ``str_relax.out``, ``CONTCAR``, ``force.out``, and
         ``stress.out`` when found.
@@ -648,20 +648,20 @@ class BladeTDBGen:
 
             src_found: Path | None = None
             for n_sub in range(n_nonzero, 0, -1):
-                staging = self.path1 / "Files" / "SQS" / f"{lattice}_{n_sub}"
-                if not staging.exists():
-                    continue
-                for candidate in staging.iterdir():
-                    if not candidate.is_dir() or not candidate.name.startswith("sqs_lev="):
-                        continue
-                    if not (candidate / "energy").exists():
-                        continue
-                    cand_fracs = {m.group(1): float(m.group(2)) for m in _frac_pat.finditer(candidate.name)}
-                    cand_nonzero = {el: frac for el, frac in cand_fracs.items() if frac > 1e-9}
-                    if set(cand_nonzero) != set(nonzero):
-                        continue
-                    if all(abs(cand_nonzero[el] - nonzero[el]) < 1e-4 for el in nonzero):
-                        src_found = candidate
+                for staging in sorted(self.output_dir.glob(f"*/{lattice}_{n_sub}")):
+                    for candidate in staging.iterdir():
+                        if not candidate.is_dir() or not candidate.name.startswith("sqs_lev="):
+                            continue
+                        if not (candidate / "energy").exists():
+                            continue
+                        cand_fracs = {m.group(1): float(m.group(2)) for m in _frac_pat.finditer(candidate.name)}
+                        cand_nonzero = {el: frac for el, frac in cand_fracs.items() if frac > 1e-9}
+                        if set(cand_nonzero) != set(nonzero):
+                            continue
+                        if all(abs(cand_nonzero[el] - nonzero[el]) < 1e-4 for el in nonzero):
+                            src_found = candidate
+                            break
+                    if src_found:
                         break
                 if src_found:
                     break
