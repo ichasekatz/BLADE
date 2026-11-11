@@ -707,10 +707,15 @@ class BladeTDBGen:
         if self.reuse_suborder_relaxations:
             length = len(comp)
             def _post_rename_hook(lattice_path: Path, _length: int = length) -> None:
-                lattice_base = lattice_path.name.rsplit("_", 1)[0]
-                n = self._seed_from_suborder(lattice_path.resolve(), _length, lattice_base)
-                if n:
-                    print(f"  seeded {n} sub-order sqs_lev dirs from lower-order relaxations", flush=True)
+                abs_path = lattice_path.resolve()
+                lattice_base = abs_path.name.rsplit("_", 1)[0]
+                print(f"  [reuse] post_rename_hook fired: {abs_path}", flush=True)
+                found_dirs = list(abs_path.glob("sqs_lev=*"))
+                print(f"  [reuse] sqs_lev dirs in target: {len(found_dirs)}", flush=True)
+                cache_dirs = list(self.output_dir.glob(f"*/{lattice_base}_*"))
+                print(f"  [reuse] cache dirs found: {[str(d) for d in cache_dirs]}", flush=True)
+                n = self._seed_from_suborder(abs_path, _length, lattice_base)
+                print(f"  [reuse] seeded {n} dirs", flush=True)
             sqs.post_rename_hook = _post_rename_hook
         # Strip BLADE-internal keys ("Constant") before passing to MaterialsFramework
         clean_sublattice_map = None
