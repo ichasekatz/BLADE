@@ -297,18 +297,6 @@ class BladeTDBGen:
                 else:
                     print(f"Warning: SQS source not found, skipping copy: {src}")
 
-            if self.reuse_suborder_relaxations:
-                for phase in self.phases:
-                    lattice = phase["lattice"]
-                    dst = self.path2 / f"{lattice}_{length}"
-                    if dst.exists():
-                        n = self._seed_from_suborder(dst, length, lattice)
-                        if n:
-                            print(
-                                f"  [{comp_name}] seeded {n} sub-order sqs_lev dirs "
-                                f"from lower-order SQS (reuse_suborder_relaxations)",
-                                flush=True,
-                            )
 
             comp_dir.mkdir(parents=True, exist_ok=True)
             phase_list = self._build_phase_list(length)
@@ -609,20 +597,22 @@ class BladeTDBGen:
         if r.stdout.strip():
             print(r.stdout.strip()[:_stdout_truncation_chars])
 
-    def _seed_from_suborder(self, sqsdb_dir: Path, length: int, lattice: str) -> int:
-        """Copy relaxation outputs from lower-order SQS staging dirs into *sqsdb_dir*.
+    def _seed_from_suborder(self, lattice_path: Path, length: int, lattice_base: str) -> int:
+        """Copy relaxation outputs from lower-order Comps dirs into *lattice_path*.
 
-        For each ``sqs_lev=*`` subdir in *sqsdb_dir* where one or more element
-        fractions are 0.0 (a sub-order composition point) and no ``energy``
-        file is already present, searches ``Files/Comps/*/<lattice>_<n>/`` for a
-        matching dir with identical non-zero element-fraction pairs and copies
-        ``energy``, ``str_relax.out``, ``CONTCAR``, ``force.out``, and
-        ``stress.out`` when found.
+        Called as a ``post_rename_hook`` on the Sqs2tdb instance so it runs
+        after ``sqs2tdb -cp`` has created the ``sqs_lev=*`` subdirectories but
+        before MLIP relaxation starts.  For each ``sqs_lev=*`` dir that has no
+        ``energy`` file and contains at least one zero-fraction element (a
+        sub-order composition point), searches ``output_dir/*/<lattice_base>_N/``
+        for any N < *length* and copies ``energy``, ``str_relax.out``,
+        ``CONTCAR``, ``force.out``, and ``stress.out`` from the first match.
 
         Args:
-            sqsdb_dir: Destination sqsdb lattice directory.
+            lattice_path: Absolute path to the per-composition lattice directory
+                created by Sqs2tdb (e.g. ``Files/Comps/CrCuFeMo/HEDB1_4``).
             length: Number of elements in the target system.
-            lattice: Lattice base name (e.g. ``"HEDB1"``).
+            lattice_base: Lattice name without the ``_N`` suffix (e.g. ``"HEDB1"``).
 
         Returns:
             Number of subdirectories seeded.
@@ -633,10 +623,8 @@ class BladeTDBGen:
         _frac_pat = _re.compile(r"a_([A-Z][a-z]?)=([\d.]+)")
 
         seeded = 0
-        for subdir in sorted(sqsdb_dir.iterdir()):
-            if not subdir.is_dir() or not subdir.name.startswith("sqs_lev="):
-                continue
-            if (subdir / "energy").exists():
+        for subdir in sorted(lattice_path.glob("sqs_lev=*")):
+            if not subdir.is_dir() or (subdir / "energy").exists():
                 continue
 
             all_fracs = {m.group(1): float(m.group(2)) for m in _frac_pat.finditer(subdir.name)}
@@ -647,17 +635,15 @@ class BladeTDBGen:
                 continue  # full-order or empty — nothing to seed
 
             src_found: Path | None = None
-            for staging in sorted(self.output_dir.glob(f"*/{lattice}_*")):
+            for staging in sorted(self.output_dir.glob(f"*/{lattice_base}_*")):
                 try:
                     n_sub = int(staging.name.rsplit("_", 1)[-1])
                 except ValueError:
                     continue
                 if n_sub >= length:
                     continue
-                for candidate in staging.iterdir():
-                    if not candidate.is_dir() or not candidate.name.startswith("sqs_lev="):
-                        continue
-                    if not (candidate / "energy").exists():
+                for candidate in staging.glob("sqs_lev=*"):
+                    if not candidate.is_dir() or not (candidate / "energy").exists():
                         continue
                     cand_fracs = {m.group(1): float(m.group(2)) for m in _frac_pat.finditer(candidate.name)}
                     cand_nonzero = {el: frac for el, frac in cand_fracs.items() if frac > 1e-9}
@@ -718,6 +704,14 @@ class BladeTDBGen:
             track_trajectory=p.get("track_trajectory", True),
             calculator=calc,
         )
+        if self.reuse_suborder_relaxations:
+            length = len(comp)
+            def _post_rename_hook(lattice_path: Path, _length: int = length) -> None:
+                lattice_base = lattice_path.name.rsplit("_", 1)[0]
+                n = self._seed_from_suborder(lattice_path.resolve(), _length, lattice_base)
+                if n:
+                    print(f"  seeded {n} sub-order sqs_lev dirs from lower-order relaxations", flush=True)
+            sqs.post_rename_hook = _post_rename_hook
         # Strip BLADE-internal keys ("Constant") before passing to MaterialsFramework
         clean_sublattice_map = None
         if self.sublattice_map:
