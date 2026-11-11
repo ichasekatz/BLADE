@@ -34,6 +34,10 @@ sqs_method         = "mcsqs"   # "mcsqs", "scraps", or "mscraps"
 level              = 6
 skip_existing      = true      # skip SQS, TDB, and plots when outputs already exist
 run_movie          = false     # generate MP4 trajectory videos (requires FFmpeg)
+# reuse_suborder_relaxations = false  # copy relaxation outputs from lower-order SQS dirs into
+                                      # sub-order sqs_lev= slots (e.g. reuse ternary data for
+                                      # quaternary sub-compositions). SQS supercells may differ
+                                      # between systems — verify results before production use.
 mlip               = "orb"
 liquid             = false
 comps_folder       = "Comps"

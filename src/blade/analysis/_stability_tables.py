@@ -295,8 +295,7 @@ def _fit_rk(
         Tuple of (binary_coeffs, ternary_coeff) where binary_coeffs maps (i, j)
         to an array of L0, L1, ... coefficients in eV/formula.
     """
-    y_cols = [f"y_{m}_metal_site" for m in range(n)]  # placeholder keys used in rows
-    # rebuild actual column names from rows
+    # rebuild actual column names from rows (metal order comes from the row keys)
     actual_y_cols = [k for k in rows[0] if k.startswith("y_") and "metal_site" in k]
     actual_y_cols.sort()
 
@@ -365,13 +364,15 @@ def _build_fixed_rows(
             continue
         reduced = _reduce_counts(counts)
         e_total = _read_scalar(ep)
-        fixed.append({
-            "phase_id": r["phase_id"],
-            "metals": np.array([float(reduced[m]) for m in metals]),
-            "phase_el": float(reduced[phase_element]),
-            "O": float(reduced.get("O", 0)),
-            "energy_eV_per_atom": e_total / n_atoms,
-        })
+        fixed.append(
+            {
+                "phase_id": r["phase_id"],
+                "metals": np.array([float(reduced[m]) for m in metals]),
+                "phase_el": float(reduced[phase_element]),
+                "O": float(reduced.get("O", 0)),
+                "energy_eV_per_atom": e_total / n_atoms,
+            }
+        )
     return fixed
 
 
@@ -389,7 +390,4 @@ def _ss_phase_ids(y_grid: np.ndarray, metals: list[str], n: int, n_pts: int) -> 
     """
     if n == 2:
         return np.array([f"SS_y={y[0]:.4f}" for y in y_grid])
-    return np.array([
-        "SS_" + "_".join(f"{metals[k]}={y_grid[r, k]:.4f}" for k in range(n - 1))
-        for r in range(n_pts)
-    ])
+    return np.array(["SS_" + "_".join(f"{metals[k]}={y_grid[r, k]:.4f}" for k in range(n - 1)) for r in range(n_pts)])

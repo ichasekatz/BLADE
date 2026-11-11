@@ -16,7 +16,7 @@ import pandas as pd
 
 from blade.oxidation.framework._lp import solve_grand_lp
 
-from ._stability_tables import MissingEndpointError, build_phase_data, detect_metals
+from ._stability_tables import MissingEndpointError
 
 gas_constant = 8.314472  # J / (mol·K)
 kb_ev_per_k = 8.617333262145e-5  # eV / K
@@ -114,9 +114,15 @@ class BladeStability:
 
         args = [
             (
-                sdir, ldir, self.phase_element, self.phase_stoich,
-                self.t_values, self.composition_step, self.rk_order,
-                self.output_dir, self.skip_existing,
+                sdir,
+                ldir,
+                self.phase_element,
+                self.phase_stoich,
+                self.t_values,
+                self.composition_step,
+                self.rk_order,
+                self.output_dir,
+                self.skip_existing,
             )
             for sdir, ldir in system_dirs
         ]
@@ -294,8 +300,12 @@ def _stability_worker(
             return None, f"{system_tag}: fewer than 2 metals detected, skipping"
 
         phase_data = build_phase_data(
-            lattice_dir, metals, phase_element, phase_stoich,
-            rk_order=rk_order, y_step=composition_step,
+            lattice_dir,
+            metals,
+            phase_element,
+            phase_stoich,
+            rk_order=rk_order,
+            y_step=composition_step,
         )
     except MissingEndpointError as e:
         return None, f"{system_tag}: {e}"
@@ -335,8 +345,7 @@ def _find_lattice_dir(system_dir: Path) -> Path | None:
         valid = sum(
             1
             for sub in d.iterdir()
-            if sub.is_dir() and sub.name.startswith("sqs_lev=")
-            and (sub / "energy").exists() and (sub / "CONTCAR").exists()
+            if sub.is_dir() and sub.name.startswith("sqs_lev=") and (sub / "energy").exists() and (sub / "CONTCAR").exists()
         )
         if valid >= 3:
             return d

@@ -16,7 +16,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -25,7 +24,18 @@ from ase import Atoms
 from ase.cell import Cell
 
 _placeholder_pool = [
-    "Ni", "Co", "Cu", "Ag", "Au", "Pt", "Pd", "Rh", "Ir", "Os", "Ru", "Re",
+    "Ni",
+    "Co",
+    "Cu",
+    "Ag",
+    "Au",
+    "Pt",
+    "Pd",
+    "Rh",
+    "Ir",
+    "Os",
+    "Ru",
+    "Re",
 ]
 
 
@@ -77,19 +87,13 @@ def _build_prim_atoms(phases_dict: dict) -> tuple[Atoms, list[str]]:
         if lbl.islower() and len(lbl) == 1 and lbl not in letter_to_placeholder:
             letter_to_placeholder[lbl] = _placeholder_pool[pool_offset % len(_placeholder_pool)]
             pool_offset += 1
-    symbols = [
-        letter_to_placeholder[lbl] if (lbl.islower() and len(lbl) == 1) else lbl
-        for lbl in labels
-    ]
+    symbols = [letter_to_placeholder[lbl] if (lbl.islower() and len(lbl) == 1) else lbl for lbl in labels]
     return Atoms(symbols=symbols, scaled_positions=pos, cell=cell, pbc=True), labels
 
 
 def _parse_sqsdb_comp(dirname: str) -> dict[str, list[float]]:
     """Parse composition fractions from a ``sqsdb_lev=*`` directory name."""
-    return {
-        m.group(1): [float(x) for x in m.group(2).split(",")]
-        for m in re.finditer(r"_([a-z])=([\d.,]+)", dirname)
-    }
+    return {m.group(1): [float(x) for x in m.group(2).split(",")] for m in re.finditer(r"_([a-z])=([\d.,]+)", dirname)}
 
 
 def _var_sublattices(site_labels: list[str]) -> dict[str, list[int]]:
@@ -419,13 +423,10 @@ class MScrapsSQSGen:
 
         if self.scraps_bin is None or not self.scraps_bin.exists():
             raise FileNotFoundError(
-                f"SCRAPS binary not found at {self.scraps_bin}. "
-                "Build it from the m_scraps repo: cd SCRAPs && make."
+                f"SCRAPS binary not found at {self.scraps_bin}. Build it from the m_scraps repo: cd SCRAPs && make."
             )
         if self._mpirun is None:
-            raise RuntimeError(
-                "No mpirun found. Set the MPIRUN environment variable or install OpenMPI."
-            )
+            raise RuntimeError("No mpirun found. Set the MPIRUN environment variable or install OpenMPI.")
 
         lattice = phase["lattice"]
         cell_dim = params["super_cell_size"]
@@ -542,10 +543,7 @@ class MScrapsSQSGen:
         expected = n_basis * cell_vol
         total = sum(cfg["element_counts"])
         if total != expected:
-            print(
-                f"WARNING: element_counts sum {total} != expected {expected} "
-                f"in {sqsdir.name} — rounding mismatch, skipping"
-            )
+            print(f"WARNING: element_counts sum {total} != expected {expected} in {sqsdir.name} — rounding mismatch, skipping")
             return
 
         # MC kernel is passed as an extra INPUT line; not a direct make_scraps_inputs param.
@@ -589,9 +587,7 @@ class MScrapsSQSGen:
         print(f"m_scraps {sqsdir.name}: {' '.join(cmd)}")
         t0 = time.time()
         with log_path.open("w") as fh:
-            rc = subprocess.run(
-                cmd, cwd=work_dir, stdout=fh, stderr=subprocess.STDOUT, check=False
-            ).returncode
+            rc = subprocess.run(cmd, cwd=work_dir, stdout=fh, stderr=subprocess.STDOUT, check=False).returncode
         elapsed = time.time() - t0
 
         scraps_vasp = work_dir / "SCRAPS.vasp"

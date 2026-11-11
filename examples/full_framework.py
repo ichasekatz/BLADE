@@ -255,9 +255,7 @@ class FullFrameworkPipeline:
         self.scraps_repo = (
             Path(paths.get("scraps_repo", self.blade_root.parent / "SCRAPS" / "scraps-perpair")).expanduser().resolve()
         )
-        self.mscraps_repo = (
-            Path(paths.get("mscraps_repo", self.blade_root.parent / "m_scraps")).expanduser().resolve()
-        )
+        self.mscraps_repo = Path(paths.get("mscraps_repo", self.blade_root.parent / "m_scraps")).expanduser().resolve()
         source_root = str(self.blade_root / "src")
         if source_root not in sys.path:
             sys.path.insert(0, source_root)
@@ -309,10 +307,7 @@ class FullFrameworkPipeline:
 
     def _phase_plot_systems(self) -> set[str]:
         """Return explicit plot systems or reproduce the TDB composition set."""
-        configured = (
-            self.settings.get("phase_plots", {}).get("systems")
-            or self.settings.get("systems") or None
-        )
+        configured = self.settings.get("phase_plots", {}).get("systems") or self.settings.get("systems") or None
         if configured is not None:
             if not isinstance(configured, list) or not configured:
                 raise ValueError("phase_plots.systems must be a non-empty list")
@@ -730,6 +725,7 @@ class FullFrameworkPipeline:
             "run_tdb": self.enabled("tdb_fitting"),
             "skip_existing_tdb": cfg.get("skip_existing_tdb", cfg.get("skip_existing", True)),
             "refit_existing_tdb": cfg.get("refit_existing_tdb", False),
+            "reuse_suborder_relaxations": cfg.get("reuse_suborder_relaxations", False),
             "skip_existing_plots": cfg.get("skip_existing_plots", cfg.get("skip_existing", True)),
             "generate_gibbs_energy": self.enabled("tdb_fitting"),
             "generate_gibbs_mixing": self.enabled("tdb_fitting"),
@@ -958,7 +954,9 @@ class FullFrameworkPipeline:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "inputs", nargs="*", type=Path,
+        "inputs",
+        nargs="*",
+        type=Path,
         help="TOML config files (default: full_framework.toml). Additional files are deep-merged in order.",
     )
     parser.add_argument("--check", action="store_true", help="validate configuration and dependencies")

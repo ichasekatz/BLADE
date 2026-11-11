@@ -111,6 +111,7 @@ class BladeTDBGen:
         sublattice_map: dict[str, dict[str, list[str]]] | None = None,
         tdb_params: dict | None = None,
         fixed_compositions: dict[str, list[float]] | None = None,
+        reuse_suborder_relaxations: bool = False,
     ) -> None:
         """Initialize BladeTDBGen.
 
@@ -168,6 +169,21 @@ class BladeTDBGen:
                 (e.g., ``{"PHASE1": {"a": ["Cr", "Hf"], "b": ["Al"]}}``).
                 Phases absent from the dict use the ATAT default (all species
                 on all variable sublattices).  Defaults to ``None``.
+            reuse_suborder_relaxations (bool, optional): When ``True``, before
+                running MLIP relaxation for a composition, copy ``energy``,
+                ``str_relax.out``, ``CONTCAR``, ``force.out``, and
+                ``stress.out`` from already-relaxed lower-order SQS directories
+                into matching sub-order ``sqs_lev=*`` dirs of the current
+                sqsdb tree.  A sub-order dir is one where one or more element
+                fractions are 0.0 (e.g. ``a_Mo=0.0`` inside a quaternary
+                sqsdb).  Matching is by identical non-zero element-fraction
+                pairs within a tolerance of 1e-4.
+
+                **Disclaimer**: SQS supercells are generated per system and
+                may differ in atom count or decoration between a lower-order
+                system and the sub-order slots of a higher-order one.  Copied
+                energies are accepted without re-relaxation.  Verify results
+                before use in production databases.  Defaults to ``False``.
             tdb_params (dict | None, optional): Calculator and fit parameters
                 forwarded to :class:`~materialsframework.tools.sqs2tdb.Sqs2tdb`.
                 Supported keys:
@@ -221,6 +237,7 @@ class BladeTDBGen:
         self.sublattice_map = sublattice_map
         self.tdb_params = tdb_params
         self.fixed_compositions = fixed_compositions or {}
+        self.reuse_suborder_relaxations = reuse_suborder_relaxations
         self.composition_elements: dict[tuple, list[str]] = {}  # (level, frac_str) → elements
 
     # ------------------------------------------------------------------
@@ -241,6 +258,13 @@ class BladeTDBGen:
         per-composition folder and restored to :attr:`path0` afterward, as
         required by the MaterialsFramework fitting workflow.
         """
+        if self.reuse_suborder_relaxations:
+            print(
+                "WARNING: reuse_suborder_relaxations=True — relaxation outputs from "
+                "lower-order SQS dirs will be copied into sub-order sqs_lev= slots. "
+                "SQS supercells may differ between systems; energies are accepted "
+                "without re-relaxation. Verify results before production use."
+            )
         for comp in self.composition_list:
             length = len(comp)
             comp_name = "".join(comp)
@@ -272,6 +296,19 @@ class BladeTDBGen:
                     shutil.copytree(src, dst)
                 else:
                     print(f"Warning: SQS source not found, skipping copy: {src}")
+
+            if self.reuse_suborder_relaxations:
+                for phase in self.phases:
+                    lattice = phase["lattice"]
+                    dst = self.path2 / f"{lattice}_{length}"
+                    if dst.exists():
+                        n = self._seed_from_suborder(dst, length, lattice)
+                        if n:
+                            print(
+                                f"  [{comp_name}] seeded {n} sub-order sqs_lev dirs "
+                                f"from lower-order SQS (reuse_suborder_relaxations)",
+                                flush=True,
+                            )
 
             comp_dir.mkdir(parents=True, exist_ok=True)
             phase_list = self._build_phase_list(length)
@@ -571,6 +608,74 @@ class BladeTDBGen:
         r = _sp.run(["sqs2tdb", "-tdb"], capture_output=True, text=True, check=False)
         if r.stdout.strip():
             print(r.stdout.strip()[:_stdout_truncation_chars])
+
+    def _seed_from_suborder(self, sqsdb_dir: Path, length: int, lattice: str) -> int:
+        """Copy relaxation outputs from lower-order SQS staging dirs into *sqsdb_dir*.
+
+        For each ``sqs_lev=*`` subdir in *sqsdb_dir* where one or more element
+        fractions are 0.0 (a sub-order composition point) and no ``energy``
+        file is already present, searches ``Files/SQS/<lattice>_<n>/`` for a
+        matching dir with identical non-zero element-fraction pairs and copies
+        ``energy``, ``str_relax.out``, ``CONTCAR``, ``force.out``, and
+        ``stress.out`` when found.
+
+        Args:
+            sqsdb_dir: Destination sqsdb lattice directory.
+            length: Number of elements in the target system.
+            lattice: Lattice base name (e.g. ``"HEDB1"``).
+
+        Returns:
+            Number of subdirectories seeded.
+        """
+        import re as _re
+
+        _relax_files = ("energy", "str_relax.out", "CONTCAR", "force.out", "stress.out")
+        _frac_pat = _re.compile(r"a_([A-Z][a-z]?)=([\d.]+)")
+
+        seeded = 0
+        for subdir in sorted(sqsdb_dir.iterdir()):
+            if not subdir.is_dir() or not subdir.name.startswith("sqs_lev="):
+                continue
+            if (subdir / "energy").exists():
+                continue
+
+            all_fracs = {m.group(1): float(m.group(2)) for m in _frac_pat.finditer(subdir.name)}
+            nonzero = {el: frac for el, frac in all_fracs.items() if frac > 1e-9}
+            n_nonzero = len(nonzero)
+
+            if n_nonzero == length or n_nonzero < 1:
+                continue  # full-order or empty — nothing to seed
+
+            src_found: Path | None = None
+            for n_sub in range(n_nonzero, 0, -1):
+                staging = self.path1 / "Files" / "SQS" / f"{lattice}_{n_sub}"
+                if not staging.exists():
+                    continue
+                for candidate in staging.iterdir():
+                    if not candidate.is_dir() or not candidate.name.startswith("sqs_lev="):
+                        continue
+                    if not (candidate / "energy").exists():
+                        continue
+                    cand_fracs = {m.group(1): float(m.group(2)) for m in _frac_pat.finditer(candidate.name)}
+                    cand_nonzero = {el: frac for el, frac in cand_fracs.items() if frac > 1e-9}
+                    if set(cand_nonzero) != set(nonzero):
+                        continue
+                    if all(abs(cand_nonzero[el] - nonzero[el]) < 1e-4 for el in nonzero):
+                        src_found = candidate
+                        break
+                if src_found:
+                    break
+
+            if src_found is None:
+                continue
+
+            for fname in _relax_files:
+                src_file = src_found / fname
+                if src_file.exists():
+                    shutil.copy2(src_file, subdir / fname)
+            seeded += 1
+
+        return seeded
 
     def _run_sqsfit(self, comp: list[str], phase_list: list[str], use_filter: bool = False) -> None:
         """Invoke Sqs2tdb for a single composition.

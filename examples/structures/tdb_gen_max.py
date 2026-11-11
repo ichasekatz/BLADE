@@ -35,6 +35,7 @@ skip_existing_sqs = False
 run_tdb = True
 skip_existing_tdb = False
 refit_existing_tdb = False
+reuse_suborder_relaxations = False
 skip_existing_plots = False
 generate_gibbs_energy = True
 generate_gibbs_mixing = True
@@ -67,7 +68,7 @@ tdb_params = {
 # Keys are lattice base names (e.g. "CARBIDE1", "FCC1", "BCC1").
 
 terms_in: dict | None = None
-terms_in = {"MAX1": "1,0:1,0:1,0\n" "2,2:2,2:1,0\n" "3,0:2,0:1,0\n"}
+terms_in = {"MAX1": "1,0:1,0:1,0\n2,2:2,2:1,0\n3,0:2,0:1,0\n"}
 
 mult_in: dict | None = None
 mult_in = {"MAX1": "a=2\tb=1\tc=1"}
@@ -261,6 +262,7 @@ if run_tdb:
         sublattice_map=sublattice_map,
         tdb_params=tdb_params,
         fixed_compositions=fixed_compositions,
+        reuse_suborder_relaxations=reuse_suborder_relaxations,
     )
     gen.fit()  # explicit call — no side effects on construction
 
