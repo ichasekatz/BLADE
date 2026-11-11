@@ -647,21 +647,24 @@ class BladeTDBGen:
                 continue  # full-order or empty — nothing to seed
 
             src_found: Path | None = None
-            for n_sub in range(n_nonzero, 0, -1):
-                for staging in sorted(self.output_dir.glob(f"*/{lattice}_{n_sub}")):
-                    for candidate in staging.iterdir():
-                        if not candidate.is_dir() or not candidate.name.startswith("sqs_lev="):
-                            continue
-                        if not (candidate / "energy").exists():
-                            continue
-                        cand_fracs = {m.group(1): float(m.group(2)) for m in _frac_pat.finditer(candidate.name)}
-                        cand_nonzero = {el: frac for el, frac in cand_fracs.items() if frac > 1e-9}
-                        if set(cand_nonzero) != set(nonzero):
-                            continue
-                        if all(abs(cand_nonzero[el] - nonzero[el]) < 1e-4 for el in nonzero):
-                            src_found = candidate
-                            break
-                    if src_found:
+            for staging in sorted(self.output_dir.glob(f"*/{lattice}_*")):
+                try:
+                    n_sub = int(staging.name.rsplit("_", 1)[-1])
+                except ValueError:
+                    continue
+                if n_sub >= length:
+                    continue
+                for candidate in staging.iterdir():
+                    if not candidate.is_dir() or not candidate.name.startswith("sqs_lev="):
+                        continue
+                    if not (candidate / "energy").exists():
+                        continue
+                    cand_fracs = {m.group(1): float(m.group(2)) for m in _frac_pat.finditer(candidate.name)}
+                    cand_nonzero = {el: frac for el, frac in cand_fracs.items() if frac > 1e-9}
+                    if set(cand_nonzero) != set(nonzero):
+                        continue
+                    if all(abs(cand_nonzero[el] - nonzero[el]) < 1e-4 for el in nonzero):
+                        src_found = candidate
                         break
                 if src_found:
                     break
@@ -808,5 +811,5 @@ class BladeTDBGen:
             terms_in=terms_for_fit,
             mult_in=mult_for_fit,
             sublattice_map=clean_sublattice_map,
-            skip_existing=self.skip_existing,
+            skip_existing=self.skip_existing or self.reuse_suborder_relaxations,
         )
