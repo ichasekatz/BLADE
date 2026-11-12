@@ -90,6 +90,7 @@ class SingleCompositionAnalyzer:
         include_0p01_to_0p05_components: bool = True,
         region_label_mode: str = "id",
         region_label_fontsize: int = 12,
+        bartel_corrections: bool = False,
     ):
         self.system_dir = Path(system_dir) if system_dir else None
         self.tables_root = Path(tables_dir)
@@ -139,6 +140,7 @@ class SingleCompositionAnalyzer:
         self._x_label = "  ".join(f"x_{m}={self._comp[i]:.3g}" for i, m in enumerate(self.metals))
         self._x_str = "_".join(f"{m}{self._comp[i]:.2f}".replace(".", "p") for i, m in enumerate(self.metals))
 
+        self.bartel_corrections = bool(bartel_corrections)
         self._sys_cfg = None
         self._pd_data = None
         self._run_calculations = True

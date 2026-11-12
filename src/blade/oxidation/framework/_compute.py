@@ -154,11 +154,16 @@ def run_scan(
             if not self._run_calculations:
                 raise RuntimeError(f"plot-only mode requires the single-scan cache: {cache}")
             phase_G = pd_d["phase_H0"] + KB * float(T) * pd_d["phase_mix_shape"]
+            fixed_ef = pd_d["fixed_energy_formula"]
+            if getattr(self, "bartel_corrections", False):
+                from ._bartel import bartel_fixed_energy_corrections
+
+                fixed_ef = fixed_ef + bartel_fixed_energy_corrections(pd_d, float(T))
             wide_f = np.zeros((len(mu_vals), n_phases), dtype=float)
             for imu, mu_o in enumerate(mu_vals):
                 grand = np.concatenate(
                     [
-                        pd_d["fixed_energy_formula"] - pd_d["phase_O"][: pd_d["n_fixed"]] * mu_o,
+                        fixed_ef - pd_d["phase_O"][: pd_d["n_fixed"]] * mu_o,
                         phase_G,
                     ]
                 )
@@ -362,11 +367,16 @@ def run_muO_T_map(
 
     for iT, T in enumerate(T_vals):
         phase_G = pd_d["phase_H0"] + KB * float(T) * pd_d["phase_mix_shape"]
+        fixed_ef = pd_d["fixed_energy_formula"]
+        if getattr(self, "bartel_corrections", False):
+            from ._bartel import bartel_fixed_energy_corrections
+
+            fixed_ef = fixed_ef + bartel_fixed_energy_corrections(pd_d, float(T))
         for imu, mu_o in enumerate(mu_vals):
             row = iT * n_mu + imu
             grand = np.concatenate(
                 [
-                    pd_d["fixed_energy_formula"] - pd_d["phase_O"][: pd_d["n_fixed"]] * mu_o,
+                    fixed_ef - pd_d["phase_O"][: pd_d["n_fixed"]] * mu_o,
                     phase_G,
                 ]
             )
@@ -601,6 +611,11 @@ def run_muO_x_map(
 
     print(f"  muO-x map T={int(T)}K: {n_expected} LP solves …")
     phase_G = pd_d["phase_H0"] + KB * float(T) * pd_d["phase_mix_shape"]
+    fixed_ef = pd_d["fixed_energy_formula"]
+    if getattr(self, "bartel_corrections", False):
+        from ._bartel import bartel_fixed_energy_corrections
+
+        fixed_ef = fixed_ef + bartel_fixed_energy_corrections(pd_d, float(T))
     wide_f = np.zeros((n_expected, len(pd_d["phase_ids"])))
     exact_l = np.empty(n_expected, dtype=object)
     fam_l = np.empty(n_expected, dtype=object)
@@ -617,7 +632,7 @@ def run_muO_x_map(
         for mu_o in mu_vals:
             grand = np.concatenate(
                 [
-                    pd_d["fixed_energy_formula"] - pd_d["phase_O"][: pd_d["n_fixed"]] * mu_o,
+                    fixed_ef - pd_d["phase_O"][: pd_d["n_fixed"]] * mu_o,
                     phase_G,
                 ]
             )

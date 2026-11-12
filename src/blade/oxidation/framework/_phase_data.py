@@ -109,6 +109,20 @@ def _load_nd(
     fef = pt["energy_eV_per_atom"].astype(float).values * fatoms
     n_fixed = len(fids)
 
+    # Optional Bartel data: vol_per_atom column and formula counts
+    fixed_vol_per_atom = None
+    if "vol_per_atom" in pt.columns:
+        fixed_vol_per_atom = pt["vol_per_atom"].astype(float).values
+
+    fixed_formula_counts: list[dict[str, float]] = []
+    all_els = metals + ([phase_element] if phase_element else []) + ["O"]
+    all_counts = [fmetal[:, j] for j in range(len(metals))]
+    all_counts += [fphase_element] if phase_element else []
+    all_counts += [fO]
+    for i in range(n_fixed):
+        counts = {el: float(all_counts[k][i]) for k, el in enumerate(all_els) if float(all_counts[k][i]) > 0}
+        fixed_formula_counts.append(counts)
+
     # Simplex grid
     y_grid = simplex_grid_nd(n, y_step)  # (n_pts, n)
     n_pts = len(y_grid)
@@ -202,4 +216,6 @@ def _load_nd(
         "phase_element": phase_element,
         "phase_element_stoichiometry": phase_element_stoichiometry,
         "phase_suffix": suffix,
+        "fixed_vol_per_atom": fixed_vol_per_atom,
+        "fixed_formula_counts": fixed_formula_counts,
     }

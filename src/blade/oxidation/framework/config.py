@@ -113,6 +113,12 @@ class Config:
     slice_muT_x_values: object = field(default_factory=lambda: np.arange(0.0, 1.0 + 0.05, 0.10))
     slice_comp_bin: float = 0.05
 
+    # ------------------------------------------- Thermodynamic model
+    # When True, apply Bartel et al. (2018) G(T) corrections to fixed reference
+    # oxide energies at each temperature.  Requires a vol_per_atom column in the
+    # fixed-phase table CSV (regenerate tables via OxideDatabase if missing).
+    bartel_corrections: bool = False
+
     # ----------------------------------------------- Onset / AUC diagrams
     onset_comp_step_binary: float = 0.02
     onset_comp_step_ternary: float = 0.025

@@ -90,6 +90,11 @@ class BatchConfig:
     phase_diagram_t_start: int = 300
     phase_diagram_t_end: int = 4500
 
+    # ---- thermodynamic model ------------------------------------------------
+    # Apply Bartel et al. (2018) G(T) corrections to fixed reference oxide energies.
+    # Requires vol_per_atom column in the fixed-phase table CSV.
+    bartel_corrections: bool = False
+
     def __post_init__(self):
         self.system_structures_root = Path(self.system_structures_root)
         self.tables_dir = Path(self.tables_dir)
@@ -159,6 +164,7 @@ class BatchConfig:
             make_side_by_side_miscibility=True,
             phase_diagram_t_start=self.phase_diagram_t_start,
             phase_diagram_t_end=self.phase_diagram_t_end,
+            bartel_corrections=self.bartel_corrections,
         )
 
 

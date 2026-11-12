@@ -18,6 +18,7 @@ This module re-exports all public names from focused sibling modules:
 
 from __future__ import annotations
 
+from ._bartel import bartel_fixed_energy_corrections
 from ._grid import grid_edges, simplex_grid_nd
 from ._labels import (
     _clean_phase_label,
@@ -74,6 +75,8 @@ __all__ = [
     "_oxygen_delta_g0",
     "mu_o_from_log10_po2",
     "log10_po2_from_mu_o",
+    # _bartel
+    "bartel_fixed_energy_corrections",
     # _phase_data
     "load_phase_data",
     "_load_nd",
