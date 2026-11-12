@@ -118,6 +118,9 @@ class Config:
     # oxide energies at each temperature.  Requires a vol_per_atom column in the
     # fixed-phase table CSV (regenerate tables via OxideDatabase if missing).
     bartel_corrections: bool = False
+    # When True, remove all fixed phases with O > 0 from the phase space before
+    # the LP solve.  Equivalent to running against a no-oxide phase table.
+    exclude_oxide_phases: bool = False
 
     # ----------------------------------------------- Onset / AUC diagrams
     onset_comp_step_binary: float = 0.02

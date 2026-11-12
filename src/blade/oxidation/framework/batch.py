@@ -94,6 +94,8 @@ class BatchConfig:
     # Apply Bartel et al. (2018) G(T) corrections to fixed reference oxide energies.
     # Requires vol_per_atom column in the fixed-phase table CSV.
     bartel_corrections: bool = False
+    # Remove all fixed phases with O > 0 from the phase space (no-oxide mode).
+    exclude_oxide_phases: bool = False
 
     def __post_init__(self):
         self.system_structures_root = Path(self.system_structures_root)
@@ -165,6 +167,7 @@ class BatchConfig:
             phase_diagram_t_start=self.phase_diagram_t_start,
             phase_diagram_t_end=self.phase_diagram_t_end,
             bartel_corrections=self.bartel_corrections,
+            exclude_oxide_phases=self.exclude_oxide_phases,
         )
 
 

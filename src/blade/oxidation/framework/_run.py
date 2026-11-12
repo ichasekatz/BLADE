@@ -216,7 +216,7 @@ def _component_cache_matches(path: "Path") -> bool:
         return False
 
 
-def load_phases(cfg: SystemConfig) -> dict:
+def load_phases(cfg: SystemConfig, exclude_oxide_phases: bool = False) -> dict:
     return load_phase_data(
         cfg.phase_table_file,
         cfg.phase_grid_file,
@@ -226,6 +226,7 @@ def load_phases(cfg: SystemConfig) -> dict:
         y_step=Y_STEP,
         phase_element=cfg.phase_element,
         phase_element_stoichiometry=cfg.phase_element_stoichiometry,
+        exclude_oxide_phases=exclude_oxide_phases,
     )
 
 

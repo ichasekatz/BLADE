@@ -100,6 +100,7 @@ def load(self) -> dict:
         y_step=self.y_step,
         phase_element=self._sys_cfg.phase_element,
         phase_element_stoichiometry=self._sys_cfg.phase_element_stoichiometry,
+        exclude_oxide_phases=getattr(self, "exclude_oxide_phases", False),
     )
     self._pd_data = pd_d
     return self._pd_data

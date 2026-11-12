@@ -91,6 +91,7 @@ class SingleCompositionAnalyzer:
         region_label_mode: str = "id",
         region_label_fontsize: int = 12,
         bartel_corrections: bool = False,
+        exclude_oxide_phases: bool = False,
     ):
         self.system_dir = Path(system_dir) if system_dir else None
         self.tables_root = Path(tables_dir)
@@ -141,6 +142,7 @@ class SingleCompositionAnalyzer:
         self._x_str = "_".join(f"{m}{self._comp[i]:.2f}".replace(".", "p") for i, m in enumerate(self.metals))
 
         self.bartel_corrections = bool(bartel_corrections)
+        self.exclude_oxide_phases = bool(exclude_oxide_phases)
         self._sys_cfg = None
         self._pd_data = None
         self._run_calculations = True

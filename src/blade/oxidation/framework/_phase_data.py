@@ -20,6 +20,7 @@ def load_phase_data(
     y_step=0.01,
     phase_element=None,
     phase_element_stoichiometry=0.0,
+    exclude_oxide_phases: bool = False,
 ):
     """Load phase data for binary or N-metal system.
 
@@ -61,6 +62,7 @@ def load_phase_data(
         y_step,
         phase_element,
         phase_element_stoichiometry,
+        exclude_oxide_phases=exclude_oxide_phases,
     )
 
 
@@ -73,6 +75,7 @@ def _load_nd(
     y_step,
     phase_element,
     phase_element_stoichiometry,
+    exclude_oxide_phases: bool = False,
 ):
     """Internal N-metal phase data loader.
 
@@ -94,6 +97,8 @@ def _load_nd(
     """
     n = len(metals)
     pt = pd.read_csv(phase_table_file)
+    if exclude_oxide_phases and "O" in pt.columns:
+        pt = pt[pt["O"].astype(float) == 0].reset_index(drop=True)
     bt = pd.read_csv(phase_points_file)
     rk = pd.read_csv(rk_coeff_file)
 

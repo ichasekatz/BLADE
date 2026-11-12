@@ -110,7 +110,7 @@ class SystemAnalyzer:
         """Load pd_data from tables. Must call prepare() first."""
         from ._run import load_phases as _load_phases
 
-        return _load_phases(self._sys_cfg)
+        return _load_phases(self._sys_cfg, exclude_oxide_phases=getattr(self.config, "exclude_oxide_phases", False))
 
     def run_standard(self) -> None:
         """Run standard analyses via MapsRunner (no direct run.py calls)."""
