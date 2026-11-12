@@ -297,7 +297,6 @@ class BladeTDBGen:
                 else:
                     print(f"Warning: SQS source not found, skipping copy: {src}")
 
-
             comp_dir.mkdir(parents=True, exist_ok=True)
             phase_list = self._build_phase_list(length)
             os.chdir(comp_dir)
@@ -631,16 +630,16 @@ class BladeTDBGen:
             nonzero = {el: frac for el, frac in all_fracs.items() if frac > 1e-9}
             n_nonzero = len(nonzero)
 
-            if n_nonzero == length or n_nonzero < 1:
-                continue  # full-order or empty — nothing to seed
+            if n_nonzero < 1:
+                continue
 
             src_found: Path | None = None
             for staging in sorted(self.output_dir.glob(f"*/{lattice_base}_*")):
+                if staging.resolve() == lattice_path.resolve():
+                    continue  # skip current system
                 try:
-                    n_sub = int(staging.name.rsplit("_", 1)[-1])
+                    int(staging.name.rsplit("_", 1)[-1])
                 except ValueError:
-                    continue
-                if n_sub >= length:
                     continue
                 for candidate in staging.glob("sqs_lev=*"):
                     if not candidate.is_dir() or not (candidate / "energy").exists():
@@ -706,10 +705,12 @@ class BladeTDBGen:
         )
         if self.reuse_suborder_relaxations:
             length = len(comp)
+
             def _post_rename_hook(lattice_path: Path, _length: int = length) -> None:
                 abs_path = lattice_path.resolve()
                 lattice_base = abs_path.name.rsplit("_", 1)[0]
                 self._seed_from_suborder(abs_path, _length, lattice_base)
+
             sqs.post_rename_hook = _post_rename_hook
         # Strip BLADE-internal keys ("Constant") before passing to MaterialsFramework
         clean_sublattice_map = None
