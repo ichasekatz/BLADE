@@ -452,13 +452,15 @@ def _load_xlsx_fixed_rows(
     for _, row in df.iterrows():
         if str(row.get("source", "")).upper() == "BLADE":
             continue
-        if exclude_oxides and float(row.get("O", 0)) > 0:
+        _o_raw = row.get("O", 0)
+        if exclude_oxides and not pd.isna(_o_raw) and float(_o_raw) > 0:
             continue
-        metal_counts = np.nan_to_num(
-            np.array([float(row.get(m, 0)) for m in metals], dtype=float), nan=0.0
+        metal_counts = np.array(
+            [0.0 if pd.isna(row.get(m, 0)) else float(row.get(m, 0)) for m in metals],
+            dtype=float,
         )
         _phase_el_raw = row.get(phase_element, 0)
-        phase_el_count = 0.0 if (_phase_el_raw != _phase_el_raw) else float(_phase_el_raw)
+        phase_el_count = 0.0 if pd.isna(_phase_el_raw) else float(_phase_el_raw)
         if metal_counts.sum() <= 0 or phase_el_count <= 0:
             continue
         # GCD-reduce raw atom counts to give reduced formula stoichs
