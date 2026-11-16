@@ -923,12 +923,22 @@ class FullFrameworkPipeline:
         t_range = cfg.get("temperature_range", [300.0, 2000.0, 100.0])
         sys_root = Path(cfg.get("system_structures_root", self.blade_root / "system_structures"))
         out_dir = self.files_dir / cfg.get("output_folder", "Stability")
+        # Auto-derive competitors subdir from database MLIP label (same logic as _build_parent_excel)
+        # Override via [stability].competitors_subdir; set to "" to disable.
+        if "competitors_subdir" in cfg:
+            competitors_subdir = cfg["competitors_subdir"] or None
+        else:
+            db_cfg = self.settings.get("database", {})
+            _mlip_upper = db_cfg.get("mlip", "orb").upper()
+            _mlip_label = db_cfg.get("mlip_label", f"MP+{_mlip_upper}")
+            competitors_subdir = "parent_excel/" + _mlip_label.replace("+", "_")
         BladeStability(
             system_structures_root=sys_root,
             output_dir=out_dir,
             phase_element=cfg.get("phase_element", "B"),
             phase_stoich=cfg.get("phase_element_stoichiometry", 2.0),
-            competitors_subdir=cfg.get("mp_orb_subdir") or None,
+            competitors_subdir=competitors_subdir,
+            exclude_oxides=bool(cfg.get("exclude_oxides", True)),
             t_min=float(t_range[0]),
             t_max=float(t_range[1]),
             t_step=float(t_range[2]),

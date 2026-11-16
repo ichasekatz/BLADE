@@ -24,6 +24,7 @@ def build_phase_data(
     rk_order: int = 3,
     y_step: float = 0.02,
     competitors_dir: Path | None = None,
+    exclude_oxides: bool = True,
 ) -> dict:
     r"""Build the full phase data dictionary for stability LP from a BLADE lattice dir.
 
@@ -80,7 +81,7 @@ def build_phase_data(
 
     fixed_rows = _build_fixed_rows(rows, lattice_dir, metals, elements, phase_element)
     if competitors_dir is not None:
-        fixed_rows.extend(_load_xlsx_fixed_rows(competitors_dir, metals, phase_element))
+        fixed_rows.extend(_load_xlsx_fixed_rows(competitors_dir, metals, phase_element, exclude_oxides=exclude_oxides))
     n_fixed = len(fixed_rows)
 
     fmetal = np.array([fr["metals"] for fr in fixed_rows])
@@ -391,13 +392,14 @@ def _load_xlsx_fixed_rows(
     competitors_dir: Path,
     metals: list[str],
     phase_element: str,
+    exclude_oxides: bool = True,
 ) -> list[dict]:
     """Load competing fixed phases from xlsx files in a directory.
 
     Reads all xlsx files, deduplicates by formula, and returns rows suitable for
     appending to the fixed-phase list in :func:`build_phase_data`. Skips:
     - BLADE rows (already included via ``sqs_lev=*`` dirs)
-    - Rows with oxygen (pure solid-state stability only)
+    - Rows with oxygen when ``exclude_oxides`` is True (default)
     - Pure-element rows (no metal atom or no phase_element atom)
 
     Args:
@@ -424,7 +426,7 @@ def _load_xlsx_fixed_rows(
     for _, row in df.iterrows():
         if str(row.get("source", "")).upper() == "BLADE":
             continue
-        if float(row.get("O", 0)) > 0:
+        if exclude_oxides and float(row.get("O", 0)) > 0:
             continue
         metal_counts = np.array([float(row.get(m, 0)) for m in metals], dtype=float)
         phase_el_count = float(row.get(phase_element, 0))

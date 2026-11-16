@@ -199,7 +199,11 @@ phase_element               = "B"
 phase_element_stoichiometry = 2.0
 # system_structures_root defaults to <blade_root>/system_structures
 # system_structures_root      = "/path/to/system_structures"
-# mp_orb_subdir               = "parent_excel/MP_ORB"   # subpath within each system dir; omit to skip MP competitors
+# competitors_subdir auto-derived from [database].mlip label (e.g. parent_excel/MP_ORB)
+# override or set to "" to disable competing-phase loading:
+# competitors_subdir          = ""
+# exclude_oxides controls whether oxide rows from competitors_subdir are skipped (default true)
+# exclude_oxides              = false
 output_folder               = "Stability"   # Files/Stability/ — per-system parquet + combined
 temperature_range           = [300.0, 2000.0, 100.0]   # [T_min, T_max, T_step] in K
 composition_step            = 0.02          # simplex grid spacing (0.02 → ~1326 pts for ternary)

@@ -70,6 +70,7 @@ class BladeStability:
         phase_element: str = "B",
         phase_stoich: float = 2.0,
         competitors_subdir: str | None = None,
+        exclude_oxides: bool = True,
         t_min: float = 300.0,
         t_max: float = 2000.0,
         t_step: float = 100.0,
@@ -84,6 +85,7 @@ class BladeStability:
         self.phase_element = phase_element
         self.phase_stoich = phase_stoich
         self._competitors_subdir = competitors_subdir
+        self._exclude_oxides = exclude_oxides
         self.t_min = t_min
         self.t_max = t_max
         self.t_step = t_step
@@ -117,6 +119,7 @@ class BladeStability:
                 sdir,
                 bdir,
                 self._competitors_subdir,
+                self._exclude_oxides,
                 self.phase_element,
                 self.phase_stoich,
                 self.t_values,
@@ -276,16 +279,16 @@ def _stability_worker(
     lazily so worker processes don't pay import cost they don't need.
 
     Args:
-        args: Tuple of (system_dir, blade_dir, competitors_subdir, phase_element,
-            phase_stoich, t_values, composition_step, rk_order, output_dir,
-            skip_existing).
+        args: Tuple of (system_dir, blade_dir, competitors_subdir, exclude_oxides,
+            phase_element, phase_stoich, t_values, composition_step, rk_order,
+            output_dir, skip_existing).
 
     Returns:
         (DataFrame, None) on success, or (None, error_message) on failure.
     """
     from blade.analysis._stability_tables import build_phase_data, detect_metals
 
-    system_dir, blade_dir, competitors_subdir, phase_element, phase_stoich, t_values, composition_step, rk_order, output_dir, skip_existing = args
+    system_dir, blade_dir, competitors_subdir, exclude_oxides, phase_element, phase_stoich, t_values, composition_step, rk_order, output_dir, skip_existing = args
 
     system_tag = system_dir.name
     out_path = output_dir / f"{system_tag}_stability.parquet"
@@ -315,6 +318,7 @@ def _stability_worker(
             rk_order=rk_order,
             y_step=composition_step,
             competitors_dir=competitors_dir,
+            exclude_oxides=exclude_oxides,
         )
     except MissingEndpointError as e:
         return None, f"{system_tag}: {e}"
