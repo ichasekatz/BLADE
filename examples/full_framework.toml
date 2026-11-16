@@ -204,6 +204,9 @@ phase_element_stoichiometry = 2.0
 # competitors_subdir          = ""
 # exclude_oxides controls whether oxide rows from competitors_subdir are skipped (default true)
 # exclude_oxides              = false
+# allowed_elements: restrict stability to systems within this element set.
+# By default all systems in system_structures_root are processed.
+# allowed_elements            = ["Hf", "Cr", "Mo", "B"]
 output_folder               = "Stability"   # Files/Stability/ — per-system parquet + combined
 temperature_range           = [300.0, 2000.0, 100.0]   # [T_min, T_max, T_step] in K
 composition_step            = 0.02          # simplex grid spacing (0.02 → ~1326 pts for ternary)

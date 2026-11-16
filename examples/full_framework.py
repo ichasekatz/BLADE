@@ -932,8 +932,13 @@ class FullFrameworkPipeline:
             _mlip_upper = db_cfg.get("mlip", "orb").upper()
             _mlip_label = db_cfg.get("mlip_label", f"MP+{_mlip_upper}")
             competitors_subdir = "parent_excel/" + _mlip_label.replace("+", "_")
-        _elems = _get_elements(cfg, self.settings.get("elements", {}))
-        _allowed = set(_elems["primary"]) | set(_elems["secondary"]) | {cfg.get("phase_element", "B")}
+        # Element filter: only applied when [stability] explicitly sets allowed_elements.
+        # Does NOT inherit [elements] — stability runs all systems in system_structures_root
+        # unless the caller explicitly restricts it.
+        _allowed: set[str] | None = None
+        if "allowed_elements" in cfg:
+            _raw = cfg["allowed_elements"]
+            _allowed = set(_raw) if _raw else None
         BladeStability(
             system_structures_root=sys_root,
             output_dir=out_dir,
@@ -941,7 +946,7 @@ class FullFrameworkPipeline:
             phase_stoich=cfg.get("phase_element_stoichiometry", 2.0),
             competitors_subdir=competitors_subdir,
             exclude_oxides=bool(cfg.get("exclude_oxides", True)),
-            allowed_elements=_allowed or None,
+            allowed_elements=_allowed,
             t_min=float(t_range[0]),
             t_max=float(t_range[1]),
             t_step=float(t_range[2]),
