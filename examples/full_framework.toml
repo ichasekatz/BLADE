@@ -197,7 +197,9 @@ slice_muT_comp_step    = 0.1
 [stability]
 phase_element               = "B"
 phase_element_stoichiometry = 2.0
-comps_folder                = "Comps"       # subfolder of Files/ holding BladeTDBGen outputs
+# system_structures_root defaults to <blade_root>/system_structures
+# system_structures_root      = "/path/to/system_structures"
+# mp_orb_subdir               = "parent_excel/MP_ORB"   # subpath within each system dir; omit to skip MP competitors
 output_folder               = "Stability"   # Files/Stability/ — per-system parquet + combined
 temperature_range           = [300.0, 2000.0, 100.0]   # [T_min, T_max, T_step] in K
 composition_step            = 0.02          # simplex grid spacing (0.02 → ~1326 pts for ternary)

@@ -27,11 +27,15 @@ class StabilityConfigError(ValueError):
 
 
 class BladeStability:
-    """Pure solid-state phase stability scanner for BLADE Comps outputs.
+    """Pure solid-state phase stability scanner for BLADE system_structures outputs.
 
-    Reads GRACE-relaxed SQS structures from each system's Comps lattice directory,
+    Reads ORB-relaxed SQS structures from each system's ``blade/`` subdirectory,
     fits the Redlich-Kister/Muggianu interaction model, and runs the grand-potential
     LP (without oxygen) over a composition simplex grid × temperature range.
+
+    Additional competing phases from ``parent_excel/MP_ORB/*.xlsx`` (Materials
+    Project reference energies) are included as fixed-phase LP competitors when
+    present, expanding the convex hull beyond the AlB₂-type SS phase alone.
 
     For each (composition, T) point the LP finds the minimum free energy over all
     competing phases (fixed SQS structures + continuous SS grid). The SS-phase
@@ -43,11 +47,12 @@ class BladeStability:
     stable (or tied) at that composition and temperature.
 
     Args:
-        files_dir: Path to the BLADE ``Files/`` directory.
+        system_structures_root: Path to the ``system_structures/`` directory produced
+            by BLADE (each subdirectory is one composition system).
+        output_dir: Directory for stability results (per-system parquet + combined).
         phase_element: Non-metal sublattice element (e.g. ``"B"``).
         phase_stoich: Stoichiometry per formula unit (e.g. ``2.0`` for AlB₂-type).
-        comps_folder: Subfolder of ``files_dir`` holding TDB-fitting outputs.
-        output_folder: Subfolder of ``files_dir`` for stability results.
+        mp_orb_subdir: Subpath within each system dir holding MP+ORB xlsx files.
         t_min: Minimum temperature in K (default 300).
         t_max: Maximum temperature in K (default 2000).
         t_step: Temperature step in K (default 100).
@@ -59,11 +64,11 @@ class BladeStability:
 
     def __init__(
         self,
-        files_dir: str | Path,
+        system_structures_root: str | Path,
+        output_dir: str | Path,
         phase_element: str = "B",
         phase_stoich: float = 2.0,
-        comps_folder: str = "Comps",
-        output_folder: str = "Stability",
+        mp_orb_subdir: str | None = None,
         t_min: float = 300.0,
         t_max: float = 2000.0,
         t_step: float = 100.0,
@@ -73,11 +78,11 @@ class BladeStability:
         n_workers: int | None = None,
     ) -> None:
         """Initialize with file paths and stability scan parameters."""
-        self._files_dir = Path(files_dir)
+        self._system_structures_root = Path(system_structures_root)
+        self._output_dir = Path(output_dir)
         self.phase_element = phase_element
         self.phase_stoich = phase_stoich
-        self._comps_folder = comps_folder
-        self._output_folder = output_folder
+        self._mp_orb_subdir = mp_orb_subdir
         self.t_min = t_min
         self.t_max = t_max
         self.t_step = t_step
@@ -87,16 +92,10 @@ class BladeStability:
         self.n_workers = n_workers or mp.cpu_count()
 
     @cached_property
-    def comps_dir(self) -> Path:
-        """Absolute path to the Comps directory."""
-        return self._files_dir / self._comps_folder
-
-    @cached_property
     def output_dir(self) -> Path:
         """Absolute path to the Stability output directory (created on access)."""
-        d = self._files_dir / self._output_folder
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+        self._output_dir.mkdir(parents=True, exist_ok=True)
+        return self._output_dir
 
     @cached_property
     def t_values(self) -> np.ndarray:
@@ -104,18 +103,19 @@ class BladeStability:
         return np.arange(self.t_min, self.t_max + 1e-9, self.t_step)
 
     def run(self) -> Path:
-        """Run stability analysis for all systems found in the Comps directory.
+        """Run stability analysis for all systems found in system_structures_root.
 
         Returns:
             Path to the combined ``stability_results.parquet`` file.
         """
         system_dirs = self._find_system_dirs()
-        print(f"BladeStability: found {len(system_dirs)} systems in {self.comps_dir}")
+        print(f"BladeStability: found {len(system_dirs)} systems in {self._system_structures_root}")
 
         args = [
             (
                 sdir,
-                ldir,
+                bdir,
+                self._mp_orb_subdir,
                 self.phase_element,
                 self.phase_stoich,
                 self.t_values,
@@ -124,7 +124,7 @@ class BladeStability:
                 self.output_dir,
                 self.skip_existing,
             )
-            for sdir, ldir in system_dirs
+            for sdir, bdir in system_dirs
         ]
 
         all_frames: list[pd.DataFrame] = []
@@ -148,21 +148,21 @@ class BladeStability:
         return out
 
     def _find_system_dirs(self) -> list[tuple[Path, Path]]:
-        """Return (system_dir, lattice_dir) pairs for all valid Comps systems.
+        """Return (system_dir, blade_dir) pairs for all valid system_structures systems.
 
-        A valid system has at least one lattice subdir containing ≥ 3 ``sqs_lev=*``
+        A valid system has a ``blade/`` subdirectory containing ≥ 3 ``sqs_lev=*``
         subdirs with both ``energy`` and ``CONTCAR`` present.
 
         Returns:
-            Sorted list of (system_dir, lattice_dir) tuples.
+            Sorted list of (system_dir, blade_dir) tuples.
         """
         result: list[tuple[Path, Path]] = []
-        for sdir in sorted(self.comps_dir.iterdir()):
+        for sdir in sorted(self._system_structures_root.iterdir()):
             if not sdir.is_dir():
                 continue
-            ldir = _find_lattice_dir(sdir)
-            if ldir is not None:
-                result.append((sdir, ldir))
+            blade_dir = sdir / "blade"
+            if blade_dir.is_dir() and _count_valid_sqs(blade_dir) >= 3:
+                result.append((sdir, blade_dir))
         return result
 
 
@@ -275,15 +275,16 @@ def _stability_worker(
     lazily so worker processes don't pay import cost they don't need.
 
     Args:
-        args: Tuple of (system_dir, lattice_dir, phase_element, phase_stoich,
-            t_values, composition_step, rk_order, output_dir, skip_existing).
+        args: Tuple of (system_dir, blade_dir, mp_orb_subdir, phase_element,
+            phase_stoich, t_values, composition_step, rk_order, output_dir,
+            skip_existing).
 
     Returns:
         (DataFrame, None) on success, or (None, error_message) on failure.
     """
     from blade.analysis._stability_tables import build_phase_data, detect_metals
 
-    system_dir, lattice_dir, phase_element, phase_stoich, t_values, composition_step, rk_order, output_dir, skip_existing = args
+    system_dir, blade_dir, mp_orb_subdir, phase_element, phase_stoich, t_values, composition_step, rk_order, output_dir, skip_existing = args
 
     system_tag = system_dir.name
     out_path = output_dir / f"{system_tag}_stability.parquet"
@@ -294,18 +295,25 @@ def _stability_worker(
         except Exception:
             pass
 
+    mp_orb_dir: Path | None = None
+    if mp_orb_subdir:
+        _candidate = system_dir / mp_orb_subdir
+        if _candidate.is_dir():
+            mp_orb_dir = _candidate
+
     try:
-        metals = detect_metals(lattice_dir)
+        metals = detect_metals(blade_dir)
         if len(metals) < 2:
             return None, f"{system_tag}: fewer than 2 metals detected, skipping"
 
         phase_data = build_phase_data(
-            lattice_dir,
+            blade_dir,
             metals,
             phase_element,
             phase_stoich,
             rk_order=rk_order,
             y_step=composition_step,
+            mp_orb_dir=mp_orb_dir,
         )
     except MissingEndpointError as e:
         return None, f"{system_tag}: {e}"
@@ -327,26 +335,17 @@ def _stability_worker(
 # ---------------------------------------------------------------------------
 
 
-def _find_lattice_dir(system_dir: Path) -> Path | None:
-    """Find the first valid lattice subdir within a system Comps directory.
-
-    A valid lattice dir contains at least 3 ``sqs_lev=*`` subdirs each
-    with both ``energy`` and ``CONTCAR`` present.
+def _count_valid_sqs(blade_dir: Path) -> int:
+    """Count ``sqs_lev=*`` subdirs with both ``energy`` and ``CONTCAR`` present.
 
     Args:
-        system_dir: Path to ``<Comps>/<SystemName>/``.
+        blade_dir: Path to ``<system_structures>/<SystemName>/blade/``.
 
     Returns:
-        Path to the lattice dir, or None if none qualifies.
+        Number of valid SQS subdirectories.
     """
-    for d in sorted(system_dir.iterdir()):
-        if not d.is_dir():
-            continue
-        valid = sum(
-            1
-            for sub in d.iterdir()
-            if sub.is_dir() and sub.name.startswith("sqs_lev=") and (sub / "energy").exists() and (sub / "CONTCAR").exists()
-        )
-        if valid >= 3:
-            return d
-    return None
+    return sum(
+        1
+        for d in blade_dir.iterdir()
+        if d.is_dir() and d.name.startswith("sqs_lev=") and (d / "energy").exists() and (d / "CONTCAR").exists()
+    )

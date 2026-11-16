@@ -921,12 +921,14 @@ class FullFrameworkPipeline:
 
         cfg = self.settings.get("stability", {})
         t_range = cfg.get("temperature_range", [300.0, 2000.0, 100.0])
+        sys_root = Path(cfg.get("system_structures_root", self.blade_root / "system_structures"))
+        out_dir = self.files_dir / cfg.get("output_folder", "Stability")
         BladeStability(
-            files_dir=self.files_dir,
+            system_structures_root=sys_root,
+            output_dir=out_dir,
             phase_element=cfg.get("phase_element", "B"),
             phase_stoich=cfg.get("phase_element_stoichiometry", 2.0),
-            comps_folder=cfg.get("comps_folder", "Comps"),
-            output_folder=cfg.get("output_folder", "Stability"),
+            mp_orb_subdir=cfg.get("mp_orb_subdir") or None,
             t_min=float(t_range[0]),
             t_max=float(t_range[1]),
             t_step=float(t_range[2]),

@@ -1,4 +1,4 @@
-"""Parse BLADE Comps lattice directories and fit the Redlich-Kister interaction model."""
+"""Parse BLADE system_structures lattice directories and fit the Redlich-Kister interaction model."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from blade.oxidation.framework._grid import simplex_grid_nd
 from blade.oxidation.framework._mixing import ideal_mixing_nd, muggianu_energy_nd
@@ -22,10 +23,11 @@ def build_phase_data(
     phase_stoich: float,
     rk_order: int = 3,
     y_step: float = 0.02,
+    mp_orb_dir: Path | None = None,
 ) -> dict:
-    r"""Build the full phase data dictionary for stability LP from a BLADE Comps lattice dir.
+    r"""Build the full phase data dictionary for stability LP from a BLADE lattice dir.
 
-    Reads GRACE-relaxed SQS structures from ``sqs_lev=*`` subdirectories, fits the
+    Reads ORB-relaxed SQS structures from ``sqs_lev=*`` subdirectories, fits the
     Redlich-Kister/Muggianu interaction model over all structures simultaneously, and
     returns a dict suitable for the grand-potential LP with no oxygen chemical potential.
 
@@ -33,9 +35,14 @@ def build_phase_data(
     - **Fixed-phase competitors**: discrete line compounds in the LP (integer stoichs).
     - **RK training set**: endpoints and mixed compositions for fitting H(y).
 
+    When ``mp_orb_dir`` is supplied, non-oxide, non-BLADE rows from the MP+ORB xlsx
+    files are added as additional fixed-phase competitors, extending the convex hull
+    to include Materials Project reference phases.
+
     Args:
-        lattice_dir: Path to ``<Comps>/<System>/<LatticeKey>/`` containing ``sqs_lev=*``
-            subdirs, each holding ``energy`` (scalar eV) and ``CONTCAR`` files.
+        lattice_dir: Path to ``<system_structures>/<System>/blade/`` containing
+            ``sqs_lev=*`` subdirs, each holding ``energy`` (scalar eV) and
+            ``CONTCAR`` files.
         metals: Ordered list of metal element symbols (e.g. ``["Cr", "Cu"]``).
         phase_element: Non-metal sublattice element (e.g. ``"B"``).
         phase_stoich: Stoichiometry of ``phase_element`` per formula unit (e.g. ``2.0``
@@ -44,6 +51,9 @@ def build_phase_data(
         y_step: Composition simplex grid spacing for the continuous SS phase
             (default 0.02). Coarser grids run faster; finer grids improve dG_hull
             resolution near tie-line vertices.
+        mp_orb_dir: Optional path to ``parent_excel/MP_ORB/`` holding xlsx files with
+            Materials Project + ORB reference energies. Non-BLADE, non-oxide rows are
+            appended as fixed-phase competitors.
 
     Returns:
         Dict with keys: ``phase_ids``, ``phase_kinds``, ``phase_y_nd``,
@@ -70,6 +80,8 @@ def build_phase_data(
     binary_coeffs, ternary_coeff = _fit_rk(rows, h_ep, pairs=_pairs(n), n=n, rk_order=rk_order)
 
     fixed_rows = _build_fixed_rows(rows, lattice_dir, metals, elements, phase_element)
+    if mp_orb_dir is not None:
+        fixed_rows.extend(_load_mp_orb_fixed_rows(mp_orb_dir, metals, phase_element))
     n_fixed = len(fixed_rows)
 
     fmetal = np.array([fr["metals"] for fr in fixed_rows])
@@ -371,6 +383,69 @@ def _build_fixed_rows(
                 "phase_el": float(reduced[phase_element]),
                 "O": float(reduced.get("O", 0)),
                 "energy_eV_per_atom": e_total / n_atoms,
+            }
+        )
+    return fixed
+
+
+def _load_mp_orb_fixed_rows(
+    mp_orb_dir: Path,
+    metals: list[str],
+    phase_element: str,
+) -> list[dict]:
+    """Load competing fixed phases from parent_excel/MP_ORB xlsx files.
+
+    Reads all xlsx files, deduplicates by formula, and returns rows suitable for
+    appending to the fixed-phase list in :func:`build_phase_data`. Skips:
+    - BLADE rows (already included via ``sqs_lev=*`` dirs)
+    - Rows with oxygen (pure solid-state stability only)
+    - Pure-element rows (no metal atom or no phase_element atom)
+
+    Args:
+        mp_orb_dir: Path to ``parent_excel/MP_ORB/``.
+        metals: Ordered metal element symbols.
+        phase_element: Non-metal sublattice element (e.g. ``"B"``).
+
+    Returns:
+        List of dicts with keys: phase_id, metals (ndarray), phase_el, O,
+        energy_eV_per_atom. Compatible with :func:`_build_fixed_rows` output.
+    """
+    frames: list[pd.DataFrame] = []
+    for xlsx in sorted(mp_orb_dir.glob("*.xlsx")):
+        try:
+            frames.append(pd.read_excel(xlsx))
+        except Exception:
+            continue
+    if not frames:
+        return []
+
+    df = pd.concat(frames, ignore_index=True).drop_duplicates(subset="formula", keep="first")
+
+    fixed: list[dict] = []
+    for _, row in df.iterrows():
+        if str(row.get("source", "")).upper() == "BLADE":
+            continue
+        if float(row.get("O", 0)) > 0:
+            continue
+        metal_counts = np.array([float(row.get(m, 0)) for m in metals], dtype=float)
+        phase_el_count = float(row.get(phase_element, 0))
+        if metal_counts.sum() <= 0 or phase_el_count <= 0:
+            continue
+        # GCD-reduce raw atom counts to give reduced formula stoichs
+        all_int = [int(c) for c in metal_counts] + [int(phase_el_count)]
+        g = all_int[0]
+        for v in all_int[1:]:
+            g = _gcd(g, v)
+        if g > 1:
+            metal_counts = metal_counts / g
+            phase_el_count = phase_el_count / g
+        fixed.append(
+            {
+                "phase_id": f"MP_{row['formula']}",
+                "metals": metal_counts,
+                "phase_el": phase_el_count,
+                "O": 0.0,
+                "energy_eV_per_atom": float(row["energy"]),
             }
         )
     return fixed
