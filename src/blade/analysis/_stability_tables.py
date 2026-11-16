@@ -454,12 +454,18 @@ def _load_xlsx_fixed_rows(
             continue
         if exclude_oxides and float(row.get("O", 0)) > 0:
             continue
-        metal_counts = np.array([float(row.get(m, 0)) for m in metals], dtype=float)
-        phase_el_count = float(row.get(phase_element, 0))
+        metal_counts = np.nan_to_num(
+            np.array([float(row.get(m, 0)) for m in metals], dtype=float), nan=0.0
+        )
+        _phase_el_raw = row.get(phase_element, 0)
+        phase_el_count = 0.0 if (_phase_el_raw != _phase_el_raw) else float(_phase_el_raw)
         if metal_counts.sum() <= 0 or phase_el_count <= 0:
             continue
         # GCD-reduce raw atom counts to give reduced formula stoichs
-        all_int = [int(c) for c in metal_counts] + [int(phase_el_count)]
+        all_int = [int(round(c)) for c in metal_counts] + [int(round(phase_el_count))]
+        all_int = [v for v in all_int if v > 0]
+        if not all_int:
+            continue
         g = all_int[0]
         for v in all_int[1:]:
             g = _gcd(g, v)
