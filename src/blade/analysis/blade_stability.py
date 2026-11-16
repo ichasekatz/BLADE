@@ -71,6 +71,7 @@ class BladeStability:
         phase_stoich: float = 2.0,
         competitors_subdir: str | None = None,
         exclude_oxides: bool = True,
+        allowed_elements: set[str] | None = None,
         t_min: float = 300.0,
         t_max: float = 2000.0,
         t_step: float = 100.0,
@@ -86,6 +87,7 @@ class BladeStability:
         self.phase_stoich = phase_stoich
         self._competitors_subdir = competitors_subdir
         self._exclude_oxides = exclude_oxides
+        self._allowed_elements = allowed_elements
         self.t_min = t_min
         self.t_max = t_max
         self.t_step = t_step
@@ -154,8 +156,9 @@ class BladeStability:
     def _find_system_dirs(self) -> list[tuple[Path, Path]]:
         """Return (system_dir, blade_dir) pairs for all valid system_structures systems.
 
-        A valid system has a ``blade/`` subdirectory containing ≥ 3 ``sqs_lev=*``
-        subdirs with both ``energy`` and ``CONTCAR`` present.
+        A valid system has a ``blade/`` subdirectory containing ≥ 3 structure
+        subdirs with both ``energy`` and ``CONTCAR`` present, and all its
+        metal elements must be in ``allowed_elements`` when that set is provided.
 
         Returns:
             Sorted list of (system_dir, blade_dir) tuples.
@@ -163,6 +166,8 @@ class BladeStability:
         result: list[tuple[Path, Path]] = []
         for sdir in sorted(self._system_structures_root.iterdir()):
             if not sdir.is_dir():
+                continue
+            if self._allowed_elements is not None and not _system_in_pool(sdir.name, self._allowed_elements):
                 continue
             blade_dir = sdir / "blade"
             if blade_dir.is_dir() and _count_valid_sqs(blade_dir) >= 3:
@@ -306,7 +311,7 @@ def _stability_worker(
             competitors_dir = _candidate
 
     try:
-        metals = detect_metals(blade_dir)
+        metals = detect_metals(blade_dir, phase_element)
         if len(metals) < 2:
             return None, f"{system_tag}: fewer than 2 metals detected, skipping"
 
@@ -340,17 +345,39 @@ def _stability_worker(
 # ---------------------------------------------------------------------------
 
 
+def _system_in_pool(system_name: str, allowed: set[str]) -> bool:
+    """Return True if every element symbol in system_name is in allowed.
+
+    Parses element symbols greedily (longest match first) so e.g. ``"CrHfB"``
+    yields ``{"Cr", "Hf", "B"}``.
+    """
+    import re as _re
+    # Sort allowed by length descending so two-char symbols match before one-char
+    pat = _re.compile("|".join(sorted(allowed, key=len, reverse=True)))
+    matched = set(pat.findall(system_name))
+    # Reconstruct the name from matches; if leftovers exist, name has unknown elements
+    remainder = system_name
+    for sym in sorted(matched, key=len, reverse=True):
+        remainder = remainder.replace(sym, "", 1)
+    # Strip digits (stoichiometry numbers)
+    remainder = _re.sub(r"\d", "", remainder)
+    return len(remainder) == 0 and len(matched) > 0
+
+
 def _count_valid_sqs(blade_dir: Path) -> int:
-    """Count ``sqs_lev=*`` subdirs with both ``energy`` and ``CONTCAR`` present.
+    """Count subdirs with both ``energy`` and ``CONTCAR`` present.
+
+    Accepts both ``sqs_lev=*`` naming (BladeTDBGen output) and
+    ``formula_entryid`` naming (database-stage output).
 
     Args:
         blade_dir: Path to ``<system_structures>/<SystemName>/blade/``.
 
     Returns:
-        Number of valid SQS subdirectories.
+        Number of valid structure subdirectories.
     """
     return sum(
         1
         for d in blade_dir.iterdir()
-        if d.is_dir() and d.name.startswith("sqs_lev=") and (d / "energy").exists() and (d / "CONTCAR").exists()
+        if d.is_dir() and (d / "energy").exists() and (d / "CONTCAR").exists()
     )

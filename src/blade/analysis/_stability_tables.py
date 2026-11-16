@@ -126,14 +126,19 @@ def build_phase_data(
     }
 
 
-def detect_metals(lattice_dir: Path) -> list[str]:
-    """Infer ordered metal list from ``a_<Metal>=x`` patterns in SQS dir names.
+def detect_metals(lattice_dir: Path, phase_element: str = "B") -> list[str]:
+    """Infer ordered metal list from structure subdirectories.
+
+    Tries ``a_<Metal>=x`` patterns in ``sqs_lev=*`` dir names first. Falls back
+    to reading element symbols from CONTCAR files when that pattern is absent
+    (e.g. ``formula_entryid/`` naming from the database stage).
 
     Args:
-        lattice_dir: Path to a BLADE Comps lattice directory.
+        lattice_dir: Path to a blade structure directory.
+        phase_element: Non-metal element to exclude (default ``"B"``).
 
     Returns:
-        Ordered list of metal element symbols (by first appearance in sorted dir names).
+        Ordered list of metal element symbols (by first appearance).
     """
     pat = re.compile(r"a_([A-Z][a-z]?)=")
     seen: list[str] = []
@@ -142,6 +147,22 @@ def detect_metals(lattice_dir: Path) -> list[str]:
             continue
         for sym in pat.findall(d.name):
             if sym not in seen:
+                seen.append(sym)
+    if seen:
+        return seen
+    # Fallback: scan CONTCAR element lines for directories without sqs_lev= naming
+    _skip = {phase_element, "O"}
+    for d in sorted(lattice_dir.iterdir()):
+        if not d.is_dir():
+            continue
+        cp = d / "CONTCAR"
+        if not cp.exists():
+            continue
+        lines = cp.read_text().splitlines()
+        if len(lines) < 6:
+            continue
+        for sym in lines[5].split():
+            if sym not in _skip and sym not in seen:
                 seen.append(sym)
     return seen
 
@@ -232,20 +253,25 @@ def _scan_sqs_dirs(
     """
     rows: list[dict] = []
     for d in lattice_dir.iterdir():
-        if not d.is_dir() or not d.name.startswith("sqs_lev="):
+        if not d.is_dir():
             continue
         ep, cp = d / "energy", d / "CONTCAR"
         if not ep.exists() or not cp.exists():
             continue
+        # Try composition from dir name (sqs_lev=* format: a_<Metal>=x)
         fracs = []
         for pat in metal_pats:
             m = pat.search(d.name)
             fracs.append(float(m.group(1)) if m else 0.0)
         total_metal = sum(fracs)
+        counts = _read_contcar_counts(cp, elements)
+        # Fallback: derive composition from CONTCAR atom counts
+        if total_metal <= 0:
+            fracs = [float(counts[m]) for m in metals]
+            total_metal = sum(fracs)
         if total_metal <= 0:
             continue
         y = [c / total_metal for c in fracs]
-        counts = _read_contcar_counts(cp, elements)
         n_fu = sum(counts[m] for m in metals)
         if n_fu <= 0:
             continue
