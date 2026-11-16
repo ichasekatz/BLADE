@@ -921,7 +921,7 @@ class FullFrameworkPipeline:
 
         cfg = self.settings.get("stability", {})
         t_range = cfg.get("temperature_range", [300.0, 2000.0, 100.0])
-        sys_root = Path(cfg.get("system_structures_root", self.blade_root / "system_structures"))
+        sys_root = Path(cfg.get("system_structures_root", self.files_dir / "system_structures"))
         out_dir = self.files_dir / cfg.get("output_folder", "Stability")
         # Auto-derive competitors subdir from database MLIP label (same logic as _build_parent_excel)
         # Override via [stability].competitors_subdir; set to "" to disable.
