@@ -23,11 +23,11 @@ def build_phase_data(
     phase_stoich: float,
     rk_order: int = 3,
     y_step: float = 0.02,
-    mp_orb_dir: Path | None = None,
+    competitors_dir: Path | None = None,
 ) -> dict:
     r"""Build the full phase data dictionary for stability LP from a BLADE lattice dir.
 
-    Reads ORB-relaxed SQS structures from ``sqs_lev=*`` subdirectories, fits the
+    Reads relaxed SQS structures from ``sqs_lev=*`` subdirectories, fits the
     Redlich-Kister/Muggianu interaction model over all structures simultaneously, and
     returns a dict suitable for the grand-potential LP with no oxygen chemical potential.
 
@@ -35,9 +35,9 @@ def build_phase_data(
     - **Fixed-phase competitors**: discrete line compounds in the LP (integer stoichs).
     - **RK training set**: endpoints and mixed compositions for fitting H(y).
 
-    When ``mp_orb_dir`` is supplied, non-oxide, non-BLADE rows from the MP+ORB xlsx
-    files are added as additional fixed-phase competitors, extending the convex hull
-    to include Materials Project reference phases.
+    When ``competitors_dir`` is supplied, non-oxide, non-BLADE rows from xlsx files
+    in that directory are added as additional fixed-phase competitors, extending the
+    convex hull to include reference phases.
 
     Args:
         lattice_dir: Path to ``<system_structures>/<System>/blade/`` containing
@@ -51,9 +51,8 @@ def build_phase_data(
         y_step: Composition simplex grid spacing for the continuous SS phase
             (default 0.02). Coarser grids run faster; finer grids improve dG_hull
             resolution near tie-line vertices.
-        mp_orb_dir: Optional path to ``parent_excel/MP_ORB/`` holding xlsx files with
-            Materials Project + ORB reference energies. Non-BLADE, non-oxide rows are
-            appended as fixed-phase competitors.
+        competitors_dir: Optional path to a directory holding competing-phase xlsx files.
+            Non-BLADE, non-oxide rows are appended as fixed-phase competitors.
 
     Returns:
         Dict with keys: ``phase_ids``, ``phase_kinds``, ``phase_y_nd``,
@@ -80,8 +79,8 @@ def build_phase_data(
     binary_coeffs, ternary_coeff = _fit_rk(rows, h_ep, pairs=_pairs(n), n=n, rk_order=rk_order)
 
     fixed_rows = _build_fixed_rows(rows, lattice_dir, metals, elements, phase_element)
-    if mp_orb_dir is not None:
-        fixed_rows.extend(_load_mp_orb_fixed_rows(mp_orb_dir, metals, phase_element))
+    if competitors_dir is not None:
+        fixed_rows.extend(_load_xlsx_fixed_rows(competitors_dir, metals, phase_element))
     n_fixed = len(fixed_rows)
 
     fmetal = np.array([fr["metals"] for fr in fixed_rows])
@@ -388,12 +387,12 @@ def _build_fixed_rows(
     return fixed
 
 
-def _load_mp_orb_fixed_rows(
-    mp_orb_dir: Path,
+def _load_xlsx_fixed_rows(
+    competitors_dir: Path,
     metals: list[str],
     phase_element: str,
 ) -> list[dict]:
-    """Load competing fixed phases from parent_excel/MP_ORB xlsx files.
+    """Load competing fixed phases from xlsx files in a directory.
 
     Reads all xlsx files, deduplicates by formula, and returns rows suitable for
     appending to the fixed-phase list in :func:`build_phase_data`. Skips:
@@ -402,7 +401,7 @@ def _load_mp_orb_fixed_rows(
     - Pure-element rows (no metal atom or no phase_element atom)
 
     Args:
-        mp_orb_dir: Path to ``parent_excel/MP_ORB/``.
+        competitors_dir: Directory containing xlsx files with competing phase data.
         metals: Ordered metal element symbols.
         phase_element: Non-metal sublattice element (e.g. ``"B"``).
 
@@ -411,7 +410,7 @@ def _load_mp_orb_fixed_rows(
         energy_eV_per_atom. Compatible with :func:`_build_fixed_rows` output.
     """
     frames: list[pd.DataFrame] = []
-    for xlsx in sorted(mp_orb_dir.glob("*.xlsx")):
+    for xlsx in sorted(competitors_dir.glob("*.xlsx")):
         try:
             frames.append(pd.read_excel(xlsx))
         except Exception:

@@ -29,13 +29,13 @@ class StabilityConfigError(ValueError):
 class BladeStability:
     """Pure solid-state phase stability scanner for BLADE system_structures outputs.
 
-    Reads ORB-relaxed SQS structures from each system's ``blade/`` subdirectory,
+    Reads relaxed SQS structures from each system's ``blade/`` subdirectory,
     fits the Redlich-Kister/Muggianu interaction model, and runs the grand-potential
     LP (without oxygen) over a composition simplex grid × temperature range.
 
-    Additional competing phases from ``parent_excel/MP_ORB/*.xlsx`` (Materials
-    Project reference energies) are included as fixed-phase LP competitors when
-    present, expanding the convex hull beyond the AlB₂-type SS phase alone.
+    Additional competing phases from xlsx files in a configurable subdir within
+    each system directory are included as fixed-phase LP competitors when present,
+    expanding the convex hull beyond the AlB₂-type SS phase alone.
 
     For each (composition, T) point the LP finds the minimum free energy over all
     competing phases (fixed SQS structures + continuous SS grid). The SS-phase
@@ -52,7 +52,8 @@ class BladeStability:
         output_dir: Directory for stability results (per-system parquet + combined).
         phase_element: Non-metal sublattice element (e.g. ``"B"``).
         phase_stoich: Stoichiometry per formula unit (e.g. ``2.0`` for AlB₂-type).
-        mp_orb_subdir: Subpath within each system dir holding MP+ORB xlsx files.
+        competitors_subdir: Subpath within each system dir holding competing-phase xlsx
+            files. If None or the directory is absent, no extra competitors are loaded.
         t_min: Minimum temperature in K (default 300).
         t_max: Maximum temperature in K (default 2000).
         t_step: Temperature step in K (default 100).
@@ -68,7 +69,7 @@ class BladeStability:
         output_dir: str | Path,
         phase_element: str = "B",
         phase_stoich: float = 2.0,
-        mp_orb_subdir: str | None = None,
+        competitors_subdir: str | None = None,
         t_min: float = 300.0,
         t_max: float = 2000.0,
         t_step: float = 100.0,
@@ -82,7 +83,7 @@ class BladeStability:
         self._output_dir = Path(output_dir)
         self.phase_element = phase_element
         self.phase_stoich = phase_stoich
-        self._mp_orb_subdir = mp_orb_subdir
+        self._competitors_subdir = competitors_subdir
         self.t_min = t_min
         self.t_max = t_max
         self.t_step = t_step
@@ -115,7 +116,7 @@ class BladeStability:
             (
                 sdir,
                 bdir,
-                self._mp_orb_subdir,
+                self._competitors_subdir,
                 self.phase_element,
                 self.phase_stoich,
                 self.t_values,
@@ -275,7 +276,7 @@ def _stability_worker(
     lazily so worker processes don't pay import cost they don't need.
 
     Args:
-        args: Tuple of (system_dir, blade_dir, mp_orb_subdir, phase_element,
+        args: Tuple of (system_dir, blade_dir, competitors_subdir, phase_element,
             phase_stoich, t_values, composition_step, rk_order, output_dir,
             skip_existing).
 
@@ -284,7 +285,7 @@ def _stability_worker(
     """
     from blade.analysis._stability_tables import build_phase_data, detect_metals
 
-    system_dir, blade_dir, mp_orb_subdir, phase_element, phase_stoich, t_values, composition_step, rk_order, output_dir, skip_existing = args
+    system_dir, blade_dir, competitors_subdir, phase_element, phase_stoich, t_values, composition_step, rk_order, output_dir, skip_existing = args
 
     system_tag = system_dir.name
     out_path = output_dir / f"{system_tag}_stability.parquet"
@@ -295,11 +296,11 @@ def _stability_worker(
         except Exception:
             pass
 
-    mp_orb_dir: Path | None = None
-    if mp_orb_subdir:
-        _candidate = system_dir / mp_orb_subdir
+    competitors_dir: Path | None = None
+    if competitors_subdir:
+        _candidate = system_dir / competitors_subdir
         if _candidate.is_dir():
-            mp_orb_dir = _candidate
+            competitors_dir = _candidate
 
     try:
         metals = detect_metals(blade_dir)
@@ -313,7 +314,7 @@ def _stability_worker(
             phase_stoich,
             rk_order=rk_order,
             y_step=composition_step,
-            mp_orb_dir=mp_orb_dir,
+            competitors_dir=competitors_dir,
         )
     except MissingEndpointError as e:
         return None, f"{system_tag}: {e}"

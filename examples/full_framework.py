@@ -928,7 +928,7 @@ class FullFrameworkPipeline:
             output_dir=out_dir,
             phase_element=cfg.get("phase_element", "B"),
             phase_stoich=cfg.get("phase_element_stoichiometry", 2.0),
-            mp_orb_subdir=cfg.get("mp_orb_subdir") or None,
+            competitors_subdir=cfg.get("mp_orb_subdir") or None,
             t_min=float(t_range[0]),
             t_max=float(t_range[1]),
             t_step=float(t_range[2]),
