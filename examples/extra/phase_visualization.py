@@ -71,6 +71,9 @@ skip = False
 
 # GIF/movie settings
 make_gif = True  # save animated GIF of diagram evolving over temperature
+# Save computed G_mix to gmix_data/*.csv for re-plotting without recalculation. Large for
+# 5-metal systems (~3 GB each at n_grid = 40); False keeps only the PNG/GIF outputs.
+write_gmix_cache = True
 gif_t_step = 10  # K per GIF frame; set smaller for smoother GIFs
 gif_fps = 20  # frames per second
 
@@ -446,7 +449,8 @@ def load_or_compute_gmix(
         computed = compute_gmix_many(tdb, all_comps, metals, phases, missing, grid, x_fixed_val)
         cached.update(computed)
         gmix_by_t.update({T: computed[T] for T in missing if T in computed})
-        _write_cached_gmix(data_dir, cached, grid, x_cart, y_cart)
+        if write_gmix_cache:
+            _write_cached_gmix(data_dir, cached, grid, x_cart, y_cart)
     elif gmix_by_t:
         print(f"    Loaded CSV cache: {cache_path}")
 

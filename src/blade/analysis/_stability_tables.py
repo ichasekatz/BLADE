@@ -72,7 +72,8 @@ def build_phase_data(
         (metal-site fractions of each fixed phase), ``n_competitors``, ``A_eq``,
         ``n_fixed``, ``n_metals``, ``metals``, ``phase_element``,
         ``phase_element_stoichiometry``, ``fixed_energy_formula``, ``y_grid``,
-        ``h_endpoints``, ``binary_coeffs``, ``ternary_coeff``.
+        ``h_endpoints``, ``binary_coeffs``, ``ternary_coeff`` (3 metals only) and
+        ``ternary_coeffs`` (one L^{ijk} per metal triple, any number of metals).
 
     Raises:
         MissingEndpointError: If any pure-metal endpoint is absent from the SQS data.
@@ -89,7 +90,8 @@ def build_phase_data(
     rows.sort(key=lambda r: [r[y_cols[k]] for k in range(n)])
 
     h_ep = _endpoint_energies(rows, metals, y_cols, n, lattice_dir)
-    binary_coeffs, ternary_coeff = _fit_rk(rows, h_ep, pairs=_pairs(n), n=n, rk_order=rk_order, y_cols=y_cols)
+    binary_coeffs, ternary_coeffs = _fit_rk(rows, h_ep, pairs=_pairs(n), n=n, rk_order=rk_order, y_cols=y_cols)
+    ternary_coeff = ternary_coeffs.get((0, 1, 2), 0.0) if n == 3 else 0.0  # legacy single-term key
 
     fixed_rows = _build_fixed_rows(rows, lattice_dir, metals, elements, phase_element)
     n_sqs = len(fixed_rows)  # AlB₂-type SQS structures come first, competitors after
@@ -112,7 +114,9 @@ def build_phase_data(
 
     y_grid = simplex_grid_nd(n, y_step)
     n_pts = len(y_grid)
-    phase_h0 = muggianu_energy_nd(y_grid, h_ep, binary_coeffs, ternary_coeff)
+    phase_h0 = muggianu_energy_nd(y_grid, h_ep, binary_coeffs, 0.0)
+    for (i, j, k), l_ijk in ternary_coeffs.items():
+        phase_h0 = phase_h0 + l_ijk * y_grid[:, i] * y_grid[:, j] * y_grid[:, k]
     phase_mix = ideal_mixing_nd(y_grid)
 
     pmetal = np.vstack([fmetal, y_grid])
@@ -147,6 +151,7 @@ def build_phase_data(
         "h_endpoints": h_ep,
         "binary_coeffs": binary_coeffs,
         "ternary_coeff": ternary_coeff,
+        "ternary_coeffs": ternary_coeffs,
     }
 
 
@@ -194,6 +199,11 @@ def detect_metals(lattice_dir: Path, phase_element: str = "B") -> list[str]:
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
+
+def _triples(n: int) -> list[tuple[int, int, int]]:
+    """Return all (i, j, k) index triples with i < j < k for n elements."""
+    return [(i, j, k) for i in range(n) for j in range(i + 1, n) for k in range(j + 1, n)]
 
 
 def _pairs(n: int) -> list[tuple[int, int]]:
@@ -359,12 +369,16 @@ def _fit_rk(
             alphabetical.
 
     Returns:
-        Tuple of (binary_coeffs, ternary_coeff) where binary_coeffs maps (i, j)
-        to an array of L0, L1, ... coefficients in eV/formula.
+        Tuple of (binary_coeffs, ternary_coeffs): binary_coeffs maps (i, j) to an
+        array of L0, L1, ... coefficients; ternary_coeffs maps every metal triple
+        (i, j, k) to its Muggianu L^{ijk} (eV/formula). For 4-5 metal systems the
+        ternary sub-system SQS points constrain these, so each ternary face of a
+        quaternary/quinary is modelled like the corresponding ternary system.
     """
     actual_y_cols = list(y_cols)
 
-    n_params = len(pairs) * (rk_order + 1) + (1 if n == 3 else 0)
+    triples = _triples(n)
+    n_params = len(pairs) * (rk_order + 1) + len(triples)
     basis_rows: list[list[float]] = []
     targets: list[float] = []
 
@@ -380,8 +394,8 @@ def _fit_rk(
             for _ in range(rk_order + 1):
                 basis.append(yi * yj * zpow)
                 zpow *= z
-        if n == 3:
-            basis.append(y_vec[0] * y_vec[1] * y_vec[2])
+        for i, j, k in triples:
+            basis.append(y_vec[i] * y_vec[j] * y_vec[k])
         basis_rows.append(basis)
         targets.append(h_exc)
 
@@ -395,8 +409,8 @@ def _fit_rk(
     for pair in pairs:
         binary_coeffs[pair] = coeffs_all[idx : idx + rk_order + 1]
         idx += rk_order + 1
-    ternary_coeff = float(coeffs_all[idx]) if n == 3 and idx < len(coeffs_all) else 0.0
-    return binary_coeffs, ternary_coeff
+    ternary_coeffs = {t: float(coeffs_all[idx + q]) for q, t in enumerate(triples)}
+    return binary_coeffs, ternary_coeffs
 
 
 def _build_fixed_rows(

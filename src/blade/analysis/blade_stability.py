@@ -28,6 +28,14 @@ class StabilityConfigError(ValueError):
     """Raised when a required configuration value is missing or invalid."""
 
 
+# SS-grid size from which the exact column-generation LP is used (5 metals at 0.05
+# step = 10,626 points; 2-4 metals stay on the plain solver).
+COLGEN_MIN_POINTS = 3000
+
+# Above this many rows the run keeps only per-system parquet files (no combined table).
+MAX_COMBINED_ROWS = 50_000_000
+
+
 @dataclass(frozen=True)
 class StabilityThresholds:
     """Criteria for the per-(composition, T) single-phase flags.
@@ -173,7 +181,8 @@ class BladeStability:
         """Run stability analysis for all systems found in system_structures_root.
 
         Returns:
-            Path to the combined ``stability_results.parquet`` file.
+            Path to the combined ``stability_results.parquet`` file, or the output
+            directory when the run exceeds ``MAX_COMBINED_ROWS`` (per-system files only).
         """
         system_dirs = self._find_system_dirs()
         print(f"BladeStability: found {len(system_dirs)} systems in {self._system_structures_root}")
@@ -201,6 +210,7 @@ class BladeStability:
         print(f"BladeStability: competitors_subdir={self._competitors_subdir!r}, {oxide_note}")
 
         all_frames: list[pd.DataFrame] = []
+        n_rows = 0
         # spawn (not fork) so workers import numpy fresh with single-threaded BLAS;
         # forked workers inherit a multi-threaded BLAS pool and oversubscribe the CPU.
         # The env vars must be in place before the children start (they import numpy
@@ -215,7 +225,11 @@ class BladeStability:
                     if err:
                         print(f"  SKIPPED: {err}")
                     elif result is not None:
-                        all_frames.append(result)
+                        n_rows += len(result)
+                        if n_rows <= MAX_COMBINED_ROWS:
+                            all_frames.append(result)
+                        else:
+                            all_frames.clear()  # results stay on disk per system; free memory
         finally:
             for var, val in saved_env.items():
                 if val is None:
@@ -223,6 +237,15 @@ class BladeStability:
                 else:
                     os.environ[var] = val
 
+        if n_rows > MAX_COMBINED_ROWS:
+            # e.g. 5 metals at 0.05 step: ~3e8 rows would not fit in memory as one table.
+            print(
+                f"{n_rows:,} rows exceed MAX_COMBINED_ROWS={MAX_COMBINED_ROWS:,}: skipping the combined "
+                f"parquet; per-system results are in {self.output_dir}/<system>_stability.parquet"
+            )
+            if self.run_pareto:
+                raise StabilityConfigError("run_pareto is not supported for runs this large; analyse per system instead")
+            return self.output_dir
         if not all_frames:
             print("No stability results produced.")
             combined = pd.DataFrame()
@@ -300,6 +323,7 @@ def _run_stability_grid(
     system_tag: str,
     mu_o_values: tuple[float, ...] = (),
     thresholds: StabilityThresholds | None = None,
+    colgen_min_points: int = COLGEN_MIN_POINTS,
 ) -> pd.DataFrame:
     """Run the stability LP over a composition simplex grid × temperature range.
 
@@ -319,6 +343,8 @@ def _run_stability_grid(
         mu_o_values: Oxygen chemical potentials (eV per O atom); empty for the
             purely solid-state (oxides excluded) scan.
         thresholds: Criteria for the parent-retention / strict / unique flags.
+        colgen_min_points: Use exact column generation (:func:`_solve_lp_colgen`) when
+            the SS grid has at least this many points (e.g. 5-metal systems).
 
     Returns:
         DataFrame with columns: system, metals, composition, comp_label, x_<Metal>,
@@ -360,10 +386,20 @@ def _run_stability_grid(
         g_ss_grid = phase_h0 + kb_ev_per_k * float(t) * phase_mix
         fixed_grand = fef - fixed_o * mu_o if oxides_included else fef
         grand = np.concatenate([fixed_grand, g_ss_grid])
+        use_colgen = len(y_grid) >= colgen_min_points
+        warm: np.ndarray = np.array([], dtype=int)
 
         for i, y_i in enumerate(y_grid):
             b_eq = np.concatenate([y_i, [phase_stoich]])
-            amounts, g_lp, ok = solve_grand_lp(a_eq, b_eq, grand)
+            ok = False
+            if use_colgen:
+                # Seed: all fixed phases, the SS at y_i (always feasible), and the phases
+                # active at the previous (neighbouring) composition.
+                seed = np.concatenate([np.arange(n_fixed), [n_fixed + i], warm])
+                amounts, g_lp, ok = _solve_lp_colgen(a_eq, b_eq, grand, seed)
+                warm = np.flatnonzero(amounts > 0) if ok else np.array([], dtype=int)
+            if not ok:
+                amounts, g_lp, ok = solve_grand_lp(a_eq, b_eq, grand)
             if not ok:
                 # The revised-simplex solver occasionally fails numerically; the LP is
                 # always feasible (the SS phase at y_i itself), so retry with HiGHS
@@ -426,6 +462,53 @@ def _run_stability_grid(
             rows.append(row)
 
     return pd.DataFrame(rows)
+
+
+def _solve_lp_colgen(
+    a_eq: np.ndarray,
+    b_eq: np.ndarray,
+    grand: np.ndarray,
+    seed_cols: np.ndarray,
+    tol: float = 1e-9,
+    batch: int = 25,
+    max_iter: int = 500,
+) -> tuple[np.ndarray, float, bool]:
+    """Solve the grand-potential LP exactly by column generation.
+
+    Solves a restricted LP over ``seed_cols`` with HiGHS, prices every column with the
+    duals (reduced cost ``c − Aᵀπ``), adds the most negative ones, and repeats until no
+    column has negative reduced cost — the LP optimality certificate for the full
+    problem. Same optimum as solving all columns at once, but each LP has tens rather
+    than ~10⁴ columns (5-metal grids at 0.05 step).
+
+    Args:
+        a_eq: Constraint matrix (n_constraints, n_phases).
+        b_eq: Right-hand side.
+        grand: Objective (phase energies), shape (n_phases,).
+        seed_cols: Initial columns; must admit a feasible solution.
+        tol: Reduced-cost tolerance for optimality.
+        batch: Columns added per iteration.
+        max_iter: Iteration cap (returns not-ok if exceeded).
+
+    Returns:
+        (amounts over all phases, objective, ok).
+    """
+    from scipy.optimize import linprog
+
+    cols = np.unique(seed_cols.astype(int))
+    for _ in range(max_iter):
+        res = linprog(grand[cols], A_eq=a_eq[:, cols], b_eq=b_eq, bounds=(0.0, None), method="highs")
+        if res.status != 0:
+            break
+        reduced = grand - res.eqlin.marginals @ a_eq
+        neg = np.flatnonzero(reduced < -tol)
+        if len(neg) == 0:
+            x = np.zeros(len(grand))
+            x[cols] = np.maximum(res.x, 0.0)
+            x[x < 1e-10] = 0.0
+            return x, float(res.fun), True
+        cols = np.union1d(cols, neg[np.argsort(reduced[neg])[:batch]])
+    return np.full(len(grand), np.nan), float("nan"), False
 
 
 def _solve_lp_highs(a_eq: np.ndarray, b_eq: np.ndarray, grand: np.ndarray) -> tuple[np.ndarray, float, bool]:

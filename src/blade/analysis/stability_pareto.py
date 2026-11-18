@@ -99,8 +99,16 @@ top_per_system: int = 3
 rank_filter_max_dG_hull:     float | None = None
 rank_filter_min_strict_frac: float | None = 0.01   # require at least one strictly stable T step
 
-# Use chunked vectorized Pareto front mask (same results as slow; much faster).
+# Use the fast exact front algorithms (sorted O(n log n) where applicable, else chunked).
 use_fast_pareto: bool = True
+
+# Rows per Excel sheet; longer sheets are truncated (Excel's hard limit is 1,048,576).
+# The full data is always in pareto_metrics.parquet.
+excel_max_rows: int = 500_000
+
+# Stop peeling after this many fronts (None = rank every composition). Compositions
+# beyond the cap get pareto_rank = <NA>. Useful for millions of 4-5 metal compositions.
+max_pareto_rank: int | None = None
 
 # Print progress during Pareto ranking: logs after each front is peeled.
 verbose_ranking: bool = True
@@ -541,6 +549,126 @@ def _compute_pareto_metrics(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
     return metrics, incompl_df, interp_df
 
 
+def _nanmean_rows(m: np.ndarray) -> np.ndarray:
+    """Row means skipping NaN (pandas ``mean`` semantics); NaN for all-NaN rows."""
+    count = np.sum(~np.isnan(m), axis=1)
+    total = np.nansum(m, axis=1)
+    return np.where(count > 0, total / np.maximum(count, 1), np.nan)
+
+
+def _compute_pareto_metrics_fast(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Vectorized :func:`_compute_pareto_metrics` with identical outputs.
+
+    Compositions observed at every expected temperature with valid ``dG_above_hull``
+    and ``ss_fraction`` are reshaped to (n_compositions, n_T) arrays and processed at
+    once; any other composition (gaps, NaN, interpolation) goes through the original
+    per-composition code, so interpolation and incompleteness handling are unchanged.
+
+    Args:
+        raw: Raw stability DataFrame (must pass ``_validate_schema``).
+
+    Returns:
+        Tuple of (metrics, incomplete, interpolated_rows) as the original function.
+    """
+    n_t = _N_EXPECTED_T
+    grid = np.asarray(_EXPECTED_T_GRID, dtype=float)
+    key = raw["system"].astype(str) + "\x1f" + raw["composition"].astype(str)
+    codes, _ = pd.factorize(key, sort=False)  # first-appearance order, like groupby(sort=False)
+    n_groups = int(codes.max()) + 1 if len(codes) else 0
+
+    t_idx = np.searchsorted(grid, raw["T"].to_numpy(dtype=float))
+    on_grid = (t_idx < n_t) & np.isclose(grid[np.minimum(t_idx, n_t - 1)], raw["T"].to_numpy(dtype=float))
+    valid_row = on_grid & raw["dG_above_hull"].notna().to_numpy() & raw["ss_fraction"].notna().to_numpy()
+    n_rows = np.bincount(codes, minlength=n_groups)
+    n_valid_rows = np.bincount(codes, weights=valid_row, minlength=n_groups)
+    complete = (n_rows == n_t) & (n_valid_rows == n_t)
+    # Exactly one valid row per (composition, T) slot.
+    slot = codes.astype(np.int64) * n_t + np.minimum(t_idx, n_t - 1)
+    dup = np.bincount(slot[complete[codes]], minlength=n_groups * n_t) if complete.any() else np.zeros(0)
+    if len(dup) and (dup > 1).any():
+        complete[np.unique((np.flatnonzero(dup > 1)) // n_t)] = False
+
+    sel = complete[codes]
+    sub = raw[sel]
+    order = np.lexsort((t_idx[sel], codes[sel]))
+    sub = sub.iloc[order]
+    grp_codes = codes[sel][order][::n_t]
+
+    def mat(col: str, fill=None) -> np.ndarray:
+        v = sub[col]
+        if fill is not None:
+            v = v.fillna(fill)
+        return v.to_numpy().reshape(-1, n_t)
+
+    dg = mat("dG_above_hull").astype(float)
+    ss = mat("ss_fraction", 0.0).astype(float)
+    strict = mat("is_single_phase_strict", False).astype(bool)
+    unique = mat("is_unique_homogeneous", False).astype(bool)
+    retained = mat("is_parent_structure_retained", False).astype(bool)
+
+    ss_auc_k = np.trapezoid(ss, grid, axis=1) if n_t >= 2 else np.zeros(len(ss))
+    run = np.zeros(len(strict))
+    longest = np.zeros(len(strict))
+    for j in range(n_t):  # longest consecutive run of strict-stable T steps
+        run = np.where(strict[:, j], run + 1, 0)
+        longest = np.maximum(longest, run)
+    strict_span = np.where(longest > 0, (longest - 1) * _DB_T_STEP, 0.0)
+    first_ret = np.argmax(retained, axis=1)
+    t_min_ret = np.where(retained.any(axis=1), grid[first_ret], np.nan)
+
+    first = sub.iloc[::n_t]
+    metals = first["metals"].astype(str)
+    n_m = first["n_metals"] if "n_metals" in first.columns else metals.str.count(",") + 1
+    fast = pd.DataFrame({
+        "system":          first["system"].to_numpy(),
+        "metals":          metals.to_numpy(),
+        "n_metals":        n_m.astype(int).to_numpy(),
+        "composition":     first["composition"].to_numpy(),
+        "comp_label":      (first["comp_label"] if "comp_label" in first.columns else first["composition"]).to_numpy(),
+        "n_valid_T":       n_t,
+        "n_total_T":       n_t,
+        "n_grid_missing":  0,
+    })
+    for xc in [c for c in raw.columns if c.startswith("x_")]:
+        fast[xc] = first[xc].astype(float).to_numpy()
+    fast = fast.assign(
+        n_interpolated_T=0,
+        interpolated=False,
+        interp_warnings="",
+        mean_dG_hull=dg.mean(axis=1),
+        max_dG_hull=dg.max(axis=1),
+        ss_auc=ss_auc_k / (t_norm_max - t_norm_min),
+        ss_auc_K=ss_auc_k,
+        strict_frac=strict.sum(axis=1) / n_t,
+        strict_frac_lb=strict.sum(axis=1) / n_t,
+        unique_frac=unique.sum(axis=1) / n_t,
+        unique_frac_lb=unique.sum(axis=1) / n_t,
+        strict_T_span=strict_span,
+        mean_G_ss_formation=(_nanmean_rows(mat("G_ss_formation").astype(float))
+                             if "G_ss_formation" in sub.columns else np.nan),
+        T_min_retained=t_min_ret,
+    )
+    fast["_order"] = grp_codes
+
+    rest = raw[~sel]
+    if len(rest):
+        print(f"  {int((~complete).sum()):,} compositions with gaps → per-composition path")
+        slow, incompl_df, interp_df = _compute_pareto_metrics(rest)
+        if len(slow):
+            slow_codes = pd.Series(np.arange(n_groups), index=pd.Index(key.iloc[np.unique(codes, return_index=True)[1]]))
+            slow["_order"] = (slow["system"].astype(str) + "\x1f" + slow["composition"].astype(str)).map(slow_codes).to_numpy()
+    else:
+        slow, incompl_df, interp_df = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    metrics = pd.concat([fast, slow], ignore_index=True) if len(slow) else fast
+    metrics = metrics.sort_values("_order", kind="stable").drop(columns="_order").reset_index(drop=True)
+    print(
+        f"  → {len(metrics):,} with sufficient T coverage ({len(fast):,} vectorized)  |  "
+        f"{len(incompl_df):,} excluded (< {min_valid_frac:.0%} valid T steps on {_N_EXPECTED_T}-step grid)"
+    )
+    return metrics, incompl_df, interp_df
+
+
 # ── Validation ────────────────────────────────────────────────────────────────
 
 def _validate_metrics(raw: pd.DataFrame, metrics: pd.DataFrame) -> list[str]:
@@ -692,8 +820,117 @@ def _pareto_front_mask_slow(data: np.ndarray) -> np.ndarray:
     return is_pareto
 
 
+def _range_max_table(values: np.ndarray) -> list[np.ndarray]:
+    """Sparse table for O(1) range-maximum queries over ``values``."""
+    table = [values]
+    span = 1
+    while 2 * span <= len(values):
+        prev = table[-1]
+        table.append(np.maximum(prev[:-span], prev[span:]))
+        span *= 2
+    return table
+
+
+def _range_max(table: list[np.ndarray], lo: np.ndarray, hi: np.ndarray) -> np.ndarray:
+    """Maximum of the tabled values over half-open ranges [lo, hi); -inf if empty."""
+    out = np.full(len(lo), -np.inf)
+    ok = hi > lo
+    if not ok.any():
+        return out
+    length = hi[ok] - lo[ok]
+    level = np.floor(np.log2(length)).astype(int)
+    res = np.empty(len(length))
+    for lv in np.unique(level):
+        sel = level == lv
+        t = table[lv]
+        res[sel] = np.maximum(t[lo[ok][sel]], t[hi[ok][sel] - (1 << lv)])
+    out[ok] = res
+    return out
+
+
+def _dominated_2d(a: np.ndarray, c: np.ndarray, eps: float) -> np.ndarray:
+    """Exact eps-dominance for two continuous objectives (higher is better).
+
+    j dominates i  ⇔  a_j ≥ a_i − ε, c_j ≥ c_i − ε, and (a_j > a_i + ε or c_j > c_i + ε),
+    split into (A) a_j > a_i + ε with c_j ≥ c_i − ε, answered with a suffix maximum of
+    c over a-sorted points, and (B) |a_j − a_i| ≤ ε with c_j > c_i + ε, answered with a
+    range maximum over the ε-window in a.
+    """
+    n = len(a)
+    if n == 0:
+        return np.zeros(0, dtype=bool)
+    order = np.argsort(a, kind="stable")
+    sa, sc = a[order], c[order]
+    suffix = np.maximum.accumulate(sc[::-1])[::-1]
+    suffix = np.append(suffix, -np.inf)
+    k = np.searchsorted(sa, a + eps, side="right")
+    dom = suffix[k] >= c - eps
+    lo = np.searchsorted(sa, a - eps, side="left")
+    hi = np.searchsorted(sa, a + eps, side="right")
+    dom |= _range_max(_range_max_table(sc), lo, hi) > c + eps
+    return dom
+
+
+def _discrete_column(data: np.ndarray, eps: float) -> int | None:
+    """Index of an objective whose distinct values are spaced by more than 2ε (e.g.
+    strict_frac = k/24), or None. Such a column compares exactly under the ε rule."""
+    for d in range(data.shape[1]):
+        u = np.unique(data[:, d])
+        if len(u) <= 512 and (len(u) == 1 or np.min(np.diff(u)) > 2 * eps):
+            return d
+    return None
+
+
+def _pareto_front_mask_sorted(data: np.ndarray) -> np.ndarray | None:
+    """Exact ε-dominance front mask in O(n log n) for the 2- and 3-objective cases.
+
+    Gives the same result as :func:`_pareto_front_mask_fast` (same ε rule) for:
+    two objectives (any values), or three objectives where one has well-separated
+    discrete values (``strict_frac``). Returns None when neither applies.
+
+    Args:
+        data: Array (n, k) — all objectives in 'higher is better' space.
+
+    Returns:
+        Boolean front mask, or None if the fast path does not apply.
+    """
+    n, k = data.shape
+    eps = pareto_eps
+    if k == 2:
+        return ~_dominated_2d(data[:, 0], data[:, 1], eps)
+    if k != 3:
+        return None
+    d_disc = _discrete_column(data, eps)
+    if d_disc is None:
+        return None
+    a, c = (data[:, d] for d in range(3) if d != d_disc)
+    b = data[:, d_disc]
+    dominated = np.zeros(n, dtype=bool)
+    levels = np.unique(b)[::-1]  # best (highest) first
+    higher_a = np.empty(0)
+    higher_c = np.empty(0)
+    for lvl in levels:
+        idx = np.flatnonzero(b == lvl)
+        # Same b: ordinary 2-D ε-dominance on (a, c).
+        dominated[idx] = _dominated_2d(a[idx], c[idx], eps)
+        # Higher b is a strict improvement; dominated if any higher point is not worse
+        # by more than ε in both a and c.
+        if len(higher_a):
+            order = np.argsort(higher_a, kind="stable")
+            sa = higher_a[order]
+            suffix = np.append(np.maximum.accumulate(higher_c[order][::-1])[::-1], -np.inf)
+            kk = np.searchsorted(sa, a[idx] - eps, side="left")
+            dominated[idx] |= suffix[kk] >= c[idx] - eps
+        higher_a = np.concatenate([higher_a, a[idx]])
+        higher_c = np.concatenate([higher_c, c[idx]])
+    return ~dominated
+
+
 def _pareto_front_mask(data: np.ndarray) -> np.ndarray:
     """Dispatch to fast or slow Pareto front implementation.
+
+    Uses the exact O(n log n) sorted algorithm when it applies (2 objectives, or 3 with
+    one discrete objective), else the chunked O(n²) mask.
 
     Args:
         data: Array (n, k) — all objectives in 'higher is better' space.
@@ -702,7 +939,8 @@ def _pareto_front_mask(data: np.ndarray) -> np.ndarray:
         Boolean array of length n; True = not dominated.
     """
     if use_fast_pareto:
-        return _pareto_front_mask_fast(data)
+        mask = _pareto_front_mask_sorted(data)
+        return mask if mask is not None else _pareto_front_mask_fast(data)
     return _pareto_front_mask_slow(data)
 
 
@@ -718,18 +956,19 @@ def _assign_pareto_ranks(
             or ``"max"``.
 
     Returns:
-        Integer array of shape (n,) with Pareto rank (1 = Pareto front).
+        Array of shape (n,) with Pareto rank (1 = Pareto front); NaN beyond
+        ``max_pareto_rank`` when a cap is set.
     """
     data = np.column_stack([
         df[col].to_numpy(dtype=float) * (1.0 if d == "max" else -1.0)
         for col, d in objectives
     ])
     n         = len(data)
-    ranks     = np.zeros(n, dtype=int)
+    ranks     = np.full(n, np.nan) if max_pareto_rank else np.zeros(n, dtype=int)
     remaining = np.ones(n, dtype=bool)
     rank      = 1
     ranked_so_far = 0
-    while remaining.any():
+    while remaining.any() and (max_pareto_rank is None or rank <= max_pareto_rank):
         sub   = np.where(remaining)[0]
         front = _pareto_front_mask(data[sub])
         n_front = int(front.sum())
@@ -823,7 +1062,7 @@ def _add_pareto_columns(metrics: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     print("  3-objective done.")
 
     print("  Per-system primary ranks …")
-    sys_r = np.zeros(n_v, dtype=int)
+    sys_r = np.full(n_v, np.nan)
     for _, sg in valid.groupby("system", sort=False):
         idx = sg.index.to_numpy()
         sys_r[idx] = _assign_pareto_ranks(sg, _primary)
@@ -840,14 +1079,10 @@ def _add_pareto_columns(metrics: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
     # Flag compositions with high strict stability but low homogeneous-equilibrium fraction.
     # These warrant extra scrutiny: the LP may favour phase-separated AlB₂ assemblages.
-    def _flag(row: pd.Series) -> str:
-        sf = row.get("strict_frac", float("nan"))
-        uf = row.get("unique_frac",  float("nan"))
-        if pd.notna(sf) and pd.notna(uf) and sf >= 0.5 and uf < 0.5 * sf:
-            return "!"
-        return ""
-
-    metrics["strict_unique_flag"] = metrics.apply(_flag, axis=1)
+    sf = metrics["strict_frac"] if "strict_frac" in metrics.columns else pd.Series(np.nan, index=metrics.index)
+    uf = metrics["unique_frac"] if "unique_frac" in metrics.columns else pd.Series(np.nan, index=metrics.index)
+    flag = sf.notna() & uf.notna() & (sf >= 0.5) & (uf < 0.5 * sf)
+    metrics["strict_unique_flag"] = np.where(flag, "!", "")
 
     # Frontier overlap summary.
     front_p = set(np.where(r_primary == 1)[0])
@@ -1848,9 +2083,21 @@ def _assign_candidate_ranks(metrics: pd.DataFrame) -> pd.DataFrame:
         return float(_R * s), float(s_norm)
 
     if x_cols:
-        entropy_vals = out.apply(_entropy, axis=1)
-        out["s_config"]      = entropy_vals.map(lambda t: t[0])
-        out["s_config_norm"] = entropy_vals.map(lambda t: t[1])
+        # Vectorized _entropy: same result for every row.
+        X = out[x_cols].to_numpy(dtype=float)
+        present = np.isfinite(X) & (X > 1e-9)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            s = -np.where(present, X * np.log(np.where(present, X, 1.0)), 0.0).sum(axis=1)
+        n_present = present.sum(axis=1)
+        if n_metals_col is not None:
+            nm = out["n_metals"].to_numpy(dtype=float)
+            n = np.where(np.isfinite(nm), nm, n_present)
+        else:
+            n = n_present.astype(float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            s_norm = np.where(n > 1, s / np.log(np.maximum(n, 2)), 0.0)
+        out["s_config"]      = np.where(n_present > 0, _R * s, np.nan)
+        out["s_config_norm"] = np.where(n_present > 0, s_norm, np.nan)
     else:
         out["s_config"]      = float("nan")
         out["s_config_norm"] = float("nan")
@@ -2285,6 +2532,13 @@ def _build_excel(
                 ("Zero-Stability",        zero_strict),
                 ("Excluded Compositions", incompl_df),
             ]
+            for sheet_name, df in sheets:
+                if len(df) > excel_max_rows:
+                    print(
+                        f"  Excel '{sheet_name}': {len(df):,} rows truncated to {excel_max_rows:,} "
+                        "(full data in pareto_metrics.parquet)"
+                    )
+            sheets = [(name, df.head(excel_max_rows)) for name, df in sheets]
             for sheet_name, df in sheets:
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
 
@@ -2874,12 +3128,41 @@ def main() -> None:
             f"{n_before:,} → {len(raw):,} rows retained."
         )
 
-    metrics, incompl_df, interp_df = _compute_pareto_metrics(raw)
+    metrics, incompl_df, interp_df = _compute_pareto_metrics_fast(raw)
 
     if metrics.empty:
         raise RuntimeError("No compositions with sufficient T coverage.")
 
     issues = _validate_metrics(raw, metrics)
+    _finish(
+        metrics, incompl_df, interp_df, issues, raw, summary,
+        supplementary=lambda m: _compute_supplementary_metrics(raw, m),
+    )  # fmt: skip
+
+
+def _finish(
+    metrics: pd.DataFrame,
+    incompl_df: pd.DataFrame,
+    interp_df: pd.DataFrame,
+    issues: list[str],
+    raw: pd.DataFrame | None,
+    summary: pd.DataFrame,
+    supplementary,
+    raw_loader=None,
+) -> None:
+    """Rank, add supplementary metrics, and write every output (shared by both drivers).
+
+    Args:
+        metrics: Per-composition metrics.
+        incompl_df: Compositions excluded for incomplete T coverage.
+        interp_df: Interpolated raw rows (for plots).
+        issues: Validation warnings.
+        raw: Raw rows needed for outputs (top compositions at least).
+        summary: Summary table (may be empty).
+        supplementary: Callable ``metrics -> metrics`` adding curvature / FSM columns.
+        raw_loader: When ``raw`` is None, callable ``metrics -> raw`` returning the raw
+            rows of the compositions shown in the workbook and plots (after ranking).
+    """
     if issues:
         for iss in issues:
             warnings.warn(iss)
@@ -2894,7 +3177,7 @@ def main() -> None:
     metrics, comparison = _add_pareto_columns(metrics)
 
     # Supplementary stability metrics (curvature + finite-separation margin).
-    metrics = _compute_supplementary_metrics(raw, metrics)
+    metrics = supplementary(metrics)
 
     # Within-system candidate ranking (s_config + candidate_rank).
     # Must run after supplementary metrics so hessian/FSM columns exist.
@@ -2905,6 +3188,9 @@ def main() -> None:
     # Overwrite with final ranked metrics + supplementary + candidate_rank columns.
     metrics.to_parquet(mp, index=False)
     print(f"Metrics parquet (ranked) → {mp}")
+
+    if raw is None:
+        raw = raw_loader(metrics) if raw_loader is not None else pd.DataFrame()
 
     _print_top_n(metrics, n=top_n)
 
@@ -2978,7 +3264,7 @@ def _configure_temperature_grid(t_min: float, t_max: float, t_step: float, a_min
 _OPTION_NAMES = {
     "min_valid_frac", "interpolate_incomplete", "max_interpolation_gap_K", "discontinuity_threshold",
     "pareto_eps", "top_n", "top_per_system", "rank_filter_max_dG_hull", "rank_filter_min_strict_frac",
-    "use_fast_pareto", "verbose_ranking", "shortlist_per_system", "candidate_hessian_tol",
+    "use_fast_pareto", "max_pareto_rank", "excel_max_rows", "verbose_ranking", "shortlist_per_system", "candidate_hessian_tol",
     "candidate_fsm_tol", "fsm_min_sep", "supp_metrics_rank1_only",
 }  # fmt: skip
 
@@ -3028,6 +3314,141 @@ def run_pareto_analysis(
     return Path(out_dir)
 
 
+def _read_stability_file(path: Path) -> pd.DataFrame:
+    """Read one per-system ``<system>_stability.parquet`` in the raw-database schema."""
+    raw = pd.read_parquet(path).rename(columns={"dG_hull": "dG_above_hull", "G_lp": "G_total"})
+    if analysis_T_min != _DB_T_MIN or analysis_T_max != _DB_T_MAX:
+        raw = raw[raw["T"].between(analysis_T_min, analysis_T_max, inclusive="both")]
+    return raw
+
+
+def run_pareto_analysis_multi(
+    stability_dirs: list[str | Path],
+    out_dir: str | Path,
+    t_min: float,
+    t_max: float,
+    t_step: float,
+    analysis_t_min: float | None = None,
+    analysis_t_max: float | None = None,
+    **options,
+) -> Path:
+    """Pareto analysis over the per-system results of one or more stability runs.
+
+    Scales to millions of compositions (e.g. 2-5 metal systems together): each
+    ``<system>_stability.parquet`` is read and reduced to per-composition metrics on
+    its own, so the raw rows are never all in memory. Ranking, supplementary metrics
+    (computed system by system), the Excel workbook and plots then run on the combined
+    metrics exactly as in :func:`run_pareto_analysis`. Large Excel sheets are capped at
+    ``excel_max_rows``; ``max_pareto_rank`` limits how many fronts are peeled.
+
+    Args:
+        stability_dirs: Output folders of :class:`BladeStability` runs (all on the same
+            temperature grid and without oxides, i.e. one row per composition and T).
+        out_dir: Output directory (created).
+        t_min: Lowest temperature of the stability grid (K).
+        t_max: Highest temperature of the stability grid (K).
+        t_step: Temperature step of the stability grid (K).
+        analysis_t_min: Lower bound of the analysed range (default ``t_min``).
+        analysis_t_max: Upper bound of the analysed range (default ``t_max``).
+        **options: Same overrides as :func:`run_pareto_analysis`.
+
+    Returns:
+        The output directory.
+    """
+    import contextlib
+    import io
+
+    unknown = sorted(set(options) - _OPTION_NAMES)
+    if unknown:
+        raise ValueError(f"Unknown Pareto option(s) {unknown}; valid: {sorted(_OPTION_NAMES)}")
+    _configure_temperature_grid(
+        t_min, t_max, t_step,
+        t_min if analysis_t_min is None else analysis_t_min,
+        t_max if analysis_t_max is None else analysis_t_max,
+    )  # fmt: skip
+    module = globals()
+    module.update(options)
+    module["db_dir"] = Path(stability_dirs[0])
+    module["out_dir"] = Path(out_dir)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    files: dict[str, Path] = {}
+    for d in stability_dirs:
+        for f in sorted(Path(d).glob("*_stability.parquet")):
+            system = f.name[: -len("_stability.parquet")]
+            if system in files:
+                raise ValueError(f"System {system} appears in more than one stability folder")
+            files[system] = f
+    print(f"Pareto (multi): {len(files):,} systems from {len(stability_dirs)} folder(s)")
+
+    parts, incompl, interp, issues = [], [], [], []
+    for k, (system, f) in enumerate(files.items(), 1):
+        raw = _read_stability_file(f)
+        if "mu_O" in raw.columns and raw["mu_O"].notna().any():
+            raise ValueError(f"{f} includes oxides (mu_O); run the Pareto analysis per mu_O instead")
+        _validate_schema(raw)
+        with contextlib.redirect_stdout(io.StringIO()):
+            m, inc, itp = _compute_pareto_metrics_fast(raw)
+            issues += [f"{system}: {msg}" for msg in _validate_metrics(raw, m)]
+        parts.append(m)
+        incompl.append(inc)
+        interp.append(itp)
+        if k % 200 == 0 or k == len(files):
+            print(f"  metrics: {k:,}/{len(files):,} systems", flush=True)
+    metrics = pd.concat(parts, ignore_index=True)
+    incompl_df = pd.concat([x for x in incompl if len(x)], ignore_index=True) if any(len(x) for x in incompl) else pd.DataFrame()
+    interp_df = pd.concat([x for x in interp if len(x)], ignore_index=True) if any(len(x) for x in interp) else pd.DataFrame()
+    if metrics.empty:
+        raise RuntimeError("No compositions with sufficient T coverage.")
+    print(f"  → {len(metrics):,} compositions with metrics  |  {len(incompl_df):,} excluded")
+
+    def supplementary(m_all: pd.DataFrame) -> pd.DataFrame:
+        """Curvature / FSM per system, loading only systems that have rank-1 compositions."""
+        target = m_all["pareto_rank"] == 1 if supp_metrics_rank1_only else m_all["pareto_rank"].notna()
+        systems = m_all.loc[target, "system"].unique()
+        print(f"Computing supplementary metrics for {int(target.sum()):,} compositions in {len(systems):,} systems …")
+        groups = m_all.groupby("system", sort=False).indices
+        # Defaults for every row (NaN / 0 / False), exactly as the single-file path sets
+        # them for compositions it does not compute: raw without G_ss returns defaults only.
+        with contextlib.redirect_stdout(io.StringIO()):
+            out = _compute_supplementary_metrics(pd.DataFrame(columns=["system", "T"]), m_all)
+        new_cols = [c for c in out.columns if c not in m_all.columns]
+        for k, system in enumerate(systems, 1):
+            idx = groups[system]
+            with contextlib.redirect_stdout(io.StringIO()):
+                res = _compute_supplementary_metrics(_read_stability_file(files[system]), m_all.iloc[idx])
+            out.loc[res.index, new_cols] = res[new_cols].to_numpy()
+            if k % 200 == 0 or k == len(systems):
+                print(f"  supplementary: {k:,}/{len(systems):,} systems", flush=True)
+        return out
+
+    def raw_for_outputs(m_all: pd.DataFrame) -> pd.DataFrame:
+        """Raw rows of the compositions shown in the workbook and plots."""
+        keep = m_all["pareto_rank"].le(2).fillna(False)
+        if "candidate_rank" in m_all.columns:
+            keep |= m_all["candidate_rank"].notna()
+        keys = m_all.loc[keep, ["system", "composition"]]
+        frames = []
+        for system, comps in keys.groupby("system")["composition"]:
+            r = _read_stability_file(files[system])
+            frames.append(r[r["composition"].isin(set(comps))])
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+    _finish(
+        metrics, incompl_df, interp_df, issues, raw=None, summary=pd.DataFrame(),
+        supplementary=supplementary, raw_loader=raw_for_outputs,
+    )  # fmt: skip
+    return out_dir
+
+
 if __name__ == "__main__":
-    _configure_temperature_grid(_DB_T_MIN, _DB_T_MAX, _DB_T_STEP, analysis_T_min, analysis_T_max)
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Pareto analysis of BLADE stability results")
+    parser.add_argument("dirs", nargs="+", help="BladeStability output folders (per-system parquet files)")
+    parser.add_argument("--out", required=True, help="output folder")
+    parser.add_argument("--t-range", nargs=3, type=float, default=[200.0, 2500.0, 100.0], metavar=("MIN", "MAX", "STEP"))
+    parser.add_argument("--max-rank", type=int, default=None, help="peel at most this many fronts")
+    a = parser.parse_args()
+    run_pareto_analysis_multi(a.dirs, a.out, *a.t_range, max_pareto_rank=a.max_rank)

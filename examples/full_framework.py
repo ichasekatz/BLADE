@@ -808,6 +808,7 @@ class FullFrameworkPipeline:
             "t_step": plot_cfg["t_step"],
             "skip": plot_cfg.get("skip_missing_calculations", False),
             "make_gif": plot_cfg.get("make_gif", True),
+            "write_gmix_cache": plot_cfg.get("write_gmix_cache", True),
             "gif_t_step": plot_cfg.get("gif_t_step", plot_cfg.get("t_step", 10)),
             "gif_fps": plot_cfg.get("gif_fps", 20),
             "fixed_elements": set(plot_cfg.get("fixed_elements", [])),
