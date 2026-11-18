@@ -365,6 +365,11 @@ def _run_stability_grid(
             b_eq = np.concatenate([y_i, [phase_stoich]])
             amounts, g_lp, ok = solve_grand_lp(a_eq, b_eq, grand)
             if not ok:
+                # The revised-simplex solver occasionally fails numerically; the LP is
+                # always feasible (the SS phase at y_i itself), so retry with HiGHS
+                # rather than leave a gap in the (composition, T) grid.
+                amounts, g_lp, ok = _solve_lp_highs(a_eq, b_eq, grand)
+            if not ok:
                 continue
 
             g_ss_i = grand[n_fixed + i]
@@ -421,6 +426,18 @@ def _run_stability_grid(
             rows.append(row)
 
     return pd.DataFrame(rows)
+
+
+def _solve_lp_highs(a_eq: np.ndarray, b_eq: np.ndarray, grand: np.ndarray) -> tuple[np.ndarray, float, bool]:
+    """Solve the grand-potential LP with HiGHS (fallback for revised-simplex failures)."""
+    from scipy.optimize import linprog
+
+    res = linprog(grand, A_eq=a_eq, b_eq=b_eq, bounds=[(0.0, None)] * len(grand), method="highs")
+    if res.status != 0:
+        return np.full(len(grand), np.nan), float("nan"), False
+    x = np.maximum(res.x, 0.0)
+    x[x < 1e-10] = 0.0
+    return x, float(res.fun), True
 
 
 # ---------------------------------------------------------------------------
