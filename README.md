@@ -29,6 +29,7 @@
 - Write ATAT input files, run `sqs2tdb -mk` to populate `sqsdb_lev=*` sub-directories, and spawn parallel `mcsqs` instances; cutoff distances are derived automatically from lattice parameters
 - Orchestrate [MaterialsFramework](https://github.com/ichasekatz/MaterialsFramework)'s `Sqs2tdb` fitting workflow across many chemical systems; the constructor is side-effect-free and fitting runs only when `.fit()` is called
 - Compute oxygen chemical-potential stability windows across temperature and composition space; supports batch mode over many systems, onset-composition mapping, μ_O/T scans, 3-D onset surfaces, composition slice plots, and animated phase-stability maps
+- Evaluate solid-solution phase stability (convex hull over the Redlich–Kister SS phase, SQS structures, and elemental/MP competitors) across composition × temperature, with oxide competitors toggled by `exclude_oxides` (open to O at configured μ_O when included); optionally rank compositions on Pareto fronts of hull distance vs. single-phase stability (`run_pareto = true`)
 - Drive every stage from a single TOML file; the `[elements]` section is the single source of truth for the element pool, and stages are toggled individually so interrupted runs resume without repeating completed work
 
 ---
@@ -40,6 +41,7 @@
 | `BladeCompositions` | Enumeration | Generate all valid element subsets under `primary_min`/`primary_max` and `secondary_min`/`secondary_max` constraints |
 | `BladeSQS` | SQS generation | Write ATAT input files, invoke `sqs2tdb -mk` and `corrdump`, run parallel `mcsqs` searches, and stage SQS trees for fitting |
 | `BladeTDBGen` | TDB fitting | Copy SQS trees into the sqsdb, call `Sqs2tdb.fit()` per composition via MLIP relaxation, write CALPHAD TDB files and diagnostic plots |
+| `BladeStability` | Phase stability | Grand-potential LP over the SS phase + fixed competitors on a composition simplex × T grid; per-point dG_hull, single-phase flags, formation energies; optional Pareto analysis (`blade.analysis.stability_pareto`) |
 | `OxidationCalculator` | Oxidation analysis | Minimize grand-potential LP at each (T, μ_O) point; produce phase-fraction maps, onset curves, and 3-D stability surfaces |
 
 ---

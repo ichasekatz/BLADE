@@ -199,17 +199,37 @@ phase_element               = "B"
 phase_element_stoichiometry = 2.0
 # system_structures_root defaults to <blade_root>/system_structures
 # system_structures_root      = "/path/to/system_structures"
-# competitors_subdir auto-derived from [database].mlip label (e.g. parent_excel/MP_ORB)
-# override or set to "" to disable competing-phase loading:
-# competitors_subdir          = ""
-# exclude_oxides controls whether oxide rows from competitors_subdir are skipped (default true)
-# exclude_oxides              = false
-# allowed_elements: restrict stability to systems within this element set.
-# By default all systems in system_structures_root are processed.
-# allowed_elements            = ["Hf", "Cr", "Mo", "B"]
-output_folder               = "Stability"   # Files/Stability/ — per-system parquet + combined
+# competitors_subdir auto-derives from [database].mlip (→ "parent_excel/MP_ORB").
+# Set to "" to disable competing phases (SS vs. its own SQS points only).
+# competitors_subdir          = "parent_excel/MP_ORB"
+# Oxides: true → pure solid-state, no O-bearing competitors.
+#         false → oxide competitors included, system open to O at each mu_o_values
+#                 (absolute eV per O atom, same scale as [oxidation_batch].mu_o_range;
+#                  ORB O2 reference ≈ -4.96). mu_o_values is required when false.
+exclude_oxides              = true
+# mu_o_values                 = [-8.0, -6.0, -4.96]
+# allowed_elements            = ["Hf", "Cr", "Mo"]   # restrict to systems within this element set
+output_folder              = "Stability"   # Files/Stability/ — per-system parquet + combined
 temperature_range           = [300.0, 2000.0, 100.0]   # [T_min, T_max, T_step] in K
 composition_step            = 0.02          # simplex grid spacing (0.02 → ~1326 pts for ternary)
 skip_existing               = true
 rk_order                    = 3
+
+# Single-phase criteria recorded per (composition, T) — used by the Pareto analysis.
+# parent_threshold = 0.95   # min metal fraction in AlB₂-type phases → is_parent_structure_retained
+# strict_dg_tol    = 1e-3   # max dG_hull (eV/f.u.) → is_single_phase_strict
+# min_metal_frac   = 0.05   # every metal ≥ this for a composition to count as a mixed alloy
+
+# Pareto analysis of the stability results (Files/<output_folder>/pareto_analysis/):
+# fronts of mean dG_hull vs. strict-stability fraction / SS-fraction AUC, Excel ranking,
+# 2D/3D plots, temperature profiles. With exclude_oxides = false it runs once per mu_O.
+run_pareto                  = false
+
+[stability.pareto]
+# output_folder               = "pareto_analysis"
+# analysis_t_min              = 1500.0   # optional sub-range on the temperature grid
+# analysis_t_max              = 2000.0
+# top_n                       = 20
+# rank_filter_min_strict_frac = 0.01     # drop compositions never strictly stable
+# fsm_min_sep                 = 0.10
 

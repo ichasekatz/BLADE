@@ -920,6 +920,28 @@ class FullFrameworkPipeline:
         from blade.analysis.blade_stability import BladeStability
 
         cfg = self.settings.get("stability", {})
+        known_keys = {
+            "phase_element", "phase_element_stoichiometry", "system_structures_root", "competitors_subdir",
+            "exclude_oxides", "mu_o_values", "allowed_elements", "output_folder", "temperature_range",
+            "composition_step", "skip_existing", "rk_order", "n_workers",
+            "parent_threshold", "strict_dg_tol", "min_metal_frac", "run_pareto", "pareto",
+        }  # fmt: skip
+        unknown = sorted(set(cfg) - known_keys)
+        if unknown:
+            hint = " (renamed to competitors_subdir)" if "mp_orb_subdir" in unknown else ""
+            raise ValueError(f"[stability] has unknown key(s) {unknown}{hint}; known keys: {sorted(known_keys)}")
+        exclude_oxides = cfg.get("exclude_oxides", True)
+        if not isinstance(exclude_oxides, bool):
+            raise ValueError(f"[stability].exclude_oxides must be true or false, got {exclude_oxides!r}")
+        run_pareto = cfg.get("run_pareto", False)
+        if not isinstance(run_pareto, bool):
+            raise ValueError(f"[stability].run_pareto must be true or false, got {run_pareto!r}")
+        pareto_options = cfg.get("pareto", {})
+        if not isinstance(pareto_options, dict):
+            raise ValueError("[stability.pareto] must be a table of Pareto analysis options")
+        mu_o_values = cfg.get("mu_o_values")
+        if mu_o_values is not None and not isinstance(mu_o_values, list):
+            mu_o_values = [mu_o_values]
         t_range = cfg.get("temperature_range", [300.0, 2000.0, 100.0])
         sys_root = Path(cfg.get("system_structures_root", self.files_dir / "system_structures"))
         out_dir = self.files_dir / cfg.get("output_folder", "Stability")
@@ -939,13 +961,21 @@ class FullFrameworkPipeline:
         if "allowed_elements" in cfg:
             _raw = cfg["allowed_elements"]
             _allowed = set(_raw) if _raw else None
+        from blade.analysis.blade_stability import StabilityThresholds
+
+        thresholds = StabilityThresholds(
+            parent_threshold=float(cfg.get("parent_threshold", 0.95)),
+            strict_dg_tol=float(cfg.get("strict_dg_tol", 1e-3)),
+            min_metal_frac=float(cfg.get("min_metal_frac", 0.05)),
+        )
         BladeStability(
             system_structures_root=sys_root,
             output_dir=out_dir,
             phase_element=cfg.get("phase_element", "B"),
             phase_stoich=cfg.get("phase_element_stoichiometry", 2.0),
             competitors_subdir=competitors_subdir,
-            exclude_oxides=bool(cfg.get("exclude_oxides", True)),
+            exclude_oxides=exclude_oxides,
+            mu_o_values=mu_o_values,
             allowed_elements=_allowed,
             t_min=float(t_range[0]),
             t_max=float(t_range[1]),
@@ -953,6 +983,10 @@ class FullFrameworkPipeline:
             composition_step=float(cfg.get("composition_step", 0.02)),
             skip_existing=bool(cfg.get("skip_existing", True)),
             rk_order=int(cfg.get("rk_order", 3)),
+            n_workers=cfg.get("n_workers"),
+            thresholds=thresholds,
+            run_pareto=run_pareto,
+            pareto_options=pareto_options,
         ).run()
 
     def run(self, *, dry_run: bool = False) -> None:

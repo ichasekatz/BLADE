@@ -8,6 +8,8 @@ chemical potential. Outputs per-system parquet files and a combined summary.
 from __future__ import annotations
 
 import multiprocessing as mp
+import os
+from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 
@@ -24,6 +26,25 @@ kb_ev_per_k = 8.617333262145e-5  # eV / K
 
 class StabilityConfigError(ValueError):
     """Raised when a required configuration value is missing or invalid."""
+
+
+@dataclass(frozen=True)
+class StabilityThresholds:
+    """Criteria for the per-(composition, T) single-phase flags.
+
+    Attributes:
+        parent_threshold: Minimum ``ss_fraction`` (metal fraction in AlB₂-type
+            phases) for ``is_parent_structure_retained``.
+        strict_dg_tol: Maximum ``dG_hull`` (eV/f.u.) for ``is_single_phase_strict``.
+        min_metal_frac: Every metal must reach this site fraction for the
+            composition to count as a mixed alloy (excludes trivial endpoints).
+        lp_tol: Phase amounts at or below this are treated as inactive.
+    """
+
+    parent_threshold: float = 0.95
+    strict_dg_tol: float = 1e-3
+    min_metal_frac: float = 0.05
+    lp_tol: float = 1e-6
 
 
 class BladeStability:
@@ -43,8 +64,16 @@ class BladeStability:
 
         dG_hull = G_ss(y, T) − G_lp(y, T)   [eV per formula unit]
 
-    where G_lp ≤ G_ss always. dG_hull ≤ 0 means the SS phase is thermodynamically
-    stable (or tied) at that composition and temperature.
+    where G_lp ≤ G_ss always, so dG_hull ≥ 0; dG_hull ≈ 0 (≤ 1e-6 eV) means the SS
+    phase is on the hull (stable) at that composition and temperature.
+
+    Oxides: with ``exclude_oxides=True`` (default) every O-bearing competitor is
+    dropped and the scan is purely solid-state. With ``exclude_oxides=False`` oxide
+    competitors are loaded and the system is treated as open to oxygen at each
+    chemical potential in ``mu_o_values`` (absolute eV per O atom, same convention as
+    the oxidation stage): fixed-phase energies become ``G_j − n_O,j · μ_O`` and the
+    output gains one block of rows per μ_O. A closed, O-free system cannot form
+    oxides at all, so including oxides without a μ_O is rejected.
 
     Args:
         system_structures_root: Path to the ``system_structures/`` directory produced
@@ -54,6 +83,10 @@ class BladeStability:
         phase_stoich: Stoichiometry per formula unit (e.g. ``2.0`` for AlB₂-type).
         competitors_subdir: Subpath within each system dir holding competing-phase xlsx
             files. If None or the directory is absent, no extra competitors are loaded.
+        exclude_oxides: Drop O-bearing competitors (default True).
+        mu_o_values: Oxygen chemical potentials (eV per O atom) — required when
+            ``exclude_oxides`` is False, ignored otherwise.
+        allowed_elements: Only process systems whose elements are all in this set.
         t_min: Minimum temperature in K (default 300).
         t_max: Maximum temperature in K (default 2000).
         t_step: Temperature step in K (default 100).
@@ -61,6 +94,14 @@ class BladeStability:
         skip_existing: Skip systems whose parquet already exists (default True).
         rk_order: Redlich-Kister polynomial order (default 3).
         n_workers: Number of parallel worker processes (default: CPU count).
+        thresholds: Criteria for the single-phase flags (see :class:`StabilityThresholds`).
+        run_pareto: After the scan, write ``stability_raw.parquet`` /
+            ``stability_summary.parquet`` and run the Pareto analysis
+            (:mod:`blade.analysis.stability_pareto`). With oxides included this runs
+            once per μ_O value, in ``mu_O=<value>/`` subfolders.
+        pareto_options: Overrides for the Pareto analysis, e.g. ``output_folder``,
+            ``analysis_t_min``, ``analysis_t_max``, ``top_n``,
+            ``rank_filter_min_strict_frac`` (see ``run_pareto_analysis``).
     """
 
     def __init__(
@@ -71,6 +112,7 @@ class BladeStability:
         phase_stoich: float = 2.0,
         competitors_subdir: str | None = None,
         exclude_oxides: bool = True,
+        mu_o_values: list[float] | None = None,
         allowed_elements: set[str] | None = None,
         t_min: float = 300.0,
         t_max: float = 2000.0,
@@ -79,6 +121,9 @@ class BladeStability:
         skip_existing: bool = True,
         rk_order: int = 3,
         n_workers: int | None = None,
+        thresholds: StabilityThresholds | None = None,
+        run_pareto: bool = False,
+        pareto_options: dict | None = None,
     ) -> None:
         """Initialize with file paths and stability scan parameters."""
         self._system_structures_root = Path(system_structures_root)
@@ -86,7 +131,16 @@ class BladeStability:
         self.phase_element = phase_element
         self.phase_stoich = phase_stoich
         self._competitors_subdir = competitors_subdir
-        self._exclude_oxides = exclude_oxides
+        self._exclude_oxides = bool(exclude_oxides)
+        if self._exclude_oxides:
+            self._mu_o_values: tuple[float, ...] = ()
+        else:
+            if not mu_o_values:
+                raise StabilityConfigError(
+                    "exclude_oxides = false requires mu_o_values (oxygen chemical potential, eV per O atom): "
+                    "without an oxygen reservoir no oxide can form, so including oxides would change nothing."
+                )
+            self._mu_o_values = tuple(float(m) for m in mu_o_values)
         self._allowed_elements = allowed_elements
         self.t_min = t_min
         self.t_max = t_max
@@ -95,6 +149,9 @@ class BladeStability:
         self.skip_existing = skip_existing
         self.rk_order = rk_order
         self.n_workers = n_workers or mp.cpu_count()
+        self.thresholds = thresholds or StabilityThresholds()
+        self.run_pareto = bool(run_pareto)
+        self.pareto_options = dict(pareto_options or {})
 
     @cached_property
     def output_dir(self) -> Path:
@@ -122,6 +179,7 @@ class BladeStability:
                 bdir,
                 self._competitors_subdir,
                 self._exclude_oxides,
+                self._mu_o_values,
                 self.phase_element,
                 self.phase_stoich,
                 self.t_values,
@@ -129,17 +187,36 @@ class BladeStability:
                 self.rk_order,
                 self.output_dir,
                 self.skip_existing,
+                self.thresholds,
             )
             for sdir, bdir in system_dirs
         ]
 
+        oxide_note = f"oxides INCLUDED at mu_O = {list(self._mu_o_values)} eV/O" if self._mu_o_values else "oxides EXCLUDED"
+        print(f"BladeStability: competitors_subdir={self._competitors_subdir!r}, {oxide_note}")
+
         all_frames: list[pd.DataFrame] = []
-        with mp.Pool(processes=self.n_workers, initializer=_worker_init) as pool:
-            for result, err in pool.imap_unordered(_stability_worker, args):
-                if err:
-                    print(f"  SKIPPED: {err}")
-                elif result is not None:
-                    all_frames.append(result)
+        # spawn (not fork) so workers import numpy fresh with single-threaded BLAS;
+        # forked workers inherit a multi-threaded BLAS pool and oversubscribe the CPU.
+        # The env vars must be in place before the children start (they import numpy
+        # while unpickling the worker function, before any initializer runs).
+        ctx = mp.get_context("spawn")
+        thread_vars = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")
+        saved_env = {v: os.environ.get(v) for v in thread_vars}
+        os.environ.update(dict.fromkeys(thread_vars, "1"))
+        try:
+            with ctx.Pool(processes=self.n_workers, initializer=_worker_init) as pool:
+                for result, err in pool.imap_unordered(_stability_worker, args):
+                    if err:
+                        print(f"  SKIPPED: {err}")
+                    elif result is not None:
+                        all_frames.append(result)
+        finally:
+            for var, val in saved_env.items():
+                if val is None:
+                    os.environ.pop(var, None)
+                else:
+                    os.environ[var] = val
 
         if not all_frames:
             print("No stability results produced.")
@@ -151,7 +228,39 @@ class BladeStability:
         out = self.output_dir / "stability_results.parquet"
         combined.to_parquet(out, index=False)
         print(f"Combined results → {out}  ({len(combined)} rows, {combined['system'].nunique() if len(combined) else 0} systems)")
+        if self.run_pareto and len(combined):
+            self._run_pareto(combined)
         return out
+
+    def _run_pareto(self, combined: pd.DataFrame) -> list[Path]:
+        """Write the Pareto input database(s) and run the Pareto analysis.
+
+        Args:
+            combined: Combined per-(system, composition, T[, μ_O]) results.
+
+        Returns:
+            Output directories of the Pareto analyses (one per μ_O when oxides are
+            included, otherwise one).
+        """
+        from blade.analysis.stability_pareto import run_pareto_analysis
+
+        opts = dict(self.pareto_options)
+        folder = opts.pop("output_folder", "pareto_analysis")
+        if self._mu_o_values:
+            blocks = [(self.output_dir / f"mu_O={mu:g}", combined[np.isclose(combined["mu_O"], mu)]) for mu in self._mu_o_values]
+        else:
+            blocks = [(self.output_dir, combined)]
+
+        out_dirs: list[Path] = []
+        for db_dir, frame in blocks:
+            db_dir.mkdir(parents=True, exist_ok=True)
+            write_pareto_database(frame, db_dir)
+            out_dir = db_dir / folder
+            run_pareto_analysis(
+                db_dir=db_dir, out_dir=out_dir, t_min=self.t_min, t_max=self.t_max, t_step=self.t_step, **opts
+            )
+            out_dirs.append(out_dir)
+        return out_dirs
 
     def _find_system_dirs(self) -> list[tuple[Path, Path]]:
         """Return (system_dir, blade_dir) pairs for all valid system_structures systems.
@@ -184,6 +293,8 @@ def _run_stability_grid(
     phase_data: dict,
     t_values: np.ndarray,
     system_tag: str,
+    mu_o_values: tuple[float, ...] = (),
+    thresholds: StabilityThresholds | None = None,
 ) -> pd.DataFrame:
     """Run the stability LP over a composition simplex grid × temperature range.
 
@@ -192,17 +303,28 @@ def _run_stability_grid(
         min  Σ_j G_j(T) · n_j
         s.t. A_eq @ n = b_eq(y_i),  n ≥ 0
 
-    where G_j(T) = energy_per_formula for fixed phases and G_j(T) = H_RK(y_j) +
-    k_B T · Σ y_k ln(y_k) for the SS phase grid. No oxide phases or μ_O term.
+    where G_j(T) = energy_per_formula − n_O,j · μ_O for fixed phases and
+    G_j(T) = H_RK(y_j) + k_B T · Σ y_k ln(y_k) for the SS phase grid. Oxygen is not
+    mass-balanced (open system); with no μ_O values every fixed phase must be O-free.
 
     Args:
         phase_data: Output of :func:`_stability_tables.build_phase_data`.
         t_values: Temperature array in K.
         system_tag: System identifier string for the ``system`` column.
+        mu_o_values: Oxygen chemical potentials (eV per O atom); empty for the
+            purely solid-state (oxides excluded) scan.
+        thresholds: Criteria for the parent-retention / strict / unique flags.
 
     Returns:
-        DataFrame with columns: system, composition, x_<Metal>, T, dG_hull,
-        G_ss, G_lp, stable, s_config, s_config_norm, dominant_phase.
+        DataFrame with columns: system, metals, composition, comp_label, x_<Metal>,
+        T, mu_O, oxides_included, dG_hull (= dG_above_hull), G_ss, G_lp, stable,
+        ss_fraction, n_active_ss, n_active_fixed, is_parent_structure_retained,
+        is_single_phase_strict, is_unique_homogeneous, G_ss_formation, G_formation,
+        s_config, s_config_norm, dominant_phase.
+
+        ``ss_fraction`` is the fraction of metal atoms in AlB₂-type phases (the SS
+        grid plus the SQS structures). Formation energies are relative to the
+        pure-metal parent endpoints, ``G_ref = Σ y_k · H_endpoint_k``.
     """
     n_fixed = phase_data["n_fixed"]
     y_grid = phase_data["y_grid"]
@@ -213,12 +335,26 @@ def _run_stability_grid(
     fef = phase_data["fixed_energy_formula"]
     a_eq = phase_data["A_eq"]
     phase_ids = phase_data["phase_ids"]
+    fixed_o = phase_data["fixed_O"]
     n = len(metals)
+    thr = thresholds or StabilityThresholds()
+    metals_str = ",".join(metals)
+    h_ep = np.asarray(phase_data["h_endpoints"], dtype=float)
+    # Per-phase metal content and AlB₂-parent mask (fixed SQS + SS grid).
+    metal_content = a_eq[:n, :].sum(axis=0)
+    is_parent = np.concatenate([np.asarray(phase_data["fixed_is_parent"], dtype=bool), np.ones(len(y_grid), dtype=bool)])
+    parent_y = np.vstack([np.asarray(phase_data["fixed_y"], dtype=float), y_grid])
+
+    oxides_included = len(mu_o_values) > 0
+    if not oxides_included and np.any(fixed_o > 0):
+        raise ValueError("O-bearing fixed phases present but no mu_O given (oxides must be excluded)")
+    mu_list = list(mu_o_values) if oxides_included else [np.nan]
 
     rows: list[dict] = []
-    for t in t_values:
+    for t, mu_o in ((t, mu) for t in t_values for mu in mu_list):
         g_ss_grid = phase_h0 + kb_ev_per_k * float(t) * phase_mix
-        grand = np.concatenate([fef, g_ss_grid])
+        fixed_grand = fef - fixed_o * mu_o if oxides_included else fef
+        grand = np.concatenate([fixed_grand, g_ss_grid])
 
         for i, y_i in enumerate(y_grid):
             b_eq = np.concatenate([y_i, [phase_stoich]])
@@ -236,15 +372,41 @@ def _run_stability_grid(
             dom_idx = int(np.nanargmax(amounts)) if amounts is not None else -1
             dom_phase = str(phase_ids[dom_idx]) if dom_idx >= 0 else ""
 
+            metal_amt = amounts * metal_content
+            total_metal = float(metal_amt.sum())
+            ss_frac = float(metal_amt[is_parent].sum() / total_metal) if total_metal > 0 else float("nan")
+            active = amounts > thr.lp_tol
+            n_active_ss = int((active & is_parent).sum())
+            n_active_fixed = int((active & ~is_parent).sum())
+            unique = False
+            if n_active_fixed == 0 and n_active_ss == 1:
+                (k_act,) = np.flatnonzero(active)
+                unique = bool(np.allclose(parent_y[k_act], y_i, atol=1e-6))
+            all_present = bool(np.all(y_i >= thr.min_metal_frac - 1e-12))
+            retained = all_present and ss_frac >= thr.parent_threshold
+            g_ref = float(y_i @ h_ep)
+
             comp_str = ",".join(f"{y_i[k]:.4f}" for k in range(n))
             row: dict = {
                 "system": system_tag,
+                "metals": metals_str,
                 "composition": comp_str,
+                "comp_label": " ".join(f"x_{m}={y_i[k]:.3f}" for k, m in enumerate(metals)),
                 "T": float(t),
+                "mu_O": float(mu_o),
+                "oxides_included": oxides_included,
                 "dG_hull": float(dg),
                 "G_ss": float(g_ss_i),
                 "G_lp": float(g_lp),
                 "stable": bool(dg <= 1e-6),
+                "ss_fraction": ss_frac,
+                "n_active_ss": n_active_ss,
+                "n_active_fixed": n_active_fixed,
+                "is_parent_structure_retained": retained,
+                "is_single_phase_strict": bool(retained and dg <= thr.strict_dg_tol),
+                "is_unique_homogeneous": bool(all_present and unique),
+                "G_ss_formation": float(g_ss_i - g_ref),
+                "G_formation": float(g_lp - g_ref),
                 "s_config": float(s_cfg),
                 "s_config_norm": float(s_norm),
                 "dominant_phase": dom_phase,
@@ -285,22 +447,43 @@ def _stability_worker(
 
     Args:
         args: Tuple of (system_dir, blade_dir, competitors_subdir, exclude_oxides,
-            phase_element, phase_stoich, t_values, composition_step, rk_order,
-            output_dir, skip_existing).
+            mu_o_values, phase_element, phase_stoich, t_values, composition_step,
+            rk_order, output_dir, skip_existing, thresholds).
 
     Returns:
         (DataFrame, None) on success, or (None, error_message) on failure.
     """
     from blade.analysis._stability_tables import build_phase_data, detect_metals
 
-    system_dir, blade_dir, competitors_subdir, exclude_oxides, phase_element, phase_stoich, t_values, composition_step, rk_order, output_dir, skip_existing = args
+    (
+        system_dir,
+        blade_dir,
+        competitors_subdir,
+        exclude_oxides,
+        mu_o_values,
+        phase_element,
+        phase_stoich,
+        t_values,
+        composition_step,
+        rk_order,
+        output_dir,
+        skip_existing,
+        thresholds,
+    ) = args
 
     system_tag = system_dir.name
     out_path = output_dir / f"{system_tag}_stability.parquet"
+    settings_sig = _settings_signature(
+        competitors_subdir, exclude_oxides, mu_o_values, phase_element, phase_stoich, t_values, composition_step, rk_order
+    ) + f"|thr={thresholds.parent_threshold:g},{thresholds.strict_dg_tol:g},{thresholds.min_metal_frac:g},{thresholds.lp_tol:g}"
 
     if skip_existing and out_path.exists():
         try:
-            return pd.read_parquet(out_path), None
+            cached = pd.read_parquet(out_path)
+            # Reuse only results produced with identical settings — otherwise toggling
+            # exclude_oxides (or T range, grid, μ_O...) would silently return stale data.
+            if "settings_sig" in cached.columns and (cached["settings_sig"] == settings_sig).all():
+                return cached, None
         except Exception:
             pass
 
@@ -331,10 +514,15 @@ def _stability_worker(
         return None, f"{system_tag}: phase data build failed — {e}"
 
     try:
-        df = _run_stability_grid(phase_data, t_values, system_tag)
+        df = _run_stability_grid(phase_data, t_values, system_tag, mu_o_values, thresholds)
         df["n_metals"] = len(metals)
+        df["n_competitors"] = phase_data["n_competitors"]
+        df["settings_sig"] = settings_sig
         df.to_parquet(out_path, index=False)
-        print(f"  [{system_tag}] {len(metals)} metals | {len(df)} rows → {out_path.name}")
+        print(
+            f"  [{system_tag}] {len(metals)} metals | {phase_data['n_competitors']} competitors"
+            f" | {len(df)} rows → {out_path.name}"
+        )
         return df, None
     except Exception as e:
         return None, f"{system_tag}: LP grid failed — {e}"
@@ -343,6 +531,62 @@ def _stability_worker(
 # ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
+
+
+def write_pareto_database(frame: pd.DataFrame, db_dir: Path) -> tuple[Path, Path]:
+    """Write ``stability_raw.parquet`` and ``stability_summary.parquet`` for Pareto analysis.
+
+    Args:
+        frame: Stability rows for a single μ_O (or the oxide-free scan), as produced
+            by :func:`_run_stability_grid`.
+        db_dir: Destination directory.
+
+    Returns:
+        Paths of the raw and summary parquet files.
+    """
+    raw = frame.rename(columns={"dG_hull": "dG_above_hull", "G_lp": "G_total"}).copy()
+    raw_path = db_dir / "stability_raw.parquet"
+    raw.to_parquet(raw_path, index=False)
+
+    keys = ["system", "composition"]
+    valid = raw.dropna(subset=["ss_fraction"])
+    grouped = valid.groupby(keys)
+    summary = grouped[["metals", "n_metals", "comp_label"] + [c for c in raw.columns if c.startswith("x_")]].first()
+    for flag, tag in (
+        ("is_parent_structure_retained", "retained"),
+        ("is_single_phase_strict", "strict"),
+        ("is_unique_homogeneous", "unique"),
+    ):
+        summary[f"T_min_{tag}"] = valid["T"].where(valid[flag]).groupby([valid[k] for k in keys]).min()
+        summary[f"area_frac_{tag}"] = grouped[flag].mean()
+    agg = raw.groupby(keys)
+    summary["G_f_min"] = agg["G_formation"].min()
+    summary["G_ss_f_min"] = agg["G_ss_formation"].min()
+    summary["dG_hull_min"] = agg["dG_above_hull"].min()
+    at_tmin = raw.merge(summary["T_min_retained"].rename("T").reset_index(), on=[*keys, "T"])
+    summary["G_f_at_Tmin"] = at_tmin.groupby(keys)["G_formation"].first()
+    summary_path = db_dir / "stability_summary.parquet"
+    summary.reset_index().to_parquet(summary_path, index=False)
+    return raw_path, summary_path
+
+
+def _settings_signature(
+    competitors_subdir: str | None,
+    exclude_oxides: bool,
+    mu_o_values: tuple[float, ...],
+    phase_element: str,
+    phase_stoich: float,
+    t_values: np.ndarray,
+    composition_step: float,
+    rk_order: int,
+) -> str:
+    """Stable string identifying every setting that changes a system's results."""
+    t = np.asarray(t_values, dtype=float)
+    return (
+        f"v3|comp={competitors_subdir}|ox={'excl' if exclude_oxides else 'incl'}"
+        f"|mu={','.join(f'{m:.6g}' for m in mu_o_values)}|el={phase_element}|st={phase_stoich:.6g}"
+        f"|T={t.min():.6g}:{t.max():.6g}:{len(t)}|dy={composition_step:.6g}|rk={rk_order}"
+    )
 
 
 def _system_in_pool(system_name: str, allowed: set[str]) -> bool:

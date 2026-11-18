@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from blade.oxidation._db_utils import get_formula_counts
 from blade.oxidation.framework._grid import simplex_grid_nd
 from blade.oxidation.framework._mixing import ideal_mixing_nd, muggianu_energy_nd
 
@@ -36,9 +37,15 @@ def build_phase_data(
     - **Fixed-phase competitors**: discrete line compounds in the LP (integer stoichs).
     - **RK training set**: endpoints and mixed compositions for fitting H(y).
 
-    When ``competitors_dir`` is supplied, non-oxide, non-BLADE rows from xlsx files
-    in that directory are added as additional fixed-phase competitors, extending the
-    convex hull to include reference phases.
+    When ``competitors_dir`` is supplied, non-BLADE rows from xlsx files in that
+    directory whose elements lie within ``metals + [phase_element]`` (plus O when
+    ``exclude_oxides`` is False) are added as fixed-phase competitors — including the
+    pure elements, so e.g. a CuB₂ SS phase with ΔH_f > 0 competes against Cu + 2B.
+
+    Oxygen is not constrained by ``A_eq``: the system is open to O, and oxide
+    competitors (``fixed_O > 0``) only become meaningful once the caller subtracts
+    ``fixed_O · μ_O`` from their energies. With ``exclude_oxides=True`` no O-bearing
+    row is loaded and ``fixed_O`` is all zeros.
 
     Args:
         lattice_dir: Path to ``<system_structures>/<System>/blade/`` containing
@@ -53,11 +60,13 @@ def build_phase_data(
             (default 0.02). Coarser grids run faster; finer grids improve dG_hull
             resolution near tie-line vertices.
         competitors_dir: Optional path to a directory holding competing-phase xlsx files.
-            Non-BLADE, non-oxide rows are appended as fixed-phase competitors.
+        exclude_oxides: Skip O-bearing competitor rows (default True).
 
     Returns:
         Dict with keys: ``phase_ids``, ``phase_kinds``, ``phase_y_nd``,
-        ``phase_metal_stoich``, ``phase_H0``, ``phase_mix_shape``, ``A_eq``,
+        ``phase_metal_stoich``, ``phase_H0``, ``phase_mix_shape``, ``fixed_O``,
+        ``fixed_is_parent`` (True for the AlB₂-type SQS fixed phases), ``fixed_y``
+        (metal-site fractions of each fixed phase), ``n_competitors``, ``A_eq``,
         ``n_fixed``, ``n_metals``, ``metals``, ``phase_element``,
         ``phase_element_stoichiometry``, ``fixed_energy_formula``, ``y_grid``,
         ``h_endpoints``, ``binary_coeffs``, ``ternary_coeff``.
@@ -77,16 +86,23 @@ def build_phase_data(
     rows.sort(key=lambda r: [r[y_cols[k]] for k in range(n)])
 
     h_ep = _endpoint_energies(rows, metals, y_cols, n, lattice_dir)
-    binary_coeffs, ternary_coeff = _fit_rk(rows, h_ep, pairs=_pairs(n), n=n, rk_order=rk_order)
+    binary_coeffs, ternary_coeff = _fit_rk(rows, h_ep, pairs=_pairs(n), n=n, rk_order=rk_order, y_cols=y_cols)
 
     fixed_rows = _build_fixed_rows(rows, lattice_dir, metals, elements, phase_element)
+    n_sqs = len(fixed_rows)  # AlB₂-type SQS structures come first, competitors after
+    n_competitors = 0
     if competitors_dir is not None:
-        fixed_rows.extend(_load_xlsx_fixed_rows(competitors_dir, metals, phase_element, exclude_oxides=exclude_oxides))
+        competitors = _load_xlsx_fixed_rows(competitors_dir, metals, phase_element, exclude_oxides=exclude_oxides)
+        n_competitors = len(competitors)
+        fixed_rows.extend(competitors)
     n_fixed = len(fixed_rows)
 
     fmetal = np.array([fr["metals"] for fr in fixed_rows])
     fphase_el = np.array([fr["phase_el"] for fr in fixed_rows])
     fo = np.array([fr["O"] for fr in fixed_rows])
+    fixed_is_parent = np.arange(n_fixed) < n_sqs
+    with np.errstate(invalid="ignore", divide="ignore"):
+        fixed_y = fmetal / fmetal.sum(axis=1, keepdims=True)
     fatoms = fmetal.sum(axis=1) + fphase_el + fo
     fef = np.array([fr["energy_eV_per_atom"] for fr in fixed_rows]) * fatoms
 
@@ -113,6 +129,10 @@ def build_phase_data(
         "phase_H0": phase_h0,
         "phase_mix_shape": phase_mix,
         "fixed_energy_formula": fef,
+        "fixed_O": fo,
+        "fixed_is_parent": fixed_is_parent,
+        "fixed_y": fixed_y,
+        "n_competitors": n_competitors,
         "A_eq": a_eq,
         "n_fixed": n_fixed,
         "n_metals": n,
@@ -312,6 +332,7 @@ def _fit_rk(
     pairs: list[tuple[int, int]],
     n: int,
     rk_order: int,
+    y_cols: list[str],
 ) -> tuple[dict[tuple[int, int], np.ndarray], float]:
     """Global simultaneous least-squares fit of Redlich-Kister/Muggianu parameters.
 
@@ -324,18 +345,20 @@ def _fit_rk(
 
     Args:
         rows: SQS rows; pure-endpoint rows (any y_k ≥ 1) are automatically skipped.
-        h_ep: Endpoint energies in eV/formula, shape (n,).
+        h_ep: Endpoint energies in eV/formula, shape (n,), ordered like ``y_cols``.
         pairs: List of (i, j) index pairs with i < j.
         n: Number of metals.
         rk_order: Polynomial order (number of L parameters per pair = rk_order + 1).
+        y_cols: Metal-site fraction column names in the same metal order as
+            ``h_ep`` and as used later by :func:`muggianu_energy_nd`. Must not be
+            re-sorted: the metal order from :func:`detect_metals` is generally not
+            alphabetical.
 
     Returns:
         Tuple of (binary_coeffs, ternary_coeff) where binary_coeffs maps (i, j)
         to an array of L0, L1, ... coefficients in eV/formula.
     """
-    # rebuild actual column names from rows (metal order comes from the row keys)
-    actual_y_cols = [k for k in rows[0] if k.startswith("y_") and "metal_site" in k]
-    actual_y_cols.sort()
+    actual_y_cols = list(y_cols)
 
     n_params = len(pairs) * (rk_order + 1) + (1 if n == 3 else 0)
     basis_rows: list[list[float]] = []
@@ -422,16 +445,26 @@ def _load_xlsx_fixed_rows(
 ) -> list[dict]:
     """Load competing fixed phases from xlsx files in a directory.
 
-    Reads all xlsx files, deduplicates by formula, and returns rows suitable for
-    appending to the fixed-phase list in :func:`build_phase_data`. Skips:
-    - BLADE rows (already included via ``sqs_lev=*`` dirs)
-    - Rows with oxygen when ``exclude_oxides`` is True (default)
-    - Pure-element rows (no metal atom or no phase_element atom)
+    Reads all xlsx files, keeps the lowest-energy entry per formula, and returns rows
+    suitable for appending to the fixed-phase list in :func:`build_phase_data`.
+    Element counts come from the ``formula`` column, so the energy-per-atom ×
+    atom-count product is always self-consistent. Skips:
+
+    - BLADE rows (already included via the SQS structure dirs)
+    - Rows containing any element outside ``metals + [phase_element]`` (+ ``O``
+      when oxides are included) — they cannot form in this chemical system
+    - Rows containing O when ``exclude_oxides`` is True (default)
+    - Pure O₂: it is the oxygen reservoir (μ_O), not a condensed competitor, and
+      would make the open-O LP unbounded
+
+    Pure metals and pure ``phase_element`` **are** kept: they are the decomposition
+    products that decide stability for diborides with ΔH_f > 0 (e.g. CuB₂, GeB₂).
 
     Args:
         competitors_dir: Directory containing xlsx files with competing phase data.
         metals: Ordered metal element symbols.
         phase_element: Non-metal sublattice element (e.g. ``"B"``).
+        exclude_oxides: Drop every O-bearing row when True.
 
     Returns:
         List of dicts with keys: phase_id, metals (ndarray), phase_el, O,
@@ -446,40 +479,41 @@ def _load_xlsx_fixed_rows(
     if not frames:
         return []
 
-    df = pd.concat(frames, ignore_index=True).drop_duplicates(subset="formula", keep="first")
+    df = pd.concat(frames, ignore_index=True)
+    df = df[df["source"].astype(str).str.upper() != "BLADE"] if "source" in df.columns else df
+    df = df.dropna(subset=["formula", "energy"])
+    df = df.sort_values("energy", kind="stable").drop_duplicates(subset="formula", keep="first")
+
+    allowed = set(metals) | {phase_element}
+    if not exclude_oxides:
+        allowed.add("O")
 
     fixed: list[dict] = []
     for _, row in df.iterrows():
-        if str(row.get("source", "")).upper() == "BLADE":
+        counts = get_formula_counts(str(row["formula"]))
+        if not counts or not set(counts) <= allowed:
             continue
-        _o_raw = row.get("O", 0)
-        if exclude_oxides and not pd.isna(_o_raw) and float(_o_raw) > 0:
+        if set(counts) == {"O"}:
             continue
-        metal_counts = np.array(
-            [0.0 if pd.isna(row.get(m, 0)) else float(row.get(m, 0)) for m in metals],
-            dtype=float,
-        )
-        _phase_el_raw = row.get(phase_element, 0)
-        phase_el_count = 0.0 if pd.isna(_phase_el_raw) else float(_phase_el_raw)
-        if metal_counts.sum() <= 0 or phase_el_count <= 0:
+        metal_counts = np.array([float(counts.get(m, 0)) for m in metals], dtype=float)
+        phase_el_count = float(counts.get(phase_element, 0))
+        o_count = float(counts.get("O", 0))
+        if metal_counts.sum() <= 0 and phase_el_count <= 0:
             continue
-        # GCD-reduce raw atom counts to give reduced formula stoichs
-        all_int = [int(round(c)) for c in metal_counts] + [int(round(phase_el_count))]
-        all_int = [v for v in all_int if v > 0]
-        if not all_int:
-            continue
-        g = all_int[0]
-        for v in all_int[1:]:
-            g = _gcd(g, v)
-        if g > 1:
-            metal_counts = metal_counts / g
-            phase_el_count = phase_el_count / g
+        # Reduce integer formulas (e.g. cell formulas) by their GCD so phase amounts
+        # stay comparable for dominant_phase; energies are unaffected either way.
+        if all(float(v).is_integer() for v in counts.values()):
+            g = 0
+            for v in counts.values():
+                g = _gcd(g, int(v))
+            if g > 1:
+                metal_counts, phase_el_count, o_count = metal_counts / g, phase_el_count / g, o_count / g
         fixed.append(
             {
                 "phase_id": f"MP_{row['formula']}",
                 "metals": metal_counts,
                 "phase_el": phase_el_count,
-                "O": 0.0,
+                "O": o_count,
                 "energy_eV_per_atom": float(row["energy"]),
             }
         )

@@ -36,7 +36,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import cm, tri
 from PIL import Image, ImageDraw, ImageFont
-from pycalphad import Database, calculate
+from pycalphad import Database, Model, calculate
 from scipy.interpolate import LinearNDInterpolator
 from scipy.spatial import ConvexHull
 
@@ -206,7 +206,10 @@ def temperature_values(step: int) -> np.ndarray:
 
 
 def _gmix_cache_path(data_dir: Path) -> Path:
-    return data_dir / "gmix_data.csv"
+    # v2: G_mix evaluated at the actual grid compositions (site-fraction points).
+    # Older gmix_data.csv files hold values from pycalphad's random sampling and are
+    # deliberately not read.
+    return data_dir / "gmix_data_v2.csv"
 
 
 def _load_cached_gmix(data_dir: Path, grid, x_cart, y_cart) -> dict[int, np.ndarray]:
@@ -281,6 +284,56 @@ def _write_cached_gmix(
     np.savetxt(_gmix_cache_path(data_dir), np.vstack(rows), delimiter=",", header=header, comments="", fmt=fmt)
 
 
+
+def phase_site_fraction_points(tdb, all_comps, phase, metals, metal_x) -> np.ndarray:
+    """Convert overall metal mole fractions to pycalphad site-fraction ``points``.
+
+    ``pycalphad.calculate`` only evaluates user compositions when ``points`` is an
+    array of the phase's internal degrees of freedom (site fractions, in
+    ``Model.site_fractions`` order). A dict keyed by element names is silently
+    ignored and pycalphad falls back to its own random sampling, so G would be
+    evaluated at compositions unrelated to the plotted grid.
+
+    Metals must share a single sublattice; sublattices without metals are filled
+    evenly by their non-vacancy constituents (e.g. the B sublattice of a diboride).
+
+    Args:
+        tdb: pycalphad Database.
+        all_comps: Components passed to ``calculate`` (incl. ``"VA"``).
+        phase: Phase name.
+        metals: Variable metal names as they appear in the TDB (e.g. ``"CR"``).
+        metal_x: Array of shape (n_pts, n_metals) of metal mole fractions; each row
+            is normalized to metal-site fractions, so any constant total is fine.
+
+    Returns:
+        Array of shape (n_pts, n_dof) of site fractions.
+    """
+    mod = Model(tdb, all_comps, phase)
+    metal_x = np.atleast_2d(np.asarray(metal_x, dtype=float))
+    y_metal = metal_x / metal_x.sum(axis=1, keepdims=True)
+    metal_idx = {m.upper(): i for i, m in enumerate(metals)}
+    metal_subl = {sv.sublattice_index for sv in mod.site_fractions if sv.species.name.upper() in metal_idx}
+    if len(metal_subl) != 1:
+        raise ValueError(f"{phase}: metals must occupy exactly one sublattice, found {sorted(metal_subl)}")
+    (msub,) = metal_subl
+
+    cols = []
+    for sv in mod.site_fractions:
+        name = sv.species.name.upper()
+        if sv.sublattice_index == msub:
+            cols.append(y_metal[:, metal_idx[name]] if name in metal_idx else np.zeros(len(y_metal)))
+        else:
+            occupants = [o for o in mod.site_fractions if o.sublattice_index == sv.sublattice_index and o.species.name.upper() != "VA"]
+            fill = 0.0 if name == "VA" else 1.0 / len(occupants)
+            cols.append(np.full(len(y_metal), fill))
+    pts = np.clip(np.column_stack(cols), 1e-12, None)
+    # renormalize each sublattice after clipping
+    for sub in {sv.sublattice_index for sv in mod.site_fractions}:
+        idx = [k for k, sv in enumerate(mod.site_fractions) if sv.sublattice_index == sub]
+        pts[:, idx] /= pts[:, idx].sum(axis=1, keepdims=True)
+    return pts
+
+
 def _gm_values_by_temperature(result, n_points: int) -> tuple[np.ndarray, np.ndarray]:
     gm = result.GM
     indexer = {dim: 0 for dim in gm.dims if dim not in {"T", "points"}}
@@ -294,26 +347,19 @@ def _gm_values_by_temperature(result, n_points: int) -> tuple[np.ndarray, np.nda
 
 def compute_gmix(tdb, all_comps, metals, phases, T, grid, x_fixed_val) -> np.ndarray:
     """Compute G_mix relative to pure endmembers on full grid via calculate. Works for N metals."""
-    fixed_els = [el for el in tdb.elements if el.upper() in {f.upper() for f in fixed_elements} and el != "VA"]
     n_metals = len(metals)
     n_pts = len(grid)
 
-    pts = {metals[i]: grid[:, i] for i in range(n_metals)}
-    for el in fixed_els:
-        pts[el] = np.full(n_pts, x_fixed_val)
-
+    pts = phase_site_fraction_points(tdb, all_comps, phases[0], metals, grid)
     result = calculate(tdb, all_comps, phases[0], T=float(T), P=pressure, points=pts)
-    gm = result.GM.values.ravel()[:n_pts]
+    gm = result.GM.values.ravel()
+    if gm.size != n_pts:
+        raise RuntimeError(f"pycalphad returned {gm.size} points for {n_pts} requested")
 
-    # Pure endmember GMs — one per metal, all others at epsilon
-    g_ends = []
-    for _k, m in enumerate(metals):
-        end_pts = {metals[i]: np.array([1e-10]) for i in range(n_metals)}
-        end_pts[m] = np.array([metal_fraction - (n_metals - 1) * 1e-10])
-        for el in fixed_els:
-            end_pts[el] = np.array([x_fixed_val])
-        r = calculate(tdb, all_comps, phases[0], T=float(T), P=pressure, points=end_pts)
-        g_ends.append(float(r.GM.values.ravel()[0]))
+    # Pure endmember GMs — one per metal
+    end_pts = phase_site_fraction_points(tdb, all_comps, phases[0], metals, np.eye(n_metals))
+    r = calculate(tdb, all_comps, phases[0], T=float(T), P=pressure, points=end_pts)
+    g_ends = list(r.GM.values.ravel())
 
     # G_mix = G - sum(xᵢ/x_total * Gᵢ_endmember)
     g_mix = np.array(
@@ -328,30 +374,21 @@ def compute_gmix_many(tdb, all_comps, metals, phases, temperatures, grid, x_fixe
     if temperatures.size == 0:
         return {}
 
-    fixed_els = [el for el in tdb.elements if el.upper() in {f.upper() for f in fixed_elements} and el != "VA"]
     n_metals = len(metals)
     n_pts = len(grid)
 
-    pts = {metals[i]: grid[:, i] for i in range(n_metals)}
-    for el in fixed_els:
-        pts[el] = np.full(n_pts, x_fixed_val)
-
     try:
+        pts = phase_site_fraction_points(tdb, all_comps, phases[0], metals, grid)
         result = calculate(tdb, all_comps, phases[0], T=temperatures, P=pressure, points=pts)
-        calc_temperatures, gm = _gm_values_by_temperature(result, len(grid))
+        calc_temperatures, gm = _gm_values_by_temperature(result, n_pts)
+        if gm.shape[1] != n_pts:
+            raise RuntimeError(f"pycalphad returned {gm.shape[1]} points for {n_pts} requested")
 
-        g_ends = []
-        for m in metals:
-            end_pts = {metals[i]: np.array([1e-10]) for i in range(n_metals)}
-            end_pts[m] = np.array([metal_fraction - (n_metals - 1) * 1e-10])
-            for el in fixed_els:
-                end_pts[el] = np.array([x_fixed_val])
-            r = calculate(tdb, all_comps, phases[0], T=temperatures, P=pressure, points=end_pts)
-            _, end_gm = _gm_values_by_temperature(r, 1)
-            g_ends.append(end_gm[:, 0])
+        end_pts = phase_site_fraction_points(tdb, all_comps, phases[0], metals, np.eye(n_metals))
+        r = calculate(tdb, all_comps, phases[0], T=temperatures, P=pressure, points=end_pts)
+        _, endmember_gm = _gm_values_by_temperature(r, n_metals)
 
         weights = grid / metal_fraction
-        endmember_gm = np.column_stack(g_ends)
         baseline = endmember_gm @ weights.T
         g_mix = gm - baseline
         return {int(round(T)): g_mix[i] for i, T in enumerate(calc_temperatures)}
