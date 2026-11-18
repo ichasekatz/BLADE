@@ -81,8 +81,11 @@ class BladeStability:
         output_dir: Directory for stability results (per-system parquet + combined).
         phase_element: Non-metal sublattice element (e.g. ``"B"``).
         phase_stoich: Stoichiometry per formula unit (e.g. ``2.0`` for AlB₂-type).
-        competitors_subdir: Subpath within each system dir holding competing-phase xlsx
-            files. If None or the directory is absent, no extra competitors are loaded.
+        competitors_subdir: Subpath (or list of subpaths) within each system dir
+            holding competing phases — structure subdirs with ``CONTCAR`` + ``energy``
+            (e.g. ``"ORB"``) and/or xlsx tables (e.g. ``"parent_excel/MP_ORB"``).
+            Merged with the lowest energy per formula kept. Missing dirs are skipped;
+            None loads no competitors.
         exclude_oxides: Drop O-bearing competitors (default True).
         mu_o_values: Oxygen chemical potentials (eV per O atom) — required when
             ``exclude_oxides`` is False, ignored otherwise.
@@ -110,7 +113,7 @@ class BladeStability:
         output_dir: str | Path,
         phase_element: str = "B",
         phase_stoich: float = 2.0,
-        competitors_subdir: str | None = None,
+        competitors_subdir: str | list[str] | None = None,
         exclude_oxides: bool = True,
         mu_o_values: list[float] | None = None,
         allowed_elements: set[str] | None = None,
@@ -130,7 +133,9 @@ class BladeStability:
         self._output_dir = Path(output_dir)
         self.phase_element = phase_element
         self.phase_stoich = phase_stoich
-        self._competitors_subdir = competitors_subdir
+        if isinstance(competitors_subdir, str):
+            competitors_subdir = [competitors_subdir] if competitors_subdir else None
+        self._competitors_subdir = tuple(competitors_subdir) if competitors_subdir else None
         self._exclude_oxides = bool(exclude_oxides)
         if self._exclude_oxides:
             self._mu_o_values: tuple[float, ...] = ()
@@ -471,6 +476,8 @@ def _stability_worker(
         thresholds,
     ) = args
 
+    if isinstance(competitors_subdir, str):  # a bare string is one subdir, not characters
+        competitors_subdir = (competitors_subdir,) if competitors_subdir else None
     system_tag = system_dir.name
     out_path = output_dir / f"{system_tag}_stability.parquet"
     settings_sig = _settings_signature(
@@ -487,11 +494,9 @@ def _stability_worker(
         except Exception:
             pass
 
-    competitors_dir: Path | None = None
+    competitors_dir: list[Path] | None = None
     if competitors_subdir:
-        _candidate = system_dir / competitors_subdir
-        if _candidate.is_dir():
-            competitors_dir = _candidate
+        competitors_dir = [system_dir / sub for sub in competitors_subdir if (system_dir / sub).is_dir()] or None
 
     try:
         metals = detect_metals(blade_dir, phase_element)
@@ -571,7 +576,7 @@ def write_pareto_database(frame: pd.DataFrame, db_dir: Path) -> tuple[Path, Path
 
 
 def _settings_signature(
-    competitors_subdir: str | None,
+    competitors_subdir: tuple[str, ...] | None,
     exclude_oxides: bool,
     mu_o_values: tuple[float, ...],
     phase_element: str,
@@ -583,7 +588,7 @@ def _settings_signature(
     """Stable string identifying every setting that changes a system's results."""
     t = np.asarray(t_values, dtype=float)
     return (
-        f"v3|comp={competitors_subdir}|ox={'excl' if exclude_oxides else 'incl'}"
+        f"v4|comp={','.join(competitors_subdir or ())}|ox={'excl' if exclude_oxides else 'incl'}"
         f"|mu={','.join(f'{m:.6g}' for m in mu_o_values)}|el={phase_element}|st={phase_stoich:.6g}"
         f"|T={t.min():.6g}:{t.max():.6g}:{len(t)}|dy={composition_step:.6g}|rk={rk_order}"
     )

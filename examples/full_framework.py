@@ -947,13 +947,18 @@ class FullFrameworkPipeline:
         out_dir = self.files_dir / cfg.get("output_folder", "Stability")
         # Auto-derive competitors subdir from database MLIP label (same logic as _build_parent_excel)
         # Override via [stability].competitors_subdir; set to "" to disable.
+        # Default: the relaxed MP chemical system used by the oxidation stage (structure
+        # dirs, includes ternary borides) plus the parent_excel xlsx tables.
         if "competitors_subdir" in cfg:
             competitors_subdir = cfg["competitors_subdir"] or None
         else:
             db_cfg = self.settings.get("database", {})
             _mlip_upper = db_cfg.get("mlip", "orb").upper()
             _mlip_label = db_cfg.get("mlip_label", f"MP+{_mlip_upper}")
-            competitors_subdir = "parent_excel/" + _mlip_label.replace("+", "_")
+            competitors_subdir = [
+                self.settings.get("oxidation", {}).get("fixed_phases_subdir", "ORB"),
+                "parent_excel/" + _mlip_label.replace("+", "_"),
+            ]
         # Element filter: only applied when [stability] explicitly sets allowed_elements.
         # Does NOT inherit [elements] — stability runs all systems in system_structures_root
         # unless the caller explicitly restricts it.

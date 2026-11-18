@@ -24,7 +24,7 @@ def build_phase_data(
     phase_stoich: float,
     rk_order: int = 3,
     y_step: float = 0.02,
-    competitors_dir: Path | None = None,
+    competitors_dir: Path | list[Path] | None = None,
     exclude_oxides: bool = True,
 ) -> dict:
     r"""Build the full phase data dictionary for stability LP from a BLADE lattice dir.
@@ -59,7 +59,10 @@ def build_phase_data(
         y_step: Composition simplex grid spacing for the continuous SS phase
             (default 0.02). Coarser grids run faster; finer grids improve dG_hull
             resolution near tie-line vertices.
-        competitors_dir: Optional path to a directory holding competing-phase xlsx files.
+        competitors_dir: Optional directory (or list of directories) of competing
+            phases: xlsx tables and/or structure subdirectories holding ``CONTCAR`` +
+            ``energy`` (e.g. ``ORB/``, the relaxed Materials Project chemical system,
+            which includes ternary borides). See :func:`load_competitor_rows`.
         exclude_oxides: Skip O-bearing competitor rows (default True).
 
     Returns:
@@ -92,7 +95,8 @@ def build_phase_data(
     n_sqs = len(fixed_rows)  # AlB₂-type SQS structures come first, competitors after
     n_competitors = 0
     if competitors_dir is not None:
-        competitors = _load_xlsx_fixed_rows(competitors_dir, metals, phase_element, exclude_oxides=exclude_oxides)
+        dirs = competitors_dir if isinstance(competitors_dir, list) else [competitors_dir]
+        competitors = load_competitor_rows(dirs, metals, phase_element, exclude_oxides=exclude_oxides)
         n_competitors = len(competitors)
         fixed_rows.extend(competitors)
     n_fixed = len(fixed_rows)
@@ -432,6 +436,103 @@ def _build_fixed_rows(
                 "phase_el": float(reduced[phase_element]),
                 "O": float(reduced.get("O", 0)),
                 "energy_eV_per_atom": e_total / n_atoms,
+            }
+        )
+    return fixed
+
+
+def load_competitor_rows(
+    competitor_dirs: list[Path],
+    metals: list[str],
+    phase_element: str,
+    exclude_oxides: bool = True,
+) -> list[dict]:
+    """Load competing phases from xlsx tables and structure directories, deduplicated.
+
+    Every directory may hold ``*.xlsx`` tables (see :func:`_load_xlsx_fixed_rows`)
+    and/or structure subdirectories (see :func:`_load_structure_fixed_rows`). Rows are
+    merged across all sources and only the lowest-energy entry per reduced formula is
+    kept, so a polymorph present in both sources is counted once.
+
+    Args:
+        competitor_dirs: Directories to read; missing ones are ignored.
+        metals: Ordered metal element symbols.
+        phase_element: Non-metal sublattice element (e.g. ``"B"``).
+        exclude_oxides: Drop every O-bearing phase when True.
+
+    Returns:
+        Fixed-phase rows compatible with :func:`_build_fixed_rows` output.
+    """
+    from pymatgen.core import Composition
+
+    best: dict[str, dict] = {}
+    for d in competitor_dirs:
+        if not d.is_dir():
+            continue
+        rows = _load_xlsx_fixed_rows(d, metals, phase_element, exclude_oxides=exclude_oxides)
+        rows += _load_structure_fixed_rows(d, metals, phase_element, exclude_oxides=exclude_oxides)
+        for r in rows:
+            amounts = {m: c for m, c in zip(metals, r["metals"], strict=True) if c > 0}
+            if r["phase_el"] > 0:
+                amounts[phase_element] = r["phase_el"]
+            if r["O"] > 0:
+                amounts["O"] = r["O"]
+            key = Composition(amounts).reduced_formula
+            if key not in best or r["energy_eV_per_atom"] < best[key]["energy_eV_per_atom"]:
+                best[key] = r
+    return list(best.values())
+
+
+def _load_structure_fixed_rows(
+    structures_dir: Path,
+    metals: list[str],
+    phase_element: str,
+    exclude_oxides: bool = True,
+) -> list[dict]:
+    """Load competing phases from structure subdirectories (``CONTCAR`` + ``energy``).
+
+    Each subdirectory of ``structures_dir`` holding both files is one phase; the
+    ``energy`` file is the total energy (eV) of the CONTCAR cell. Same filters as
+    :func:`_load_xlsx_fixed_rows`: skip phases with elements outside the system,
+    O-bearing phases when ``exclude_oxides``, and pure O₂.
+
+    Args:
+        structures_dir: Directory such as ``<system>/ORB``.
+        metals: Ordered metal element symbols.
+        phase_element: Non-metal sublattice element.
+        exclude_oxides: Drop every O-bearing phase when True.
+
+    Returns:
+        Fixed-phase rows compatible with :func:`_build_fixed_rows` output.
+    """
+    allowed = set(metals) | {phase_element}
+    if not exclude_oxides:
+        allowed.add("O")
+    fixed: list[dict] = []
+    for d in sorted(structures_dir.iterdir()):
+        cp, ep = d / "CONTCAR", d / "energy"
+        if not d.is_dir() or not cp.exists() or not ep.exists():
+            continue
+        lines = cp.read_text().splitlines()
+        if len(lines) < 7:
+            continue
+        try:
+            counts: dict[str, int] = {}
+            for sym, c in zip(lines[5].split(), map(int, lines[6].split()), strict=True):
+                counts[sym] = counts.get(sym, 0) + c
+            e_total = _read_scalar(ep)
+        except ValueError:
+            continue
+        if not counts or not set(counts) <= allowed or set(counts) == {"O"}:
+            continue
+        reduced = _reduce_counts(counts)
+        fixed.append(
+            {
+                "phase_id": f"{structures_dir.name}_{d.name}",
+                "metals": np.array([float(reduced.get(m, 0)) for m in metals]),
+                "phase_el": float(reduced.get(phase_element, 0)),
+                "O": float(reduced.get("O", 0)),
+                "energy_eV_per_atom": e_total / sum(counts.values()),
             }
         )
     return fixed

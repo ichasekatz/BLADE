@@ -199,9 +199,11 @@ phase_element               = "B"
 phase_element_stoichiometry = 2.0
 # system_structures_root defaults to <blade_root>/system_structures
 # system_structures_root      = "/path/to/system_structures"
-# competitors_subdir auto-derives from [database].mlip (→ "parent_excel/MP_ORB").
-# Set to "" to disable competing phases (SS vs. its own SQS points only).
-# competitors_subdir          = "parent_excel/MP_ORB"
+# competitors_subdir: competing phases per system — structure dirs (CONTCAR + energy)
+# and/or xlsx tables, merged (lowest energy per formula). Default:
+# [<[oxidation].fixed_phases_subdir, e.g. "ORB">, "parent_excel/MP_<MLIP>"]. ORB holds
+# the full relaxed MP chemical system incl. ternary borides. "" disables competitors.
+# competitors_subdir          = ["ORB", "parent_excel/MP_ORB"]
 # Oxides: true → pure solid-state, no O-bearing competitors.
 #         false → oxide competitors included, system open to O at each mu_o_values
 #                 (absolute eV per O atom, same scale as [oxidation_batch].mu_o_range;

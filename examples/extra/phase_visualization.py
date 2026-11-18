@@ -83,6 +83,12 @@ metal_fraction = 1 / 3
 
 # Composition grid density — more points = sharper boundaries but slower
 n_grid = 40
+# Grid divisions for systems with >= 5 metals. The full-dimensional hull costs ~70 s per
+# temperature at n_grid = 40 for 5 metals (135,751 points); 20 gives 10,626 points, <1 s.
+n_grid_high_order = 20
+# For >= 5 metals no 2-D point is a single composition; points are binned on this grid
+# (polygon radius = 1) and each bin is shaded by its two-phase fraction.
+projection_bin_size = 0.05
 
 # Minimum G above convex hull (J/mol) to classify as two-phase
 two_phase_threshold = 5.0
@@ -478,6 +484,76 @@ def find_two_phase_mask(x_cart, y_cart, g_mix, threshold) -> np.ndarray:
     return gap > threshold
 
 
+def grid_divisions(n_metals: int) -> int:
+    """Composition-grid divisions to use for an ``n_metals`` system."""
+    return n_grid_high_order if n_metals >= 5 else n_grid
+
+
+def unique_projection(x_cart, y_cart, bin_size: float | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Collapse projected points that coincide in 2-D (or fall in the same bin).
+
+    For 4+ metals the polygon projection is many-to-one (e.g. 12,341 quaternary
+    compositions land on 1,681 distinct 2-D points), so plotting per-composition
+    values on a 2-D triangulation mixes unrelated compositions. For 5+ metals
+    unrelated compositions land *near* each other rather than exactly on top, so
+    ``bin_size`` snaps them to a regular grid of bins (centroid of members is used).
+
+    Returns:
+        (x_unique, y_unique, inverse) where ``inverse[i]`` is the unique-point index of
+        composition ``i``.
+    """
+    xy = np.column_stack([x_cart, y_cart])
+    key = np.round(xy / bin_size) if bin_size else np.round(xy, 9)
+    _, inverse = np.unique(key, axis=0, return_inverse=True)
+    inverse = inverse.ravel()
+    n = inverse.max() + 1
+    counts = np.bincount(inverse, minlength=n)
+    cx = np.bincount(inverse, weights=xy[:, 0], minlength=n) / counts
+    cy = np.bincount(inverse, weights=xy[:, 1], minlength=n) / counts
+    return cx, cy, inverse
+
+
+def two_phase_mask_nd(grid: np.ndarray, g_mix: np.ndarray, threshold: float) -> np.ndarray:
+    """Two-phase test against the lower convex hull in the full composition space.
+
+    The hull is built over the (n_metals − 1) independent composition coordinates plus
+    G_mix, so only genuinely neighbouring compositions are compared. (Building it on the
+    2-D projection, as :func:`find_two_phase_mask` does, is only valid for ≤ 3 metals.)
+
+    Args:
+        grid: Compositions, shape (n_pts, n_metals).
+        g_mix: Mixing Gibbs energy per composition (J/mol), shape (n_pts,).
+        threshold: Height above the hull (J/mol) counted as two-phase.
+
+    Returns:
+        Boolean array, True where the composition lies above the hull by > threshold.
+    """
+    ok = np.isfinite(g_mix)
+    out = np.zeros(len(g_mix), dtype=bool)
+    if ok.sum() <= grid.shape[1] + 1:
+        return out
+    X = (grid / grid.sum(axis=1, keepdims=True))[ok][:, :-1]
+    g = g_mix[ok]
+    try:
+        hull = ConvexHull(np.column_stack([X, g]))
+    except Exception:
+        return out
+    lower = hull.equations[hull.equations[:, -2] < -1e-6]  # facets facing down in G
+    height = np.full(len(g), -np.inf)
+    for chunk in np.array_split(lower, max(1, len(lower) // 2000)):
+        planes = -(X @ chunk[:, :-2].T + chunk[:, -1]) / chunk[:, -2]
+        height = np.maximum(height, planes.max(axis=1))
+    out[ok] = (g - height) > threshold
+    return out
+
+
+def two_phase_fraction(grid, g_mix, inverse, n_unique: int, threshold: float) -> np.ndarray:
+    """Fraction of the compositions projected onto each unique 2-D point that are two-phase."""
+    mask = two_phase_mask_nd(grid, g_mix, threshold)
+    counts = np.bincount(inverse, minlength=n_unique)
+    return np.bincount(inverse, weights=mask.astype(float), minlength=n_unique) / np.maximum(counts, 1)
+
+
 def _mask_outside_simplex(triang, x_cart, y_cart, x_total: float, n_metals: int):
     """Mask Delaunay triangles whose centroid lies outside the simplex polygon.
 
@@ -511,12 +587,17 @@ def _clip_to_simplex(ax, n_metals: int) -> None:
         line.set_clip_path(clip_patch)
 
 
-def _plot_single_phase(ax, triang, g_mix, x_cart, y_cart, metals, T, color=None):
-    """Plot one temperature's two-phase shading onto ax. Returns True if two-phase found."""
-    two_phase = find_two_phase_mask(x_cart, y_cart, g_mix, two_phase_threshold)
+def _plot_single_phase(ax, triang, g_mix, grid, inverse, metals, T, color=None):
+    """Plot one temperature's two-phase shading onto ax. Returns True if two-phase found.
+
+    Shades 2-D points where at least half of the compositions projected there are
+    two-phase (for ≤ 3 metals each point is exactly one composition).
+    """
+    frac = two_phase_fraction(grid, g_mix, inverse, len(triang.x), two_phase_threshold)
+    two_phase = frac >= 0.5
     c = color or "steelblue"
     if two_phase.any():
-        shade_vals = two_phase.astype(float)
+        shade_vals = frac
         ax.tricontourf(triang, shade_vals, levels=[0.5, 1.5], colors=[c], alpha=0.35)
         ax.tricontour(triang, shade_vals, levels=[0.5], colors=[c], linewidths=1.2, alpha=0.9)
         _clip_to_simplex(ax, len(metals))
@@ -536,13 +617,14 @@ def plot_phase_overlay(
     cmap = cm.plasma
     norm = plt.Normalize(vmin=t_start, vmax=t_end)
 
-    phase_grid = simplex_grid(len(metals), n_grid, metal_fraction)
+    phase_grid = simplex_grid(len(metals), grid_divisions(len(metals)), metal_fraction)
     x_cart, y_cart = compositions_to_xy(phase_grid, metal_fraction)
     x_fixed_val = 1.0 - metal_fraction
-    triang = tri.Triangulation(x_cart, y_cart)
+    ux, uy, inverse = unique_projection(x_cart, y_cart, projection_bin_size if len(metals) >= 5 else None)
+    triang = tri.Triangulation(ux, uy)
     # Mask spurious Delaunay triangles that fall outside the simplex.
     # These form at boundary edges and create artifacts in the phase map.
-    triang = _mask_outside_simplex(triang, x_cart, y_cart, metal_fraction, len(metals))
+    triang = _mask_outside_simplex(triang, ux, uy, metal_fraction, len(metals))
     label_str = "-".join(m.title() for m in metals)
     data_dir = data_dir or output_path.parent / "gmix_data"
     gmix_by_t = load_or_compute_gmix(
@@ -568,7 +650,7 @@ def plot_phase_overlay(
                 continue
 
             plotted_any = True
-            found = _plot_single_phase(ax_ov, triang, g_mix, x_cart, y_cart, metals, T, color)
+            found = _plot_single_phase(ax_ov, triang, g_mix, phase_grid, inverse, metals, T, color)
             if found:
                 any_two_phase = True
                 print(f"    {int(T)} K: two-phase ({(g_mix > 0).sum()} pts above hull)")
@@ -579,7 +661,7 @@ def plot_phase_overlay(
             if per_t_dir is not None:
                 fig_t, ax_t = plt.subplots(figsize=(7, 6))
                 draw_polygon_frame(ax_t, [m.title() for m in metals])
-                _plot_single_phase(ax_t, triang, g_mix, x_cart, y_cart, metals, T, color=color)
+                _plot_single_phase(ax_t, triang, g_mix, phase_grid, inverse, metals, T, color=color)
                 note = "two-phase (shaded)" if found else "single phase"
                 ax_t.set_title(f"{label_str}  {int(T)} K  —  {note}", fontsize=11, fontweight="bold")
                 fig_t.tight_layout()
@@ -623,10 +705,11 @@ def make_phase_gif(tdb, metals, phases, gif_path: Path, data_dir: Path | None = 
     x_fixed_val = 1.0 - metal_fraction
     label_str = "-".join(m.title() for m in metals)
 
-    phase_grid = simplex_grid(len(metals), n_grid, metal_fraction)
+    phase_grid = simplex_grid(len(metals), grid_divisions(len(metals)), metal_fraction)
     x_cart, y_cart = compositions_to_xy(phase_grid, metal_fraction)
-    triang = tri.Triangulation(x_cart, y_cart)
-    triang = _mask_outside_simplex(triang, x_cart, y_cart, metal_fraction, len(metals))
+    ux, uy, inverse = unique_projection(x_cart, y_cart, projection_bin_size if len(metals) >= 5 else None)
+    triang = tri.Triangulation(ux, uy)
+    triang = _mask_outside_simplex(triang, ux, uy, metal_fraction, len(metals))
 
     frames = []
     clean_frames = []
@@ -666,14 +749,14 @@ def make_phase_gif(tdb, metals, phases, gif_path: Path, data_dir: Path | None = 
             clean_frames.append(clean_path)
             continue
 
-        two_phase = find_two_phase_mask(x_cart, y_cart, g_mix, two_phase_threshold)
+        shade_vals = two_phase_fraction(phase_grid, g_mix, inverse, len(ux), two_phase_threshold)
+        two_phase = shade_vals >= 0.5
 
         # Labeled frame (with title + colorbar)
         fig, axes = plt.subplots(1, 2, figsize=(7, 5.5), gridspec_kw={"width_ratios": [6, 0.4]})
         ax, cax = axes
         draw_polygon_frame(ax, [m.title() for m in metals])
         if two_phase.any():
-            shade_vals = two_phase.astype(float)
             ax.tricontourf(triang, shade_vals, levels=[0.5, 1.5], colors=[color], alpha=0.45)
             ax.tricontour(triang, shade_vals, levels=[0.5], colors=["black"], linewidths=1.5)
             _clip_to_simplex(ax, len(metals))
