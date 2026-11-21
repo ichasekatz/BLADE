@@ -86,6 +86,15 @@ class OxideCompositions:
         Include compositions containing oxygen but no fixed structural species.
     include_fixed:
         Include compositions containing the fixed structural element(s) but not O.
+    include_single_metal_fixed:
+        Also enumerate every single primary element combined with each fixed element
+        (e.g. ``Nb-B``, ``Ta-B``, ``Zr-B``) and, when ``include_fixed_oxygen`` is set,
+        with fixed element + oxygen. ``primary_min`` normally starts at 2, so these
+        single-metal systems would otherwise never be queried, and Materials Project
+        ``chemsys`` searches return only exact-match systems (a ``B-Nb-Zr`` search
+        does not return NbB or Nb3B4). Without them the binary metal-rich and
+        boron-rich compounds (NbB, Nb3B4, TaB, Ta3B4, ZrB12, YB4, ...) are missing
+        from every competitor set. Defaults to True.
     fixed_elements:
         Elements treated as fixed structural species. The empty default makes
         no assumption about chemistry or crystal prototype.
@@ -106,6 +115,7 @@ class OxideCompositions:
         include_fixed: bool = False,
         fixed_elements: frozenset[str] = frozenset(),
         oxygen_element: str = "O",
+        include_single_metal_fixed: bool = True,
     ) -> None:
         self.files_dir = files_dir
         self.primary_elements = primary_elements
@@ -120,6 +130,7 @@ class OxideCompositions:
         self.include_fixed = include_fixed
         self.fixed_elements = fixed_elements
         self.oxygen_element = oxygen_element
+        self.include_single_metal_fixed = include_single_metal_fixed
 
     # ------------------------------------------------------------------
     # Public interface
@@ -206,6 +217,19 @@ class OxideCompositions:
         if [self.oxygen_element] not in composition_list:
             composition_list.append([self.oxygen_element])
 
+        # Single primary element + fixed element(s) (e.g. Nb-B, Ta-B, Zr-B). primary_min usually starts at 2
+        # and MP chemsys searches are exact-match, so these binary compounds (NbB, Nb3B4, TaB, ZrB12, ...)
+        # would otherwise never be downloaded as competing phases.
+        if self.include_single_metal_fixed and self.fixed_elements:
+            for el in self.primary_elements:
+                for fe in sorted(self.fixed_elements):
+                    pair = sorted([el, fe])
+                    if pair not in composition_list:
+                        composition_list.append(pair)
+                    if self.include_fixed_oxygen:
+                        triple = sorted([el, fe, self.oxygen_element])
+                        if triple not in composition_list:
+                            composition_list.append(triple)
         # Pure fixed+oxygen compositions (e.g. B-O → B₂O₃) — needed as
         # competing phases in oxidation stability calculations.
         if self.include_fixed_oxygen:

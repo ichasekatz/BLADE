@@ -32,6 +32,7 @@ class PipelineConfig:
     primary_max: int = 3
     secondary_min: int = 0
     secondary_max: int = 0
+    include_single_metal_fixed: bool = True  # also query M-B (e.g. Nb-B) so binary borides become competitors
 
     stable_only: bool = True
     skip_blade_formulas: bool = True
@@ -104,6 +105,7 @@ class OxidationPipeline:
             include_added_oxygen=True,
             include_fixed=True,
             fixed_elements=cfg.fixed_elements,
+            include_single_metal_fixed=cfg.include_single_metal_fixed,
         ).run()
 
     def _blade_formulas(self) -> set[str]:
