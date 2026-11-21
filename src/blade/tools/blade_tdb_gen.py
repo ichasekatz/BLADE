@@ -619,14 +619,17 @@ class BladeTDBGen:
         import re as _re
 
         _relax_files = ("energy", "str_relax.out", "CONTCAR", "force.out", "stress.out")
-        _frac_pat = _re.compile(r"a_([A-Z][a-z]?)=([\d.]+)")
+        # Key on sublattice letter + element so multi-sublattice phases (e.g. MAX:
+        # a = M site, b = A site) only reuse a structure with the same occupation
+        # on every sublattice, not just on sublattice a.
+        _frac_pat = _re.compile(r"([a-z])_([A-Z][a-z]?)=([\d.]+)")
 
         seeded = 0
         for subdir in sorted(lattice_path.glob("sqs_lev=*")):
             if not subdir.is_dir() or (subdir / "energy").exists():
                 continue
 
-            all_fracs = {m.group(1): float(m.group(2)) for m in _frac_pat.finditer(subdir.name)}
+            all_fracs = {f"{m.group(1)}_{m.group(2)}": float(m.group(3)) for m in _frac_pat.finditer(subdir.name)}
             nonzero = {el: frac for el, frac in all_fracs.items() if frac > 1e-9}
             n_nonzero = len(nonzero)
 
@@ -644,7 +647,7 @@ class BladeTDBGen:
                 for candidate in staging.glob("sqs_lev=*"):
                     if not candidate.is_dir() or not (candidate / "energy").exists():
                         continue
-                    cand_fracs = {m.group(1): float(m.group(2)) for m in _frac_pat.finditer(candidate.name)}
+                    cand_fracs = {f"{m.group(1)}_{m.group(2)}": float(m.group(3)) for m in _frac_pat.finditer(candidate.name)}
                     cand_nonzero = {el: frac for el, frac in cand_fracs.items() if frac > 1e-9}
                     if set(cand_nonzero) != set(nonzero):
                         continue
@@ -777,14 +780,21 @@ class BladeTDBGen:
 
                 sqs.dir_filter = _dir_filter
 
-        smap_els = [
-            el
-            for phase_map in (self.sublattice_map or {}).values()
-            for letter, elems in phase_map.items()
-            if letter != "Constant" and isinstance(elems, list)
-            for el in elems
-            if el not in comp
-        ]
+        # With a Constant (fixed-composition) sublattice, the map's elements are part
+        # of every system and must be added. Otherwise the map is a per-sublattice
+        # pool (e.g. a = all M, b = all A) that MaterialsFramework intersects with
+        # this system's species, so only the system's own elements are fitted.
+        if use_filter:
+            smap_els = [
+                el
+                for phase_map in (self.sublattice_map or {}).values()
+                for letter, elems in phase_map.items()
+                if letter != "Constant" and isinstance(elems, list)
+                for el in elems
+                if el not in comp
+            ]
+        else:
+            smap_els = []
         full_species = list(comp) + list(dict.fromkeys(smap_els))
 
         terms_for_fit = self._resolve_phase_inputs(self.terms_in, phase_list)

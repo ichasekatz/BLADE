@@ -40,6 +40,7 @@ skip_existing_sqs = False
 run_tdb = True
 skip_existing_tdb = False
 refit_existing_tdb = False
+reuse_suborder_relaxations = False
 skip_existing_plots = False
 generate_gibbs_energy = True
 generate_gibbs_mixing = True
@@ -169,26 +170,26 @@ sqsgen_levels = [
 # m_scraps parameters
 # ------------------------------------------------------------------
 mscraps_ranks = 10
-auto_budget = 3        # 1=basic, 2=thorough, 3=exhaustive
-max_shellnum = 4
-fix_multibasis_sublattice = True
-mc_kernel = "sa"       # "sa" (simulated annealing) or "pt" (parallel tempering)
+mscraps_auto_budget = 3        # 1=basic, 2=thorough, 3=exhaustive
+mscraps_max_shellnum = 4
+mscraps_fix_multibasis_sublattice = True
+mscraps_mc_kernel = "sa"       # "sa" (simulated annealing) or "pt" (parallel tempering)
 
 # SRO targets: list of (species_i, species_j, shell, alpha) — None disables.
-# Example: sro_targets = [(0, 1, 1, -0.5)]  # 50/50 species pair, 1st shell, SRO=-0.5
-sro_targets: list[tuple[int, int, int, float]] | None = None
+# Example: mscraps_sro_targets = [(0, 1, 1, -0.5)]  # 50/50 species pair, 1st shell, SRO=-0.5
+mscraps_sro_targets: list[tuple[int, int, int, float]] | None = None
 
 # Figure cutoffs: list of cutoff distances in Å for higher-order correlations.
-figure_cutoffs: list[float] | None = None
+mscraps_figure_cutoffs: list[float] | None = None
 
 # Figure species: species indices included in figure targets; None = all.
-figure_species: list[int] | None = None
+mscraps_figure_species: list[int] | None = None
 
-figure_objective = "minimize"  # "minimize" or "match"
-figure_wd = 1.0
-figure_wn = 0.75
-figure_wr = 1.0
-figure_tol = 1e-4
+mscraps_figure_objective = "minimize"  # "minimize" or "match"
+mscraps_figure_wd = 1.0
+mscraps_figure_wn = 0.75
+mscraps_figure_wr = 1.0
+mscraps_figure_tol = 1e-4
 
 # ------------------------------------------------------------------
 # 1. Generate compositions
@@ -226,18 +227,18 @@ if run_sqs:
                 fixed_compositions=fixed_compositions,
                 scraps_bin=MSCRAPS_BIN,
                 ranks=mscraps_ranks,
-                auto_budget=auto_budget,
-                max_shellnum=max_shellnum,
-                fix_multibasis_sublattice=fix_multibasis_sublattice,
-                sro_targets=sro_targets,
-                figure_cutoffs=figure_cutoffs,
-                figure_species=figure_species,
-                figure_objective=figure_objective,
-                figure_wd=figure_wd,
-                figure_wn=figure_wn,
-                figure_wr=figure_wr,
-                figure_tol=figure_tol,
-                mc_kernel=mc_kernel,
+                auto_budget=mscraps_auto_budget,
+                max_shellnum=mscraps_max_shellnum,
+                fix_multibasis_sublattice=mscraps_fix_multibasis_sublattice,
+                sro_targets=mscraps_sro_targets,
+                figure_cutoffs=mscraps_figure_cutoffs,
+                figure_species=mscraps_figure_species,
+                figure_objective=mscraps_figure_objective,
+                figure_wd=mscraps_figure_wd,
+                figure_wn=mscraps_figure_wn,
+                figure_wr=mscraps_figure_wr,
+                figure_tol=mscraps_figure_tol,
+                mc_kernel=mscraps_mc_kernel,
             )
             params = {"super_cell_size": specific_phase["supercell_size"]}
             sqs_gen.sqs_gen(phase=specific_phase, paths=paths, params=params)
@@ -263,6 +264,7 @@ if run_tdb:
         sublattice_map=sublattice_map,
         tdb_params=tdb_params,
         fixed_compositions=fixed_compositions,
+        reuse_suborder_relaxations=reuse_suborder_relaxations,
     )
     gen.fit()
 
