@@ -169,14 +169,29 @@ def detect_metals(lattice_dir: Path, phase_element: str = "B") -> list[str]:
     Returns:
         Ordered list of metal element symbols (by first appearance).
     """
-    pat = re.compile(r"a_([A-Z][a-z]?)=")
+    # Match any sublattice letter (a, b, c, …) so multi-sublattice phases like MAX
+    # (a = M site, b = A site, c = C fixed) are handled correctly.
+    _fixed = {phase_element} if phase_element else set()
     seen: list[str] = []
+    subl_letters: set[str] = set()
     for d in sorted(lattice_dir.iterdir()):
         if not d.is_dir() or not d.name.startswith("sqs_lev="):
             continue
-        for sym in pat.findall(d.name):
+        for letter, sym in re.findall(r"([a-z])_([A-Z][a-z]?)=", d.name):
+            if sym in _fixed:
+                continue
             if sym not in seen:
                 seen.append(sym)
+            subl_letters.add(letter)
+    if len(subl_letters) > 1:
+        import warnings
+
+        warnings.warn(
+            f"detect_metals: {lattice_dir.name} has variable elements on sublattices "
+            f"{sorted(subl_letters)}. BladeStability treats all as one metal pool — "
+            "per-sublattice stoichiometry is not enforced; results are approximate.",
+            stacklevel=2,
+        )
     if seen:
         return seen
     # Fallback: scan CONTCAR element lines for directories without sqs_lev= naming

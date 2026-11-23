@@ -321,16 +321,15 @@ def phase_site_fraction_points(tdb, all_comps, phase, metals, metal_x) -> np.nda
     metal_x = np.atleast_2d(np.asarray(metal_x, dtype=float))
     y_metal = metal_x / metal_x.sum(axis=1, keepdims=True)
     metal_idx = {m.upper(): i for i, m in enumerate(metals)}
-    metal_subl = {sv.sublattice_index for sv in mod.site_fractions if sv.species.name.upper() in metal_idx}
-    if len(metal_subl) != 1:
-        raise ValueError(f"{phase}: metals must occupy exactly one sublattice, found {sorted(metal_subl)}")
-    (msub,) = metal_subl
-
+    # For multi-sublattice phases (e.g. MAX: M on sublattice 0, A on sublattice 1),
+    # metals should contain only the elements being varied on the primary axis.
+    # Species not in metal_idx (including fixed-sublattice elements and A-site fills)
+    # receive equal fill = 1 / n_occupants on their sublattice.
     cols = []
     for sv in mod.site_fractions:
         name = sv.species.name.upper()
-        if sv.sublattice_index == msub:
-            cols.append(y_metal[:, metal_idx[name]] if name in metal_idx else np.zeros(len(y_metal)))
+        if name in metal_idx:
+            cols.append(y_metal[:, metal_idx[name]])
         else:
             occupants = [o for o in mod.site_fractions if o.sublattice_index == sv.sublattice_index and o.species.name.upper() != "VA"]
             fill = 0.0 if name == "VA" else 1.0 / len(occupants)
@@ -1033,6 +1032,31 @@ def run_phase_plotting() -> None:
         metals = get_variable_elements(tdb, fixed_elements)
         phases = list(tdb.phases.keys())
         print(f"  Elements: {metals}  |  Phases: {phases}")
+
+        # For multi-sublattice phases (e.g. MAX: M on sublattice 0, A on sublattice 1),
+        # restrict the composition axis to the sublattice with the most variable elements.
+        # Elements on the other sublattice receive equal fill in phase_site_fraction_points.
+        # Scan each phase independently so LIQUID (all metals on one sublattice) doesn't
+        # merge its index-0 with MAX's index-0 and collapse the per-phase structure.
+        _metals_upper = {m.upper() for m in metals}
+        _best_subl_metals: dict[int, list[str]] = {}
+        for _pname in phases:
+            if _pname not in tdb.phases:
+                continue
+            _phase_subl: dict[int, list[str]] = {}
+            for _si, _subl in enumerate(tdb.phases[_pname].constituents):
+                for _sp in _subl:
+                    if _sp.name in _metals_upper:
+                        _phase_subl.setdefault(_si, [])
+                        if _sp.name not in _phase_subl[_si]:
+                            _phase_subl[_si].append(_sp.name)
+            if len(_phase_subl) > len(_best_subl_metals):
+                _best_subl_metals = _phase_subl
+        if len(_best_subl_metals) > 1:
+            _primary_si = max(_best_subl_metals, key=lambda k: len(_best_subl_metals[k]))
+            metals = _best_subl_metals[_primary_si]
+            _a_els = sorted(m for si, ml in _best_subl_metals.items() if si != _primary_si for m in ml)
+            print(f"  Multi-sublattice: plotting M-site axis {metals}; A-site {_a_els} held at equal fill")
 
         comp_out = output_dir / comp_name
         comp_out.mkdir(parents=True, exist_ok=True)

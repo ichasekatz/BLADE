@@ -15,6 +15,17 @@ primary_max   = 3
 secondary_min = 1
 secondary_max = 3
 
+# ── Stages ─────────────────────────────────────────────────────────────────────
+# phase_diagrams: M-sublattice detection added; A-site elements held at equal fill.
+# oxidation_graphs: guard raises NotImplementedError for multi-sublattice phases;
+#   disabled until two-sublattice oxidation support is implemented.
+# stability: detect_metals now catches all sublattice elements (approximate LP —
+#   M and A treated as one pool); re-enable once per-sublattice stoichiometry added.
+[stages]
+phase_diagrams   = true
+oxidation_graphs = false
+stability        = false
+
 # ── TDB ────────────────────────────────────────────────────────────────────────
 [tdb]
 level        = 2

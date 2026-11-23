@@ -216,6 +216,22 @@ def prepare_tables(data_root: Path, cfg: SystemConfig, rk_order: int = 3) -> Non
 
     cfg.tables.mkdir(parents=True, exist_ok=True)
 
+    # ---- Guard: multi-sublattice phases not supported by this oxidation model --
+    _multisubl_pat = re.compile(r"[b-z]_([A-Z][a-z]?)=")
+    _fixed_els = {phase_element} if phase_element else set()
+    for _d in blade_dir.iterdir():
+        if not _d.is_dir():
+            continue
+        _extra = {sym for sym in _multisubl_pat.findall(_d.name) if sym not in _fixed_els}
+        if _extra:
+            raise NotImplementedError(
+                f"prepare_tables: phase has elements on non-'a' sublattices ({sorted(_extra)} "
+                f"in '{_d.name}'). The oxidation framework models a single metal sublattice "
+                "and cannot represent multi-sublattice phases like MAX. Disable "
+                "[stages] oxidation_graphs and oxide_database in max_phases.toml until "
+                "two-sublattice support is implemented."
+            )
+
     # ---- Parse SQS structures -------------------------------------------
     # Each structure: {y_metals: array(n_metals), energy, total_atoms, formula_units}
     all_rows = []
