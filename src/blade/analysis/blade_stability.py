@@ -129,6 +129,7 @@ class BladeStability:
         t_max: float = 2000.0,
         t_step: float = 100.0,
         composition_step: float = 0.02,
+        composition_step_2subl: float | None = None,
         skip_existing: bool = True,
         rk_order: int = 3,
         n_workers: int | None = None,
@@ -160,6 +161,7 @@ class BladeStability:
         self.t_max = t_max
         self.t_step = t_step
         self.composition_step = composition_step
+        self.composition_step_2subl = composition_step_2subl
         self.skip_existing = skip_existing
         self.rk_order = rk_order
         self.n_workers = n_workers or mp.cpu_count()
@@ -205,6 +207,7 @@ class BladeStability:
                 self.skip_existing,
                 self.thresholds,
                 self._sublattice_mults,
+                self.composition_step_2subl,
             )
             for sdir, bdir in system_dirs
         ]
@@ -212,12 +215,11 @@ class BladeStability:
         oxide_note = f"oxides INCLUDED at mu_O = {list(self._mu_o_values)} eV/O" if self._mu_o_values else "oxides EXCLUDED"
         print(f"BladeStability: competitors_subdir={self._competitors_subdir!r}, {oxide_note}")
 
-        all_frames: list[pd.DataFrame] = []
+        # Workers write per-system parquets themselves; we only count rows here so we
+        # never accumulate DataFrames in the coordinator process.  Peak memory per
+        # system is bounded regardless of how many systems run.
         n_rows = 0
-        # spawn (not fork) so workers import numpy fresh with single-threaded BLAS;
-        # forked workers inherit a multi-threaded BLAS pool and oversubscribe the CPU.
-        # The env vars must be in place before the children start (they import numpy
-        # while unpickling the worker function, before any initializer runs).
+        n_systems = 0
         ctx = mp.get_context("spawn")
         thread_vars = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")
         saved_env = {v: os.environ.get(v) for v in thread_vars}
@@ -229,10 +231,9 @@ class BladeStability:
                         print(f"  SKIPPED: {err}")
                     elif result is not None:
                         n_rows += len(result)
-                        if n_rows <= MAX_COMBINED_ROWS:
-                            all_frames.append(result)
-                        else:
-                            all_frames.clear()  # results stay on disk per system; free memory
+                        n_systems += 1
+                        # result was already written to disk by the worker; discard it
+                        del result
         finally:
             for var, val in saved_env.items():
                 if val is None:
@@ -240,27 +241,42 @@ class BladeStability:
                 else:
                     os.environ[var] = val
 
-        if n_rows > MAX_COMBINED_ROWS:
-            # e.g. 5 metals at 0.05 step: ~3e8 rows would not fit in memory as one table.
+        out = self.output_dir / "stability_results.parquet"
+        per_system = sorted(self.output_dir.glob("*_stability.parquet"))
+        if not per_system:
+            print("No stability results produced.")
+            pd.DataFrame().to_parquet(out, index=False)
+            return out
+
+        print(f"BladeStability: {n_rows:,} rows from {n_systems} systems")
+
+        if n_rows <= MAX_COMBINED_ROWS:
+            combined = pd.concat([pd.read_parquet(p) for p in per_system], ignore_index=True)
+            combined = combined.sort_values(["system", "composition", "T"]).reset_index(drop=True)
+            combined.to_parquet(out, index=False)
+            print(f"Combined results → {out}  ({len(combined)} rows, {combined['system'].nunique()} systems)")
+            if self.run_pareto and len(combined):
+                self._run_pareto(combined)
+        else:
+            # Too large to concat in memory; stream per-system parquets into one file.
+            import pyarrow.parquet as pq
+
+            writer = None
+            try:
+                for p in per_system:
+                    tbl = pq.read_table(p)
+                    if writer is None:
+                        writer = pq.ParquetWriter(out, tbl.schema)
+                    writer.write_table(tbl)
+            finally:
+                if writer:
+                    writer.close()
             print(
-                f"{n_rows:,} rows exceed MAX_COMBINED_ROWS={MAX_COMBINED_ROWS:,}: skipping the combined "
-                f"parquet; per-system results are in {self.output_dir}/<system>_stability.parquet"
+                f"{n_rows:,} rows → {out} (streamed; {len(per_system)} systems). "
+                f"Per-system parquets in {self.output_dir}/"
             )
             if self.run_pareto:
-                raise StabilityConfigError("run_pareto is not supported for runs this large; analyse per system instead")
-            return self.output_dir
-        if not all_frames:
-            print("No stability results produced.")
-            combined = pd.DataFrame()
-        else:
-            combined = pd.concat(all_frames, ignore_index=True)
-            combined = combined.sort_values(["system", "composition", "T"]).reset_index(drop=True)
-
-        out = self.output_dir / "stability_results.parquet"
-        combined.to_parquet(out, index=False)
-        print(f"Combined results → {out}  ({len(combined)} rows, {combined['system'].nunique() if len(combined) else 0} systems)")
-        if self.run_pareto and len(combined):
-            self._run_pareto(combined)
+                self._run_pareto_from_per_system(per_system)
         return out
 
     def _run_pareto(self, combined: pd.DataFrame) -> list[Path]:
@@ -289,6 +305,72 @@ class BladeStability:
             out_dir = db_dir / folder
             run_pareto_analysis(
                 db_dir=db_dir, out_dir=out_dir, t_min=self.t_min, t_max=self.t_max, t_step=self.t_step, **opts
+            )
+            out_dirs.append(out_dir)
+        return out_dirs
+
+    def _run_pareto_from_per_system(self, per_system: list[Path]) -> list[Path]:
+        """Run Pareto analysis without loading all raw rows into memory at once.
+
+        Builds per-system summary parquets in chunks, concatenates just the
+        summaries (much smaller than raw), writes ``stability_summary.parquet``
+        and streams ``stability_raw.parquet`` with PyArrow, then runs the
+        Pareto analysis.
+
+        Args:
+            per_system: Sorted list of per-system parquet paths.
+
+        Returns:
+            Output directories of the Pareto analyses.
+        """
+        import pyarrow.parquet as pq
+
+        from blade.analysis.stability_pareto import run_pareto_analysis
+
+        opts = dict(self.pareto_options)
+        folder = opts.pop("output_folder", "pareto_analysis")
+        mu_values: list[float | None] = list(self._mu_o_values) if self._mu_o_values else [None]
+
+        out_dirs: list[Path] = []
+        for mu_o in mu_values:
+            db_dir = (self.output_dir / f"mu_O={mu_o:g}") if mu_o is not None else self.output_dir
+            db_dir.mkdir(parents=True, exist_ok=True)
+
+            # Stream stability_raw.parquet (rename columns to Pareto convention).
+            raw_path = db_dir / "stability_raw.parquet"
+            raw_writer = None
+            all_summaries: list[pd.DataFrame] = []
+            try:
+                for p in per_system:
+                    frame = pd.read_parquet(p)
+                    if mu_o is not None:
+                        frame = frame[np.isclose(frame["mu_O"], float(mu_o))]
+                    if len(frame) == 0:
+                        continue
+                    _, sump = write_pareto_database(frame, db_dir)
+                    all_summaries.append(pd.read_parquet(sump))
+                    # Append this system's raw rows to the streaming raw parquet.
+                    tbl = pq.read_table(sump.parent / "stability_raw.parquet")
+                    if raw_writer is None:
+                        raw_writer = pq.ParquetWriter(raw_path, tbl.schema)
+                    raw_writer.write_table(tbl)
+            finally:
+                if raw_writer:
+                    raw_writer.close()
+
+            if not all_summaries:
+                continue
+            combined_summary = pd.concat(all_summaries, ignore_index=True)
+            combined_summary.to_parquet(db_dir / "stability_summary.parquet", index=False)
+
+            out_dir = db_dir / folder
+            run_pareto_analysis(
+                db_dir=db_dir,
+                out_dir=out_dir,
+                t_min=self.t_min,
+                t_max=self.t_max,
+                t_step=self.t_step,
+                **opts,
             )
             out_dirs.append(out_dir)
         return out_dirs
@@ -582,6 +664,7 @@ def _stability_worker(
         *_extra,
     ) = args
     sublattice_mults: dict[str, int] | None = _extra[0] if _extra else None
+    composition_step_2subl: float | None = _extra[1] if len(_extra) > 1 else None
 
     if isinstance(competitors_subdir, str):  # a bare string is one subdir, not characters
         competitors_subdir = (competitors_subdir,) if competitors_subdir else None
@@ -615,13 +698,14 @@ def _stability_worker(
             subl_letters = sorted(subl_metal_dict.keys())
             subl_metals_list = [subl_metal_dict[k] for k in subl_letters]
             subl_mults_list = [sublattice_mults[k] for k in subl_letters]
+            step = composition_step_2subl if composition_step_2subl is not None else composition_step
             phase_data = build_phase_data(
                 blade_dir,
                 metals,
                 phase_element,
                 phase_stoich,
                 rk_order=rk_order,
-                y_step=composition_step,
+                y_step=step,
                 competitors_dir=competitors_dir,
                 exclude_oxides=exclude_oxides,
                 sublattice_metals=subl_metals_list,
@@ -644,15 +728,18 @@ def _stability_worker(
         return None, f"{system_tag}: phase data build failed — {e}"
 
     try:
+        n_grid = len(phase_data["y_grid"])
+        n_T = len(t_values)
+        print(
+            f"  [{system_tag}] {len(metals)} metals | {phase_data['n_competitors']} competitors"
+            f" | grid {n_grid} pts × {n_T} T = {n_grid * n_T:,} LP calls"
+        )
         df = _run_stability_grid(phase_data, t_values, system_tag, mu_o_values, thresholds)
         df["n_metals"] = len(metals)
         df["n_competitors"] = phase_data["n_competitors"]
         df["settings_sig"] = settings_sig
         df.to_parquet(out_path, index=False)
-        print(
-            f"  [{system_tag}] {len(metals)} metals | {phase_data['n_competitors']} competitors"
-            f" | {len(df)} rows → {out_path.name}"
-        )
+        print(f"  [{system_tag}] {len(df)} rows → {out_path.name}")
         return df, None
     except Exception as e:
         return None, f"{system_tag}: LP grid failed — {e}"

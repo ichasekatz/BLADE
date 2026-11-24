@@ -924,7 +924,7 @@ class FullFrameworkPipeline:
         known_keys = {
             "phase_element", "phase_element_stoichiometry", "system_structures_root", "competitors_subdir",
             "exclude_oxides", "mu_o_values", "allowed_elements", "output_folder", "temperature_range",
-            "composition_step", "skip_existing", "rk_order", "n_workers",
+            "composition_step", "composition_step_2subl", "skip_existing", "rk_order", "n_workers",
             "parent_threshold", "strict_dg_tol", "min_metal_frac", "run_pareto", "pareto",
             "sublattice_mults",
         }  # fmt: skip
@@ -989,6 +989,7 @@ class FullFrameworkPipeline:
             t_max=float(t_range[1]),
             t_step=float(t_range[2]),
             composition_step=float(cfg.get("composition_step", 0.02)),
+            composition_step_2subl=float(cfg["composition_step_2subl"]) if "composition_step_2subl" in cfg else None,
             skip_existing=bool(cfg.get("skip_existing", True)),
             rk_order=int(cfg.get("rk_order", 3)),
             n_workers=cfg.get("n_workers"),
