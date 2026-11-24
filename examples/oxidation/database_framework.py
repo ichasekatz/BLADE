@@ -10,6 +10,7 @@ The original 01-04 examples remain useful for running individual stages.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 from dataclasses import dataclass, field
@@ -19,6 +20,8 @@ import pandas as pd
 
 from blade.oxidation.compositions import OxideCompositions
 from blade.oxidation.database import OxideDatabase
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -185,7 +188,7 @@ class OxidationPipeline:
                         fields=fields,
                     )
                 except Exception as exc:
-                    print(f"  Failed {chemsys}: {exc}")
+                    log.warning("DB stage: MP query failed for %s: %s", chemsys, exc)
                     continue
                 for doc in docs:
                     reduced = Composition(doc.formula_pretty).reduced_formula
@@ -272,7 +275,7 @@ class OxidationPipeline:
                 solver._calculate(structure_dir, relax=True)
                 self._write_energy_per_atom(structure_dir)
             except Exception as exc:
-                print(f"  Failed {structure_dir.name}: {exc}")
+                log.warning("DB stage: ORB relaxation failed for %s: %s", structure_dir.name, exc)
 
     def build_database(self) -> None:
         cfg = self.config
@@ -304,12 +307,19 @@ class OxidationPipeline:
             ("03 MLIP energies", self.config.run_energies, self.calculate_energies),
             ("04 oxidation database", self.config.run_database, self.build_database),
         ]
+        failed: list[str] = []
         for name, enabled, function in stages:
             if not enabled:
                 print(f"Skipping {name}")
                 continue
             print(f"\n--- {name} ---")
-            function()
+            try:
+                function()
+            except Exception as exc:
+                log.warning("DB stage: %s failed: %s", name, exc)
+                failed.append(name)
+        if failed:
+            raise RuntimeError(f"Database pipeline stage(s) failed: {failed}")
 
 
 if __name__ == "__main__":

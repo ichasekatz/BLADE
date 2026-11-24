@@ -107,6 +107,10 @@ selected_systems: set[str] | None = None
 # Set to os.cpu_count() // 2 or higher for large runs; uses fork-based multiprocessing.
 n_workers = 1
 
+# Generate a 2-D (y_a × y_b) stable-phase map for 2+2 MAX systems (both sublattices
+# have exactly 2 metals).  Set False to skip.
+plot_2d_map = True
+
 # Grid-video settings
 panel_w = 150
 panel_h = 130
@@ -1012,6 +1016,128 @@ def _plot_binary_gmix(tdb, metals, phase, fixed_sp, temperatures, out_path):
 
 
 # ------------------------------------------------------------------
+# 2-D phase-stability map for 2+2 MAX systems
+def _plot_2d_phase_map(
+    tdb: Database,
+    subl_metals_by_index: dict[int, list[str]],
+    split_phase: str,
+    ratios: list[float],
+    out_path: Path,
+    ref_T: float,
+) -> None:
+    """Plot a y_a × y_b stable-phase grid for a 2+2 MAX system.
+
+    Args:
+        tdb: Loaded pycalphad Database.
+        subl_metals_by_index: {sublattice_index: [metal_symbols_upper]}, exactly 2 keys each with 2 metals.
+        split_phase: Phase name in ``tdb`` that owns the two mixing sublattices.
+        ratios: Sublattice multiplicities (from ``tdb.phases[split_phase].sublattices``).
+        out_path: Output PNG path.
+        ref_T: Reference temperature in K.
+    """
+    from pycalphad import equilibrium
+    from pycalphad import variables as v
+
+    si0, si1 = sorted(subl_metals_by_index.keys())
+    metals_a = [m.title() for m in subl_metals_by_index[si0]]  # M-site (2 metals)
+    metals_b = [m.title() for m in subl_metals_by_index[si1]]  # A-site (2 metals)
+    m_a0, m_a1 = metals_a[0], metals_a[1]
+    m_b0, m_b1 = metals_b[0], metals_b[1]
+
+    total_mult = sum(ratios)
+    mult_a = ratios[si0]
+    mult_b = ratios[si1]
+
+    # Fixed species fracs (e.g. C = 1/4 for MAX)
+    fixed_sp_fracs: dict[str, float] = {}
+    for _si, _subl in enumerate(tdb.phases[split_phase].constituents):
+        if _si in (si0, si1):
+            continue
+        _occ = [sp.name for sp in _subl if sp.name != "VA"]
+        for _name in _occ:
+            fixed_sp_fracs[_name.title()] = (
+                fixed_sp_fracs.get(_name.title(), 0.0)
+                + ratios[_si] / total_mult / max(len(_occ), 1)
+            )
+
+    comps = (
+        [m_a0.upper(), m_a1.upper(), m_b0.upper(), m_b1.upper()]
+        + [el.upper() for el in fixed_sp_fracs]
+    )
+    phases = list(tdb.phases.keys())
+
+    n_pts = 21
+    y_vals = np.linspace(0.02, 0.98, n_pts)
+    stable_phases = np.full((n_pts, n_pts), "", dtype=object)
+
+    for i, y_a in enumerate(y_vals):
+        x_ma0 = float(y_a * mult_a / total_mult)
+        x_mb0_arr = y_vals * mult_b / total_mult  # shape (n_pts,) — vectorise over y_b
+
+        conds: dict = {v.N: 1, v.P: pressure, v.T: ref_T, v.X(m_a0.upper()): x_ma0}
+        conds[v.X(m_b0.upper())] = x_mb0_arr
+        for el, frac in fixed_sp_fracs.items():
+            conds[v.X(el.upper())] = frac
+
+        try:
+            result = equilibrium(tdb, comps, phases, conds)
+            # result.NP / result.Phase shape: (X_cond_pts, vertex)
+            np_vals = np.asarray(result.NP.values)   # (..., vertex)
+            ph_vals = np.asarray(result.Phase.values)  # (..., vertex)
+            # Flatten leading dims to (n_pts, vertex)
+            np_vals = np_vals.reshape(-1, np_vals.shape[-1])
+            ph_vals = ph_vals.reshape(-1, ph_vals.shape[-1])
+            for j in range(min(n_pts, np_vals.shape[0])):
+                row_np = np_vals[j]
+                row_ph = ph_vals[j]
+                valid = ~np.isnan(row_np)
+                if valid.any():
+                    best = int(np.nanargmax(row_np))
+                    ph = str(row_ph[best]).strip()
+                    stable_phases[j, i] = ph if ph else "?"
+                else:
+                    stable_phases[j, i] = "?"
+        except Exception:
+            stable_phases[:, i] = "?"
+
+    unique_phases = sorted({p for p in stable_phases.ravel() if p and p != "?"})
+    try:
+        cmap = plt.colormaps["tab10"]
+    except AttributeError:
+        cmap = plt.cm.get_cmap("tab10")  # matplotlib < 3.5
+    phase_color = {p: cmap(k % 10) for k, p in enumerate(unique_phases)}
+
+    img = np.ones((n_pts, n_pts, 3)) * 0.85
+    for i in range(n_pts):
+        for j in range(n_pts):
+            ph = stable_phases[i, j]
+            if ph in phase_color:
+                img[i, j] = phase_color[ph][:3]
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+    ax.imshow(img, origin="lower", extent=[0, 1, 0, 1], aspect="auto", interpolation="nearest")
+
+    tick_pos = [0.0, 0.25, 0.5, 0.75, 1.0]
+    ax.set_xticks(tick_pos)
+    ax.set_xticklabels([f"pure {m_a1}", "0.25", "0.5", "0.75", f"pure {m_a0}"], fontsize=9)
+    ax.set_yticks(tick_pos)
+    ax.set_yticklabels([f"pure {m_b1}", "0.25", "0.5", "0.75", f"pure {m_b0}"], fontsize=9)
+    ax.set_xlabel(rf"$y_{{{m_a0}}}$ (M-site)", fontsize=13)
+    ax.set_ylabel(rf"$y_{{{m_b0}}}$ (A-site)", fontsize=13)
+    ax.set_title(rf"Stable phase map — {m_a0}–{m_a1} × {m_b0}–{m_b1} @ {int(ref_T)} K", fontsize=13)
+
+    from matplotlib.patches import Patch
+    patches = [Patch(color=phase_color[p], label=p) for p in unique_phases]
+    if patches:
+        ax.legend(handles=patches, loc="upper right", fontsize=9, framealpha=0.85)
+
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+# ------------------------------------------------------------------
 # Main plotting workflow
 def _process_single_tdb(tdb_path: Path) -> None:
     """Process one TDB: compute G_mix, plot phase maps/GIFs for all mixable sections."""
@@ -1174,6 +1300,28 @@ def _process_single_tdb(tdb_path: Path) -> None:
                 make_phase_gif(tdb, _sec_metals, phases, comp_out / gif_name, data_dir=data_dir)
         else:
             print(f"  Skipping section {_sec_label!r}: {len(_sec_metals)} variable element(s) (need ≥2)")
+
+    # 2-D (y_a × y_b) map — only for 2+2 systems (each mixing sublattice has exactly 2 metals)
+    if (
+        plot_2d_map
+        and len(_best_subl_metals) == 2
+        and all(len(v) == 2 for v in _best_subl_metals.values())
+    ):
+        map_path = comp_out / f"{comp_name}_2d_phase_map.png"
+        if not (skip and map_path.exists()):
+            ref_T = (t_start + t_end) / 2
+            try:
+                _plot_2d_phase_map(
+                    tdb=tdb,
+                    subl_metals_by_index=_best_subl_metals,
+                    split_phase=_split_phase,
+                    ratios=_ratios,
+                    out_path=map_path,
+                    ref_T=ref_T,
+                )
+                print(f"  2-D phase map: {map_path.name}")
+            except Exception as exc:
+                print(f"  2-D phase map failed: {exc}")
 
 
 def run_phase_plotting() -> None:
