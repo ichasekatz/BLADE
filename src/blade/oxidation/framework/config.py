@@ -122,6 +122,11 @@ class Config:
     # the LP solve.  Equivalent to running against a no-oxide phase table.
     exclude_oxide_phases: bool = False
 
+    # ----------------------------------------- 2-sublattice (MAX) support
+    # Maps sublattice letter → multiplicity, e.g. {"a": 2, "b": 1} for M₂AX.
+    # None uses the single-sublattice (Muggianu/RK) path.
+    sublattice_mults: dict | None = None
+
     # ----------------------------------------------- Onset / AUC diagrams
     onset_comp_step_binary: float = 0.02
     onset_comp_step_ternary: float = 0.025

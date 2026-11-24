@@ -873,6 +873,7 @@ class FullFrameworkPipeline:
             region_label_mode=cfg.get("region_label_mode", "phases"),
             region_label_fontsize=cfg.get("region_label_fontsize", 7),
             slice_axis_priority=list(cfg.get("slice_axis_priority", [])),
+            sublattice_mults=cfg.get("sublattice_mults"),
         )
         calculator = OxidationCalculator(oxidation_cfg)
         mode = cfg.get("mode", "batch").strip().lower()

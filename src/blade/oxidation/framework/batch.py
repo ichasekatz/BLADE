@@ -97,6 +97,11 @@ class BatchConfig:
     # Remove all fixed phases with O > 0 from the phase space (no-oxide mode).
     exclude_oxide_phases: bool = False
 
+    # ---- 2-sublattice (MAX) support -----------------------------------------
+    # Maps sublattice letter → multiplicity, e.g. {"a": 2, "b": 1} for M₂AX.
+    # None uses the single-sublattice (Muggianu/RK) path.
+    sublattice_mults: dict | None = None
+
     def __post_init__(self):
         self.system_structures_root = Path(self.system_structures_root)
         self.tables_dir = Path(self.tables_dir)
@@ -168,6 +173,7 @@ class BatchConfig:
             phase_diagram_t_end=self.phase_diagram_t_end,
             bartel_corrections=self.bartel_corrections,
             exclude_oxide_phases=self.exclude_oxide_phases,
+            sublattice_mults=self.sublattice_mults,
         )
 
 

@@ -1,6 +1,15 @@
-"""Phase data loading for binary and N-metal oxidation systems."""
+"""Phase data loading for binary and N-metal oxidation systems.
+
+The 2-sublattice (MAX-phase) path is auto-detected from the interaction
+coefficient CSV: when ``pair == "endmember"`` rows are present, :func:`_load_nd`
+dispatches to :func:`_load_nd_2subl` which uses a Compound Energy Formalism (CEF)
+product-simplex grid instead of the single-sublattice Redlich-Kister model.
+Single-sublattice callers (borides, alloys) are unaffected.
+"""
 
 from __future__ import annotations
+
+from itertools import product as _iterproduct
 
 import numpy as np
 import pandas as pd
@@ -101,6 +110,13 @@ def _load_nd(
         pt = pt[pt["O"].astype(float) == 0].reset_index(drop=True)
     bt = pd.read_csv(phase_points_file)
     rk = pd.read_csv(rk_coeff_file)
+
+    # 2-sublattice CEF path: auto-detected from "endmember" pair rows.
+    if "pair" in rk.columns and (rk["pair"] == "endmember").any():
+        return _load_nd_2subl(
+            pt, rk, metals, phase_label, y_step,
+            phase_element, phase_element_stoichiometry,
+        )
 
     # Fixed phases
     fids = pt["phase_id"].astype(str).values
@@ -223,4 +239,193 @@ def _load_nd(
         "phase_suffix": suffix,
         "fixed_vol_per_atom": fixed_vol_per_atom,
         "fixed_formula_counts": fixed_formula_counts,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 2-sublattice (CEF / MAX) helpers — local copies avoid circular imports with
+# blade.analysis._sublattice which itself imports from this package's _grid.
+# ---------------------------------------------------------------------------
+
+
+def _product_simplex_grid_2subl(
+    subl_metals: list[list[str]],
+    subl_mults: list[int],
+    y_step: float,
+) -> tuple[np.ndarray, list[np.ndarray]]:
+    """Cartesian product of per-sublattice simplex grids, multiplicity-weighted."""
+    total = sum(subl_mults)
+    grids = [
+        simplex_grid_nd(len(metals), y_step) if len(metals) >= 2 else np.ones((1, 1), dtype=float)
+        for metals in subl_metals
+    ]
+    rows = []
+    for pts in _iterproduct(*grids):
+        row = np.concatenate([pts[i] * subl_mults[i] / total for i in range(len(subl_metals))])
+        rows.append(row)
+    return np.array(rows, dtype=float), grids
+
+
+def _cef_enthalpy_2subl(y_a_grid: np.ndarray, y_b_grid: np.ndarray, h_ref: np.ndarray) -> np.ndarray:
+    """CEF enthalpy over the product grid: H0[k] = Σ_ij y_a_i * y_b_j * H_ref[i,j]."""
+    return (y_a_grid @ h_ref @ y_b_grid.T).ravel()
+
+
+def _ideal_mixing_2subl(y_a_grid: np.ndarray, y_b_grid: np.ndarray, subl_mults: list[int]) -> np.ndarray:
+    """2-sublattice configurational entropy shape over the product grid."""
+    total = sum(subl_mults)
+    s_a = ideal_mixing_nd(y_a_grid)  # (n_a_pts,)
+    s_b = ideal_mixing_nd(y_b_grid)  # (n_b_pts,)
+    s_mix = (subl_mults[0] * s_a[:, np.newaxis] + subl_mults[1] * s_b[np.newaxis, :]) / total
+    return s_mix.ravel()
+
+
+def _load_nd_2subl(
+    pt: "pd.DataFrame",
+    rk: "pd.DataFrame",
+    metals: list[str],
+    phase_label: str,
+    y_step: float,
+    phase_element: str | None,
+    phase_element_stoichiometry: float,
+) -> dict:
+    """2-sublattice path for :func:`_load_nd`.
+
+    Reads cross-product endmember energies from the ``endmember`` rows in *rk*
+    and sublattice multiplicities from the ``_subl_mults`` metadata row.
+    Returns a dict with the same keys as :func:`_load_nd` so the LP solver
+    (:mod:`_compute`) is unaffected.
+
+    Args:
+        pt: Already-loaded phase-table DataFrame (fixed phases / oxides).
+        rk: Already-loaded interaction-coefficient DataFrame.
+        metals: Ordered list of all metal symbols across all sublattices.
+        phase_label: Phase-family label string.
+        y_step: Composition grid spacing.
+        phase_element: Fixed non-metal element (e.g. ``"C"``), or None.
+        phase_element_stoichiometry: Atoms of *phase_element* per metal atom.
+
+    Returns:
+        Phase-data dict identical in structure to :func:`_load_nd`.
+    """
+    n = len(metals)
+    phase_element_stoichiometry = float(phase_element_stoichiometry) if phase_element else 0.0
+
+    # ---- Parse sublattice mults from metadata row ---------------------------
+    mults_rows = rk[rk["pair"] == "_subl_mults"]
+    if mults_rows.empty:
+        raise ValueError("2-subl rk CSV is missing the _subl_mults metadata row.")
+    mults_str = str(mults_rows["term"].iloc[0])  # e.g. "a=2;b=1"
+    subl_letters: list[str] = []
+    subl_mults: list[int] = []
+    for part in mults_str.split(";"):
+        letter, val = part.split("=")
+        subl_letters.append(letter.strip())
+        subl_mults.append(int(val.strip()))
+
+    # ---- Parse endmember energies into h_ref[i,j] ---------------------------
+    em_rows = rk[rk["pair"] == "endmember"]
+    # Determine subl_metals by collecting symbols from term col ("Ti_Al" → [Ti], [Al])
+    subl_metals_sets: list[set[str]] = [set() for _ in subl_letters]
+    for _, row in em_rows.iterrows():
+        parts = str(row["term"]).split("_")
+        for idx, sym in enumerate(parts):
+            if idx < len(subl_metals_sets):
+                subl_metals_sets[idx].add(sym)
+    subl_metals = [sorted(s) for s in subl_metals_sets]
+
+    n_a, n_b = len(subl_metals[0]), len(subl_metals[1])
+    h_ref = np.full((n_a, n_b), np.nan)
+    for _, row in em_rows.iterrows():
+        parts = str(row["term"]).split("_")
+        m_a, m_b = parts[0], parts[1]
+        i = subl_metals[0].index(m_a)
+        j = subl_metals[1].index(m_b)
+        h_ref[i, j] = float(row["value_eV_per_formula"])
+
+    # ---- Product simplex grid -----------------------------------------------
+    y_overall, (y_a_grid, y_b_grid) = _product_simplex_grid_2subl(subl_metals, subl_mults, y_step)
+    n_pts = len(y_overall)
+
+    phase_H0 = _cef_enthalpy_2subl(y_a_grid, y_b_grid, h_ref)
+    phase_mix = _ideal_mixing_2subl(y_a_grid, y_b_grid, subl_mults)
+
+    # ---- Fixed phases from phase_table CSV ----------------------------------
+    fids = pt["phase_id"].astype(str).values
+    fmetal = np.column_stack([pt[m].astype(float).values for m in metals])
+    fphase_element = (
+        pt[phase_element].astype(float).values
+        if phase_element and phase_element in pt.columns
+        else np.zeros(len(pt))
+    )
+    fO = pt["O"].astype(float).values
+    fatoms = fmetal.sum(axis=1) + fphase_element + fO
+    fef = pt["energy_eV_per_atom"].astype(float).values * fatoms
+    n_fixed = len(fids)
+
+    fixed_vol_per_atom = pt["vol_per_atom"].astype(float).values if "vol_per_atom" in pt.columns else None
+
+    all_els = metals + ([phase_element] if phase_element else []) + ["O"]
+    all_counts = [fmetal[:, j] for j in range(len(metals))]
+    all_counts += [fphase_element] if phase_element else []
+    all_counts += [fO]
+    fixed_formula_counts: list[dict] = []
+    for i in range(n_fixed):
+        counts = {el: float(all_counts[k][i]) for k, el in enumerate(all_els) if float(all_counts[k][i]) > 0}
+        fixed_formula_counts.append(counts)
+
+    # ---- Combined arrays for LP solver --------------------------------------
+    pmetal = np.vstack([fmetal, y_overall])
+    pphase_element_arr = np.concatenate([fphase_element, phase_element_stoichiometry * np.ones(n_pts)])
+    pO = np.concatenate([fO, np.zeros(n_pts)])
+    A_eq = np.vstack([pmetal.T, pphase_element_arr[np.newaxis, :]])
+
+    # Phase IDs for grid points
+    phase_ids_grid = np.array(
+        [
+            phase_label + "_" + "_".join(f"{metals[k]}={y_overall[r, k]:.4f}" for k in range(n - 1))
+            for r in range(n_pts)
+        ]
+    )
+    phase_ids = np.concatenate([fids, phase_ids_grid])
+    phase_kinds = np.concatenate([np.full(n_fixed, "fixed"), np.full(n_pts, "phase")])
+
+    nan_f = np.full((n_fixed, n), np.nan)
+    phase_y_nd = np.vstack([nan_f, y_overall])
+    phase_y = np.concatenate([np.full(n_fixed, np.nan), y_overall[:, 0]])
+
+    suffix = phase_label[len("".join(metals)) :] if phase_label.startswith("".join(metals)) else ""
+
+    # h_endpoints stub — not meaningful for 2-subl but kept for key compatibility
+    h_ep = h_ref.ravel()[: n] if h_ref.size >= n else np.zeros(n)
+
+    return {
+        "phase_ids": phase_ids,
+        "phase_kinds": phase_kinds,
+        "phase_y": phase_y,
+        "phase_y_nd": phase_y_nd,
+        "phase_metal_stoich": pmetal,
+        "phase_element_stoich": pphase_element_arr,
+        "phase_O": pO,
+        "fixed_energy_formula": fef,
+        "phase_H0": phase_H0,
+        "phase_mix_shape": phase_mix,
+        "y_grid": y_overall,
+        "h_endpoints": h_ep,
+        "binary_coeffs": {},
+        "ternary_coeff": 0.0,
+        "A_eq": A_eq,
+        "n_fixed": n_fixed,
+        "n_metals": n,
+        "metals": metals,
+        "phase_label": phase_label,
+        "phase_element": phase_element,
+        "phase_element_stoichiometry": phase_element_stoichiometry,
+        "phase_suffix": suffix,
+        "fixed_vol_per_atom": fixed_vol_per_atom,
+        "fixed_formula_counts": fixed_formula_counts,
+        # 2-subl extras for diagnostics
+        "h_ref_2subl": h_ref,
+        "subl_metals": subl_metals,
+        "subl_mults": subl_mults,
     }

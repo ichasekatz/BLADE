@@ -177,6 +177,7 @@ class BatchRunner:
                 fixed_phases_subdir=cfg.fixed_phases_subdir,
                 phase_element=cfg.phase_element,
                 phase_element_stoichiometry=cfg.phase_element_stoichiometry,
+                sublattice_mults=getattr(cfg, "sublattice_mults", None),
             )
             if not cfg_tmp.tables_ready():
                 if not cfg.run_calculations:

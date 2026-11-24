@@ -23,7 +23,7 @@ secondary_max = 3
 #   M and A treated as one pool); re-enable once per-sublattice stoichiometry added.
 [stages]
 phase_diagrams   = true
-oxidation_graphs = false
+oxidation_graphs = true
 stability        = false
 
 # ── TDB ────────────────────────────────────────────────────────────────────────
@@ -108,11 +108,13 @@ metal_fraction = 0.75
 phase_element               = "C"
 phase_element_stoichiometry = 0.3333333333
 sublattice_mults            = {a = 2, b = 1}
+composition_step_2subl      = 0.1   # coarser than boride default; 3+3 product grid = 11x11=121 pts (vs 53k at 0.05)
 # stability = true in [stages] once system_structures is populated
 
 # ── Oxidation ─────────────────────────────────────────────────────────────────
 [oxidation]
-phase_element = ""   # disable stoichiometry validation for MAX phases
+phase_element      = ""       # C is fixed but not part of the metal LP balance
+sublattice_mults   = {a = 2, b = 1}   # M-site mult 2, A-site mult 1 → product simplex grid
 
 # ── SCRAPS SQS (advanced; only needed when tdb.sqs_method = "scraps") ─────────
 [tdb_scraps]

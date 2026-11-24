@@ -31,6 +31,7 @@ class SystemConfig:
     phase_element_stoichiometry: float = 0.0
     blade_subdir: str = "blade"
     fixed_phases_subdir: str = "fixed_phases"
+    sublattice_mults: dict | None = None
 
     @property
     def n_metals(self) -> int:
@@ -100,6 +101,7 @@ class SystemConfig:
         fixed_phases_subdir: str = "fixed_phases",
         phase_element: str | None = None,
         phase_element_stoichiometry: float = 0.0,
+        sublattice_mults: dict | None = None,
     ) -> "SystemConfig":
         """Find or build SystemConfig. Priority:
         1. Existing *_system_config.json matching metals (if given)
@@ -135,6 +137,9 @@ class SystemConfig:
             suffix = _stoichiometric_suffix(phase_element, phase_element_stoichiometry)
             data["tag"] = "".join(m.lower() for m in cfg_metals) + (phase_element or "").lower()
             data["phase_label"] = "".join(cfg_metals) + suffix
+            data.setdefault("sublattice_mults", sublattice_mults)
+            if sublattice_mults is not None:
+                data["sublattice_mults"] = sublattice_mults
             return cls(**data)
 
         # 2. Auto-detect from DATA_ROOT
@@ -170,13 +175,14 @@ class SystemConfig:
             phase_element_stoichiometry=phase_element_stoichiometry,
             blade_subdir=blade_subdir,
             fixed_phases_subdir=fixed_phases_subdir,
+            sublattice_mults=sublattice_mults,
         )
 
     # ---- Detection helpers ------------------------------------------------
     @staticmethod
     def _detect_metals_from_dirs(blade_dir: Path, excluded_elements=None) -> list:
         """Parse a_X=N tokens from blade/ subdir names → sorted metal list."""
-        pattern = re.compile(r"a_([A-Za-z]{1,3})=[0-9.]+")
+        pattern = re.compile(r"[a-z]_([A-Za-z]{1,3})=[0-9.]+")
         metals: set = set()
         excluded = {str(e).upper() for e in (excluded_elements or set())}
         for d in blade_dir.iterdir():
@@ -199,6 +205,230 @@ class SystemConfig:
 
 
 # ---------------------------------------------------------------------------
+# Table preparation — 2-sublattice path (CEF / MAX phases)
+# ---------------------------------------------------------------------------
+
+
+def _prepare_tables_2subl(data_root: Path, cfg: SystemConfig, rk_order: int = 3) -> None:
+    """Prepare oxidation tables for a 2-sublattice phase (e.g. MAX M₂AX).
+
+    Writes the same CSV files as :func:`prepare_tables` but uses cross-product
+    endmember reference energies (CEF) instead of Redlich-Kister fitting.
+
+    The interaction-coefficient CSV uses a special ``endmember`` pair label::
+
+        pair,term,value_eV_per_formula
+        _subl_mults,a=2;b=1,0.0
+        endmember,Ti_Al,-3.521
+        endmember,Ti_Si,-3.123
+        endmember,Nb_Al,-3.410
+        endmember,Nb_Si,-3.089
+
+    :func:`~._phase_data._load_nd` auto-detects this format and dispatches to
+    :func:`~._phase_data._load_nd_2subl`.
+    """
+    from blade.analysis._sublattice import detect_sublattice_metals, parse_subl_fracs
+
+    data_root = Path(data_root)
+    blade_dir = data_root / cfg.blade_subdir
+    fixed_dir = data_root / cfg.fixed_phases_subdir
+    phase_element = cfg.phase_element
+    phase_stoich = cfg.phase_element_stoichiometry
+    subl_mults_dict = cfg.sublattice_mults  # e.g. {"a": 2, "b": 1}
+
+    subl_letters = sorted(subl_mults_dict.keys())
+    subl_mults = [int(subl_mults_dict[letter]) for letter in subl_letters]
+    total_mult = sum(subl_mults)
+
+    # Detect sublattice metals from blade_dir
+    subl_metals_dict, _ = detect_sublattice_metals(blade_dir, phase_element or "")
+    subl_metals = [sorted(subl_metals_dict.get(letter, [])) for letter in subl_letters]
+    if any(len(m) == 0 for m in subl_metals):
+        raise RuntimeError(
+            f"Could not detect metals for all sublattices {subl_letters} in {blade_dir}. "
+            f"Detected: {subl_metals_dict}"
+        )
+
+    metals = [m for sub in subl_metals for m in sub]
+    elements = metals + ([phase_element] if phase_element else []) + ["O"]
+
+    cfg.tables.mkdir(parents=True, exist_ok=True)
+
+    # ---- Scan SQS structures ------------------------------------------------
+    all_rows: list[dict] = []
+    for d in blade_dir.iterdir():
+        if not d.is_dir() or "sqs_lev=" not in d.name:
+            continue
+        ep = d / "energy"
+        cp = d / "CONTCAR"
+        if not ep.exists() or not cp.exists():
+            continue
+
+        subl_fracs = parse_subl_fracs(d.name[d.name.index("sqs_lev=") :])
+
+        # Overall metal fracs (multiplicity-weighted, sum to 1 over metals)
+        y: dict[str, float] = {}
+        for letter, mult in zip(subl_letters, subl_mults):
+            el_map = subl_fracs.get(letter, {})
+            for sym, frac in el_map.items():
+                if phase_element and sym == phase_element:
+                    continue
+                y[sym] = mult / total_mult * frac
+
+        counts = _read_contcar_counts(cp, elements)
+        n_metal_atoms = sum(counts.get(m, 0) for m in metals)
+        n_fu = n_metal_atoms / total_mult  # formula units
+        n_atoms = sum(counts.values())
+        if n_fu <= 0 or n_atoms <= 0:
+            continue
+
+        e_total = _read_scalar(ep)
+        row: dict = {"phase_id": d.name, "_subl_fracs": subl_fracs}
+        for m in metals:
+            row[f"y_{m}_metal_site"] = y.get(m, 0.0)
+        row["energy_eV_per_formula"] = e_total / n_fu
+        row["energy_eV_per_atom"] = e_total / n_atoms
+        row["source_total_energy_eV"] = e_total
+        row["source_total_atoms"] = int(n_atoms)
+        row["source_formula_units"] = round(n_fu)
+        all_rows.append(row)
+
+    if not all_rows:
+        raise RuntimeError(f"No valid 2-sublattice structures in {blade_dir}")
+
+    y_cols = [f"y_{m}_metal_site" for m in metals]
+    all_rows.sort(key=lambda r: [r[c] for c in y_cols])
+
+    phase_grid_keys = ["phase_id"] + y_cols + [
+        "energy_eV_per_formula", "energy_eV_per_atom",
+        "source_total_energy_eV", "source_total_atoms", "source_formula_units",
+    ]
+    _write_csv(cfg.phase_grid_file, phase_grid_keys, all_rows)
+    print(f"  Wrote {cfg.phase_grid_file}  ({len(all_rows)} structures)")
+
+    # ---- Cross-product endpoint energies H_ref[i,j] -------------------------
+    n_a = len(subl_metals[0])
+    n_b = len(subl_metals[1])
+    la, lb = subl_letters[0], subl_letters[1]
+    h_ref = np.full((n_a, n_b), np.nan)
+
+    for i, m_a in enumerate(subl_metals[0]):
+        for j, m_b in enumerate(subl_metals[1]):
+            matches = []
+            for r in all_rows:
+                sf = r["_subl_fracs"]
+                a_map = sf.get(la, {})
+                b_map = sf.get(lb, {})
+                a_ok = abs(a_map.get(m_a, 0.0) - 1.0) < 1e-6 and all(
+                    a_map.get(sym, 0.0) < 1e-6 for sym in subl_metals[0] if sym != m_a
+                )
+                b_ok = abs(b_map.get(m_b, 0.0) - 1.0) < 1e-6 and all(
+                    b_map.get(sym, 0.0) < 1e-6 for sym in subl_metals[1] if sym != m_b
+                )
+                if a_ok and b_ok:
+                    matches.append(r["energy_eV_per_formula"])
+            if not matches:
+                raise ValueError(
+                    f"Missing cross-endpoint ({m_a}, {m_b}) in {blade_dir}. "
+                    "Each (M-site, A-site) pure combination needs an sqs_lev=0 structure."
+                )
+            h_ref[i, j] = matches[0]
+
+    # ---- Write interaction-coefficient CSV (endmember format) ---------------
+    rk_rows: list[dict] = [
+        {
+            "pair": "_subl_mults",
+            "term": ";".join(f"{letter}={mult}" for letter, mult in zip(subl_letters, subl_mults)),
+            "value_eV_per_formula": 0.0,
+            "value_eV_per_atom": 0.0,
+        }
+    ]
+    for i, m_a in enumerate(subl_metals[0]):
+        for j, m_b in enumerate(subl_metals[1]):
+            rk_rows.append(
+                {
+                    "pair": "endmember",
+                    "term": f"{m_a}_{m_b}",
+                    "value_eV_per_formula": float(h_ref[i, j]),
+                    "value_eV_per_atom": float(h_ref[i, j]) / (1.0 + phase_stoich) if (1.0 + phase_stoich) > 0 else float(h_ref[i, j]),
+                }
+            )
+    _write_csv(cfg.interaction_coeff_file, ["pair", "term", "value_eV_per_formula", "value_eV_per_atom"], rk_rows)
+    print(f"  Wrote {cfg.interaction_coeff_file}")
+
+    # ---- Stub fit-points CSV (identity fit; not used by oxidation LP) -------
+    fit_rows = [
+        {
+            "phase_id": r["phase_id"],
+            **{c: r[c] for c in y_cols},
+            "energy_eV_per_formula": r["energy_eV_per_formula"],
+            "rk_fit_eV_per_formula": r["energy_eV_per_formula"],
+            "residual_eV_per_formula": 0.0,
+        }
+        for r in all_rows
+    ]
+    _write_csv(
+        cfg.phase_fit_file,
+        ["phase_id"] + y_cols + ["energy_eV_per_formula", "rk_fit_eV_per_formula", "residual_eV_per_formula"],
+        fit_rows,
+    )
+
+    # ---- Fixed phases (oxides etc.) — same logic as single-sublattice -------
+    if not fixed_dir.is_dir():
+        raise FileNotFoundError(f"Fixed-phase directory not found: {fixed_dir}.")
+    phase_rows: list[dict] = []
+    for d in fixed_dir.iterdir():
+        if not d.is_dir():
+            continue
+        ep = d / "energy"
+        cp = d / "CONTCAR"
+        if not ep.exists() or not cp.exists():
+            continue
+        counts = _read_contcar_counts(cp, elements)
+        n_atoms = sum(counts.values())
+        if n_atoms <= 0:
+            continue
+        reduced = _reduce_counts(counts)
+        e_total = _read_scalar(ep)
+        row = {"phase_id": d.name}
+        for m in metals:
+            row[m] = reduced[m]
+        if phase_element:
+            row[phase_element] = reduced[phase_element]
+        row["O"] = reduced["O"]
+        row["energy_eV_per_atom"] = e_total / n_atoms
+        phase_rows.append(row)
+    if not phase_rows:
+        raise RuntimeError(f"No valid fixed phases in {fixed_dir}")
+    phase_rows.sort(key=lambda r: r["phase_id"])
+    phase_keys = ["phase_id"] + metals + ([phase_element] if phase_element else []) + ["O", "energy_eV_per_atom"]
+    _write_csv(cfg.phase_table_file, phase_keys, phase_rows)
+    print(f"  Wrote {cfg.phase_table_file}  ({len(phase_rows)} phases)")
+
+    # ---- Human-readable model summary ---------------------------------------
+    subl_strs = " + ".join(
+        f"{mult}×{{{', '.join(subl_metals[i])}}}" for i, mult in enumerate(subl_mults)
+    )
+    lines = [
+        "Phase: 2-sublattice CEF (Compound Energy Formalism)",
+        f"Sublattices: {subl_strs}",
+        f"Fixed element: {phase_element} (stoich {phase_stoich:.6g} per metal atom)",
+        "",
+        "H0(y_a, y_b) = Σ_ij y_a_i * y_b_j * H_ref[i,j]  (eV/f.u.)",
+        "",
+        "Cross-product endpoint energies H_ref[i,j] (eV/f.u.):",
+    ]
+    for i, m_a in enumerate(subl_metals[0]):
+        for j, m_b in enumerate(subl_metals[1]):
+            lines.append(f"  H_ref[{m_a}, {m_b}] = {h_ref[i, j]:.6f}")
+    cfg.phase_model_file.write_text("\n".join(lines) + "\n")
+    print(f"  Wrote {cfg.phase_model_file}")
+
+    cfg.save()
+    print(f"  Wrote {cfg.config_file}")
+
+
+# ---------------------------------------------------------------------------
 # Table preparation — unified for N metals
 # ---------------------------------------------------------------------------
 
@@ -216,21 +446,10 @@ def prepare_tables(data_root: Path, cfg: SystemConfig, rk_order: int = 3) -> Non
 
     cfg.tables.mkdir(parents=True, exist_ok=True)
 
-    # ---- Guard: multi-sublattice phases not supported by this oxidation model --
-    _multisubl_pat = re.compile(r"[b-z]_([A-Z][a-z]?)=")
-    _fixed_els = {phase_element} if phase_element else set()
-    for _d in blade_dir.iterdir():
-        if not _d.is_dir():
-            continue
-        _extra = {sym for sym in _multisubl_pat.findall(_d.name) if sym not in _fixed_els}
-        if _extra:
-            raise NotImplementedError(
-                f"prepare_tables: phase has elements on non-'a' sublattices ({sorted(_extra)} "
-                f"in '{_d.name}'). The oxidation framework models a single metal sublattice "
-                "and cannot represent multi-sublattice phases like MAX. Disable "
-                "[stages] oxidation_graphs and oxide_database in max_phases.toml until "
-                "two-sublattice support is implemented."
-            )
+    # ---- Route 2-sublattice phases to dedicated builder ---------------------
+    if cfg.sublattice_mults:
+        _prepare_tables_2subl(data_root, cfg, rk_order)
+        return
 
     # ---- Parse SQS structures -------------------------------------------
     # Each structure: {y_metals: array(n_metals), energy, total_atoms, formula_units}

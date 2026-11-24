@@ -48,6 +48,7 @@ class OxidationConfig:
     region_label_fontsize: int = _default_region_label_fontsize
     slice_axis: int | str | None = None
     slice_axis_priority: list[str] | None = None
+    sublattice_mults: dict | None = None
 
     def __post_init__(self) -> None:
         """Coerce, validate, and normalise all config fields after construction.
@@ -165,6 +166,7 @@ class OxidationCalculator:
             "region_label_fontsize": self.config.region_label_fontsize,
             "slice_axis": self.config.slice_axis,
             "slice_axis_priority": self.config.slice_axis_priority or [],
+            "sublattice_mults": self.config.sublattice_mults,
         }
         settings.update(overrides)
         return BatchConfig(**settings)
