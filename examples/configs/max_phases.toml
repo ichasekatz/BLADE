@@ -100,6 +100,7 @@ elements  = ["Ni", "Fe", "Cu"]
 [phase_plots]
 fixed_elements = ["C"]
 metal_fraction = 0.75
+plot_2d_map    = true   # generate y_a × y_b stable-phase grid for 2+2 systems
 
 # ── Stability ─────────────────────────────────────────────────────────────────
 # Two-sublattice CEF path: a = M-site (mult 2), b = A-site (mult 1), C fixed (mult 1).
