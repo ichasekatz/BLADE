@@ -25,7 +25,8 @@ import subprocess
 from collections import defaultdict
 from pathlib import Path
 
-os.environ.setdefault("MPLCONFIGDIR", str(Path("/private/tmp") / "blade_matplotlib"))
+import tempfile
+os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "blade_matplotlib"))
 
 import contextlib
 
@@ -1052,21 +1053,52 @@ def run_phase_plotting() -> None:
                             _phase_subl[_si].append(_sp.name)
             if len(_phase_subl) > len(_best_subl_metals):
                 _best_subl_metals = _phase_subl
+        _multi_subl_fixed: dict[str, float] | None = None
         if len(_best_subl_metals) > 1:
             _primary_si = max(_best_subl_metals, key=lambda k: len(_best_subl_metals[k]))
             metals = _best_subl_metals[_primary_si]
             _a_els = sorted(m for si, ml in _best_subl_metals.items() if si != _primary_si for m in ml)
-            print(f"  Multi-sublattice: plotting M-site axis {metals}; A-site {_a_els} held at equal fill")
+            print(
+                f"  Multi-sublattice: plotting sublattice {_primary_si} axis {metals}; "
+                f"other-sublattice metals {_a_els} held at equal fill"
+            )
+            # Overall mole fractions of everything NOT on the plotted sublattice, from the site
+            # ratios of the phase that defined the split (MAX: a=2, b=1, C=1 -> 2/4, 1/4, 1/4).
+            # The boride-style metal_fraction/fixed_elements split would drop the held metals,
+            # leaving pycalphad with components that no phase can be built from.
+            _split_phase = next(
+                p
+                for p in phases
+                if p in tdb.phases
+                and {
+                    si: [sp.name for sp in subl if sp.name in _metals_upper]
+                    for si, subl in enumerate(tdb.phases[p].constituents)
+                    if any(sp.name in _metals_upper for sp in subl)
+                }.keys()
+                == _best_subl_metals.keys()
+            )
+            _ratios = [float(r) for r in tdb.phases[_split_phase].sublattices]
+            _total = sum(_ratios)
+            _multi_subl_fixed = {}
+            for _si, _subl in enumerate(tdb.phases[_split_phase].constituents):
+                if _si == _primary_si:
+                    continue
+                _occ = [sp.name for sp in _subl if sp.name != "VA"]
+                for _name in _occ:
+                    _multi_subl_fixed[_name.title()] = _multi_subl_fixed.get(_name.title(), 0.0) + _ratios[_si] / _total / len(_occ)
 
         comp_out = output_dir / comp_name
         comp_out.mkdir(parents=True, exist_ok=True)
 
         # Use exact fraction — rounding breaks pycalphad mass balance
-        _fixed_sp = (
-            {el.title(): (1.0 - metal_fraction) / max(len(fixed_elements), 1) for el in fixed_elements}
-            if fixed_elements
-            else {}
-        )
+        if _multi_subl_fixed is not None:
+            _fixed_sp = _multi_subl_fixed
+        else:
+            _fixed_sp = (
+                {el.title(): (1.0 - metal_fraction) / max(len(fixed_elements), 1) for el in fixed_elements}
+                if fixed_elements
+                else {}
+            )
         metals_title = [m.title() for m in metals]
         name_str = "".join(metals_title)
         T_list = [int(T) for T in temperature_values(t_step)]

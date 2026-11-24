@@ -145,9 +145,12 @@ def detect_sublattice_metals(
     _fixed = {phase_element} if phase_element else set()
     subl: dict[str, list[str]] = {}
     for d in sorted(Path(lattice_dir).iterdir()):
-        if not d.is_dir() or not d.name.startswith("sqs_lev="):
+        # The database stage copies dirs as "<formula>_sqs_lev=..." (e.g.
+        # "Nb2AlC_sqs_lev=0_a_Nb=1.0,b_Al=1.0,c_C=1.0"), so match anywhere and
+        # parse from "sqs_lev=" on to keep the formula prefix out of the parse.
+        if not d.is_dir() or "sqs_lev=" not in d.name:
             continue
-        fracs = parse_subl_fracs(d.name)
+        fracs = parse_subl_fracs(d.name[d.name.index("sqs_lev="):])
         for letter, el_map in fracs.items():
             for sym in el_map:
                 if sym in _fixed:

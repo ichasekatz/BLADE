@@ -175,3 +175,59 @@ def test_cross_endmember_fracs():
     # Ti-Al: Ti=2/3, Al=1/3
     ti_al = next(e for e in endpoints if abs(e.get("Ti", 0) - 2 / 3) < 1e-9)
     assert abs(ti_al["Al"] - 1 / 3) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# BUG 12 — formula-prefixed sqs_lev= dir names
+# ---------------------------------------------------------------------------
+
+
+def test_detect_sublattice_metals_formula_prefix(tmp_path):
+    # Database stage copies dirs as "<formula>_sqs_lev=..." — must still parse.
+    (tmp_path / "Ti2AlC_sqs_lev=0_a_Ti=1.0,b_Al=1.0,c_C=1.0").mkdir()
+    (tmp_path / "TiNbAlC_sqs_lev=1_a_Ti=0.5,a_Nb=0.5,b_Al=1.0,c_C=1.0").mkdir()
+
+    subl, is_multi = detect_sublattice_metals(tmp_path, phase_element="C")
+
+    assert is_multi is True
+    assert set(subl["a"]) == {"Ti", "Nb"}
+    assert subl["b"] == ["Al"]
+
+
+def test_detect_sublattice_metals_no_prefix_unchanged(tmp_path):
+    # Original format (no formula prefix) must still work after the fix.
+    (tmp_path / "sqs_lev=0_a_Ti=1.0,b_Al=1.0,c_C=1.0").mkdir()
+    (tmp_path / "sqs_lev=1_a_Ti=0.5,a_Nb=0.5,b_Al=1.0,c_C=1.0").mkdir()
+
+    subl, is_multi = detect_sublattice_metals(tmp_path, phase_element="C")
+
+    assert is_multi is True
+    assert set(subl["a"]) == {"Ti", "Nb"}
+    assert subl["b"] == ["Al"]
+
+
+# ---------------------------------------------------------------------------
+# BUG 13 — _cef_enthalpy shape coverage (1+2 and asymmetric)
+# ---------------------------------------------------------------------------
+
+
+def test_cef_enthalpy_1x2():
+    # 1 M-metal, 2 A-metals
+    h_ref = np.array([[2.0, 4.0]])  # shape (1, 2): Ti-Al=2, Ti-Si=4
+    y_a = np.array([[1.0]])  # 1 pt (pure Ti)
+    y_b = np.array([[1.0, 0.0], [0.5, 0.5], [0.0, 1.0]])  # 3 pts
+
+    h0 = _cef_enthalpy(y_a, y_b, h_ref)
+    # H[k] = y_b_Al*h[0,0] + y_b_Si*h[0,1]
+    np.testing.assert_allclose(h0, [2.0, 3.0, 4.0], atol=1e-12)
+    assert h0.shape == (3,)
+
+
+def test_cef_enthalpy_2x1_shape():
+    # Existing 2+1 coverage (matches test_cef_enthalpy_2x1 above but explicit shape check)
+    h_ref = np.array([[3.0], [5.0]])  # (2,1)
+    y_a = np.array([[1.0, 0.0], [0.5, 0.5], [0.0, 1.0]])
+    y_b = np.array([[1.0]])
+    h0 = _cef_enthalpy(y_a, y_b, h_ref)
+    assert h0.shape == (3,)
+    np.testing.assert_allclose(h0, [3.0, 4.0, 5.0], atol=1e-12)

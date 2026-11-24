@@ -48,7 +48,7 @@ def _scan_sqs_dirs_contcar(
                 "phase_id": d.name,
                 **{y_cols[k]: fracs[k] for k in range(n)},
                 "energy_eV_per_formula": e_total / n_fu,
-                "_subl_fracs": parse_subl_fracs(d.name),
+                "_subl_fracs": parse_subl_fracs(d.name[d.name.find("sqs_lev="):] if "sqs_lev=" in d.name else d.name),
                 "_contcar_counts": counts,
             }
         )
@@ -239,6 +239,10 @@ def _build_phase_data_2subl(
         "subl_mults": subl_mults,
         # Stubs so _run_stability_grid can read these keys unconditionally
         "h_endpoints": h_ref.ravel()[:n],
+        # Per-grid-point formation reference: the CEF endmember surface
+        # sum_ij y_a,i y_b,j H_ref[i,j] (= phase_H0). A per-metal endpoint vector
+        # has no meaning for two sublattices; _run_stability_grid prefers this key.
+        "g_ref_grid": phase_h0,
         "binary_coeffs": {},
         "ternary_coeff": 0.0,
         "ternary_coeffs": {},
@@ -423,9 +427,9 @@ def detect_metals(lattice_dir: Path, phase_element: str = "B") -> list[str]:
     seen: list[str] = []
     subl_letters: set[str] = set()
     for d in sorted(lattice_dir.iterdir()):
-        if not d.is_dir() or not d.name.startswith("sqs_lev="):
+        if not d.is_dir() or "sqs_lev=" not in d.name:  # may carry a "<formula>_" prefix
             continue
-        for letter, sym in re.findall(r"([a-z])_([A-Z][a-z]?)=", d.name):
+        for letter, sym in re.findall(r"([a-z])_([A-Z][a-z]?)=", d.name[d.name.index("sqs_lev="):]):
             if sym in _fixed:
                 continue
             if sym not in seen:

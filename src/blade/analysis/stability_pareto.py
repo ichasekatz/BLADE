@@ -3211,7 +3211,7 @@ def _finish(
 
     _build_excel(
         metrics, raw, summary, comparison, incompl_df,
-        out_dir / "Diboride_Synthesizability_Ranking.xlsx",
+        out_dir / "Synthesizability_Ranking.xlsx",
     )
 
     _plot_2d_static(metrics, out_dir)

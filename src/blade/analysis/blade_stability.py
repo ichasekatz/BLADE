@@ -374,6 +374,7 @@ def _run_stability_grid(
     thr = thresholds or StabilityThresholds()
     metals_str = ",".join(metals)
     h_ep = np.asarray(phase_data["h_endpoints"], dtype=float)
+    g_ref_grid = phase_data.get("g_ref_grid")  # two-sublattice CEF reference per grid point
     # Per-phase metal content and AlB₂-parent mask (fixed SQS + SS grid).
     metal_content = a_eq[:n, :].sum(axis=0)
     is_parent = np.concatenate([np.asarray(phase_data["fixed_is_parent"], dtype=bool), np.ones(len(y_grid), dtype=bool)])
@@ -433,7 +434,7 @@ def _run_stability_grid(
                 unique = bool(np.allclose(parent_y[k_act], y_i, atol=1e-6))
             all_present = bool(np.all(y_i >= thr.min_metal_frac - 1e-12))
             retained = all_present and ss_frac >= thr.parent_threshold
-            g_ref = float(y_i @ h_ep)
+            g_ref = float(g_ref_grid[i]) if g_ref_grid is not None else float(y_i @ h_ep)
 
             comp_str = ",".join(f"{y_i[k]:.4f}" for k in range(n))
             row: dict = {
