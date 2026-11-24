@@ -103,6 +103,10 @@ pressure = 101325.0
 # the configured TDB systems before files are opened.
 selected_systems: set[str] | None = None
 
+# Number of parallel worker processes for phase plotting (1 = sequential).
+# Set to os.cpu_count() // 2 or higher for large runs; uses fork-based multiprocessing.
+n_workers = 1
+
 # Grid-video settings
 panel_w = 150
 panel_h = 130
@@ -1009,101 +1013,116 @@ def _plot_binary_gmix(tdb, metals, phase, fixed_sp, temperatures, out_path):
 
 # ------------------------------------------------------------------
 # Main plotting workflow
-def run_phase_plotting() -> None:
-    # ------------------------------------------------------------------
-    # Only take top-level TDB per composition folder (not nested lattice-level TDBs)
-    tdb_files = sorted(p for p in comps_dir.rglob("*.tdb") if p.parent.parent == comps_dir)
-    if selected_systems is not None:
-        tdb_files = [p for p in tdb_files if p.parent.name in selected_systems]
-    if not tdb_files:
-        print(f"No selected TDB files found under {comps_dir}")
-    else:
-        print(f"Found {len(tdb_files)} selected TDB files\n")
+def _process_single_tdb(tdb_path: Path) -> None:
+    """Process one TDB: compute G_mix, plot phase maps/GIFs for all mixable sections."""
+    comp_name = tdb_path.parent.name
+    print(f"Processing: {comp_name} / {tdb_path.name}")
 
-    for tdb_path in tdb_files:
-        comp_name = tdb_path.parent.name
-        print(f"Processing: {comp_name} / {tdb_path.name}")
+    try:
+        tdb = Database(str(tdb_path))
+    except Exception as e:
+        print(f"  Failed to load TDB: {e}")
+        return
 
-        try:
-            tdb = Database(str(tdb_path))
-        except Exception as e:
-            print(f"  Failed to load TDB: {e}")
+    metals = get_variable_elements(tdb, fixed_elements)
+    phases = list(tdb.phases.keys())
+    print(f"  Elements: {metals}  |  Phases: {phases}")
+
+    # Detect per-sublattice structure for multi-sublattice phases (e.g. MAX).
+    # Scan each phase independently so LIQUID (all metals on one sublattice) doesn't
+    # collapse the per-phase sublattice structure of the structural phase.
+    _metals_upper = {m.upper() for m in metals}
+    _best_subl_metals: dict[int, list[str]] = {}
+    for _pname in phases:
+        if _pname not in tdb.phases:
             continue
+        _phase_subl: dict[int, list[str]] = {}
+        for _si, _subl in enumerate(tdb.phases[_pname].constituents):
+            for _sp in _subl:
+                if _sp.name in _metals_upper:
+                    _phase_subl.setdefault(_si, [])
+                    if _sp.name not in _phase_subl[_si]:
+                        _phase_subl[_si].append(_sp.name)
+        if len(_phase_subl) > len(_best_subl_metals):
+            _best_subl_metals = _phase_subl
 
-        metals = get_variable_elements(tdb, fixed_elements)
-        phases = list(tdb.phases.keys())
-        print(f"  Elements: {metals}  |  Phases: {phases}")
+    # Build sections_to_plot: each entry is (metals_for_section, fixed_sp, sublattice_label).
+    # Single-sublattice phases produce one unlabelled section.
+    # Multi-sublattice phases with ≥2 metals on multiple sublattices (e.g. 2+2 MAX)
+    # produce one section per mixable sublattice so both compositional axes are plotted.
+    sections_to_plot: list[tuple[list[str], dict[str, float], str]] = []
 
-        # For multi-sublattice phases (e.g. MAX: M on sublattice 0, A on sublattice 1),
-        # restrict the composition axis to the sublattice with the most variable elements.
-        # Elements on the other sublattice receive equal fill in phase_site_fraction_points.
-        # Scan each phase independently so LIQUID (all metals on one sublattice) doesn't
-        # merge its index-0 with MAX's index-0 and collapse the per-phase structure.
-        _metals_upper = {m.upper() for m in metals}
-        _best_subl_metals: dict[int, list[str]] = {}
-        for _pname in phases:
-            if _pname not in tdb.phases:
+    if len(_best_subl_metals) > 1:
+        _split_phase = next(
+            p
+            for p in phases
+            if p in tdb.phases
+            and {
+                si: [sp.name for sp in subl if sp.name in _metals_upper]
+                for si, subl in enumerate(tdb.phases[p].constituents)
+                if any(sp.name in _metals_upper for sp in subl)
+            }.keys()
+            == _best_subl_metals.keys()
+        )
+        _ratios = [float(r) for r in tdb.phases[_split_phase].sublattices]
+        _total = sum(_ratios)
+        _subl_letter = {0: "a", 1: "b", 2: "c", 3: "d"}
+
+        for _target_si, _target_metals in sorted(_best_subl_metals.items()):
+            if len(_target_metals) < 2:
                 continue
-            _phase_subl: dict[int, list[str]] = {}
-            for _si, _subl in enumerate(tdb.phases[_pname].constituents):
-                for _sp in _subl:
-                    if _sp.name in _metals_upper:
-                        _phase_subl.setdefault(_si, [])
-                        if _sp.name not in _phase_subl[_si]:
-                            _phase_subl[_si].append(_sp.name)
-            if len(_phase_subl) > len(_best_subl_metals):
-                _best_subl_metals = _phase_subl
-        _multi_subl_fixed: dict[str, float] | None = None
-        if len(_best_subl_metals) > 1:
+            # Overall fracs for all other sublattices (held at equal fill within each).
+            _sec_fixed: dict[str, float] = {}
+            for _si, _subl in enumerate(tdb.phases[_split_phase].constituents):
+                if _si == _target_si:
+                    continue
+                _occ = [sp.name for sp in _subl if sp.name != "VA"]
+                for _name in _occ:
+                    _sec_fixed[_name.title()] = (
+                        _sec_fixed.get(_name.title(), 0.0)
+                        + _ratios[_si] / _total / len(_occ)
+                    )
+            _letter = _subl_letter.get(_target_si, str(_target_si))
+            sections_to_plot.append((_target_metals, _sec_fixed, _letter))
+
+        if not sections_to_plot:
+            # All sublattices have only 1 metal; fall back to the largest.
             _primary_si = max(_best_subl_metals, key=lambda k: len(_best_subl_metals[k]))
-            metals = _best_subl_metals[_primary_si]
-            _a_els = sorted(m for si, ml in _best_subl_metals.items() if si != _primary_si for m in ml)
-            print(
-                f"  Multi-sublattice: plotting sublattice {_primary_si} axis {metals}; "
-                f"other-sublattice metals {_a_els} held at equal fill"
-            )
-            # Overall mole fractions of everything NOT on the plotted sublattice, from the site
-            # ratios of the phase that defined the split (MAX: a=2, b=1, C=1 -> 2/4, 1/4, 1/4).
-            # The boride-style metal_fraction/fixed_elements split would drop the held metals,
-            # leaving pycalphad with components that no phase can be built from.
-            _split_phase = next(
-                p
-                for p in phases
-                if p in tdb.phases
-                and {
-                    si: [sp.name for sp in subl if sp.name in _metals_upper]
-                    for si, subl in enumerate(tdb.phases[p].constituents)
-                    if any(sp.name in _metals_upper for sp in subl)
-                }.keys()
-                == _best_subl_metals.keys()
-            )
-            _ratios = [float(r) for r in tdb.phases[_split_phase].sublattices]
-            _total = sum(_ratios)
-            _multi_subl_fixed = {}
+            _sec_fixed = {}
             for _si, _subl in enumerate(tdb.phases[_split_phase].constituents):
                 if _si == _primary_si:
                     continue
                 _occ = [sp.name for sp in _subl if sp.name != "VA"]
                 for _name in _occ:
-                    _multi_subl_fixed[_name.title()] = _multi_subl_fixed.get(_name.title(), 0.0) + _ratios[_si] / _total / len(_occ)
+                    _sec_fixed[_name.title()] = (
+                        _sec_fixed.get(_name.title(), 0.0)
+                        + _ratios[_si] / _total / len(_occ)
+                    )
+            sections_to_plot.append((_best_subl_metals[_primary_si], _sec_fixed, ""))
 
-        comp_out = output_dir / comp_name
-        comp_out.mkdir(parents=True, exist_ok=True)
+        print(
+            f"  Multi-sublattice: {len(sections_to_plot)} section(s) "
+            f"({', '.join(f'site-{l}: {m}' for m, _, l in sections_to_plot)})"
+        )
+    else:
+        _sec_fixed = (
+            {el.title(): (1.0 - metal_fraction) / max(len(fixed_elements), 1) for el in fixed_elements}
+            if fixed_elements
+            else {}
+        )
+        sections_to_plot.append((metals, _sec_fixed, ""))
 
-        # Use exact fraction — rounding breaks pycalphad mass balance
-        if _multi_subl_fixed is not None:
-            _fixed_sp = _multi_subl_fixed
-        else:
-            _fixed_sp = (
-                {el.title(): (1.0 - metal_fraction) / max(len(fixed_elements), 1) for el in fixed_elements}
-                if fixed_elements
-                else {}
-            )
-        metals_title = [m.title() for m in metals]
-        name_str = "".join(metals_title)
-        T_list = [int(T) for T in temperature_values(t_step)]
+    comp_out = output_dir / comp_name
+    comp_out.mkdir(parents=True, exist_ok=True)
 
-        if len(metals) == 2:
+    _add_label = len(sections_to_plot) > 1
+    T_list = [int(T) for T in temperature_values(t_step)]
+
+    for _sec_metals, _fixed_sp, _sec_label in sections_to_plot:
+        metals_title = [m.title() for m in _sec_metals]
+        name_str = "".join(metals_title) + (f"_site{_sec_label}" if _add_label else "")
+
+        if len(_sec_metals) == 2:
             ge_path = comp_out / f"{name_str}_Gibbs_Energy.png"
             gmx_path = comp_out / f"{name_str}_Gibbs_Mixing.png"
             pd_path = comp_out / f"{name_str}_Phase_Diagram.png"
@@ -1141,20 +1160,46 @@ def run_phase_plotting() -> None:
                 )
                 print(f"  Phase diagram: {pd_path.name}")
 
-        elif len(metals) >= 3:
-            # Works for N≥3 metals via affine polygon projection (from notebook)
-            n_label = f"{len(metals)}-component"
+        elif len(_sec_metals) >= 3:
+            n_label = f"{len(_sec_metals)}-component"
             per_t_dir = comp_out / "per_temperature"
             per_t_dir.mkdir(exist_ok=True)
             out_path = comp_out / f"{name_str}_phase_map.png"
             data_dir = comp_out / "gmix_data" / tdb_path.stem
-            plotted = plot_phase_overlay(tdb, metals, phases, out_path, per_t_dir=per_t_dir, data_dir=data_dir)
+            plotted = plot_phase_overlay(tdb, _sec_metals, phases, out_path, per_t_dir=per_t_dir, data_dir=data_dir)
             if plotted:
                 print(f"  {n_label} phase map: {out_path.name}")
             if make_gif:
-                make_phase_gif(tdb, metals, phases, comp_out / f"{name_str}_phase_evolution.gif", data_dir=data_dir)
+                gif_name = f"{name_str}_phase_evolution.gif"
+                make_phase_gif(tdb, _sec_metals, phases, comp_out / gif_name, data_dir=data_dir)
         else:
-            print(f"  Skipping: {len(metals)} variable elements (need ≥2)")
+            print(f"  Skipping section {_sec_label!r}: {len(_sec_metals)} variable element(s) (need ≥2)")
+
+
+def run_phase_plotting() -> None:
+    tdb_files = sorted(p for p in comps_dir.rglob("*.tdb") if p.parent.parent == comps_dir)
+    if selected_systems is not None:
+        tdb_files = [p for p in tdb_files if p.parent.name in selected_systems]
+    if not tdb_files:
+        print(f"No selected TDB files found under {comps_dir}")
+        return
+    print(f"Found {len(tdb_files)} selected TDB files\n")
+
+    if n_workers > 1:
+        import multiprocessing
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
+        ctx = multiprocessing.get_context("fork")
+        with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as pool:
+            futs = {pool.submit(_process_single_tdb, p): p for p in tdb_files}
+            for fut in as_completed(futs):
+                try:
+                    fut.result()
+                except Exception as exc:
+                    print(f"  Error processing {futs[fut].name}: {exc}")
+    else:
+        for tdb_path in tdb_files:
+            _process_single_tdb(tdb_path)
 
     print("\nDone.")
 
@@ -1252,8 +1297,10 @@ def write_grid(gif_paths: list[Path], out_mp4: Path, label: str) -> None:
     print(f"  expected frames from temperature range: {expected_frames}")
 
     if len(unique_counts) != 1:
-        print("  WARNING: not all GIFs have the same frame count.")
-        print("  Shorter GIFs will hold their last frame.")
+        # Mixed frame counts are expected when binary and ternary systems appear in the
+        # same grid: each produces the same temperature range but section-based binary
+        # systems may differ. get_gif_frame() already holds the last frame for shorter GIFs.
+        print(f"  Note: mixed frame counts {unique_counts}; shorter GIFs hold last frame.")
 
     # Use expected temperature frames unless every GIF is shorter
     n_frames = min(expected_frames, max(n_frames_list))
