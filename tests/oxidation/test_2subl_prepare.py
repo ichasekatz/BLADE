@@ -11,13 +11,11 @@ Covers:
 
 from __future__ import annotations
 
-import io
 import tempfile
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from blade.oxidation.framework._phase_data import (
     _cef_enthalpy_2subl,
@@ -26,7 +24,6 @@ from blade.oxidation.framework._phase_data import (
     _product_simplex_grid_2subl,
 )
 from blade.oxidation.framework.system_config import SystemConfig, _prepare_tables_2subl
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -228,7 +225,8 @@ class TestLoadNd2subl:
 
 class TestPrepareTables2subl:
     """End-to-end: write synthetic blade_dir / fixed_phases, run _prepare_tables_2subl,
-    verify CSV files and that _load_nd dispatches correctly."""
+    verify CSV files and that _load_nd dispatches correctly.
+    """
 
     def _write_contcar(self, path: Path, counts: dict) -> None:
         """Write a minimal VASP POSCAR/CONTCAR with given element counts."""

@@ -873,7 +873,8 @@ def _dominated_2d(a: np.ndarray, c: np.ndarray, eps: float) -> np.ndarray:
 
 def _discrete_column(data: np.ndarray, eps: float) -> int | None:
     """Index of an objective whose distinct values are spaced by more than 2ε (e.g.
-    strict_frac = k/24), or None. Such a column compares exactly under the ε rule."""
+    strict_frac = k/24), or None. Such a column compares exactly under the ε rule.
+    """
     for d in range(data.shape[1]):
         u = np.unique(data[:, d])
         if len(u) <= 512 and (len(u) == 1 or np.min(np.diff(u)) > 2 * eps):

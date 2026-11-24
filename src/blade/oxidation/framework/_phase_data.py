@@ -281,8 +281,8 @@ def _ideal_mixing_2subl(y_a_grid: np.ndarray, y_b_grid: np.ndarray, subl_mults: 
 
 
 def _load_nd_2subl(
-    pt: "pd.DataFrame",
-    rk: "pd.DataFrame",
+    pt: pd.DataFrame,
+    rk: pd.DataFrame,
     metals: list[str],
     phase_label: str,
     y_step: float,

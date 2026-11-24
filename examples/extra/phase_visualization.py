@@ -22,10 +22,10 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from collections import defaultdict
 from pathlib import Path
 
-import tempfile
 os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "blade_matplotlib"))
 
 import contextlib
@@ -1102,7 +1102,7 @@ def _process_single_tdb(tdb_path: Path) -> None:
 
         print(
             f"  Multi-sublattice: {len(sections_to_plot)} section(s) "
-            f"({', '.join(f'site-{l}: {m}' for m, _, l in sections_to_plot)})"
+            f"({', '.join(f'site-{lbl}: {m}' for m, _, lbl in sections_to_plot)})"
         )
     else:
         _sec_fixed = (

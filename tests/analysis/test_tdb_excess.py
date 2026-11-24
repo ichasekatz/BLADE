@@ -7,8 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from blade.analysis._stability_tables import _load_tdb_excess, _build_phase_data_2subl
-
+from blade.analysis._stability_tables import _build_phase_data_2subl, _load_tdb_excess
 
 # ---------------------------------------------------------------------------
 # Minimal TDB fixtures
@@ -244,10 +243,8 @@ def _make_sqs_dirs(tmp_path, subl_metals, subl_mults, h_ref_values):
 
 def test_use_tdb_excess_false_unchanged(tmp_path):
     """use_tdb_excess=False → phase_H0 equals ideal CEF (no excess)."""
-    subl_metals = [["Nb", "Ti"], ["Al"]]
     subl_mults = [2, 1]
-    h_ref = [[-2.0, -1.5], [-1.8, -1.2]]  # fake h_ref[i][j] eV/metal-atom (not used: 1 A-metal)
-    # Simpler: 1 b-metal means no A-site mixing
+    # 1 b-metal means no A-site mixing
     subl_metals_1b = [["Nb", "Ti"], ["Al"]]
     h_ref_1b = [[-2.0], [-1.8]]
     blade_dir = _make_sqs_dirs(tmp_path / "s1", subl_metals_1b, subl_mults, h_ref_1b)

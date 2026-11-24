@@ -268,7 +268,7 @@ def _prepare_tables_2subl(data_root: Path, cfg: SystemConfig, rk_order: int = 3)
 
         # Overall metal fracs (multiplicity-weighted, sum to 1 over metals)
         y: dict[str, float] = {}
-        for letter, mult in zip(subl_letters, subl_mults):
+        for letter, mult in zip(subl_letters, subl_mults, strict=False):
             el_map = subl_fracs.get(letter, {})
             for sym, frac in el_map.items():
                 if phase_element and sym == phase_element:
@@ -338,7 +338,7 @@ def _prepare_tables_2subl(data_root: Path, cfg: SystemConfig, rk_order: int = 3)
     rk_rows: list[dict] = [
         {
             "pair": "_subl_mults",
-            "term": ";".join(f"{letter}={mult}" for letter, mult in zip(subl_letters, subl_mults)),
+            "term": ";".join(f"{letter}={mult}" for letter, mult in zip(subl_letters, subl_mults, strict=False)),
             "value_eV_per_formula": 0.0,
             "value_eV_per_atom": 0.0,
         }
