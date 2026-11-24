@@ -328,6 +328,15 @@ def fig08(plt):
              ["supplementary_data/x01_closed_scan.csv"])
 
 
+def group_v_fraction(g: pd.DataFrame) -> np.ndarray:
+    """Metal fraction in the Group-V-rich product phase(s): a metal-rich boride, or the higher-x AlB2 phase whichever
+    of the two AlB2 phases is larger; 0 for a single phase. Unlike the 'minority' fraction this does not jump when the
+    Group-V-rich phase becomes the majority."""
+    two = (g["class"] == "two AlB2") & (g.main_x > g.second_x)
+    out = np.where(two, 1 - g.second_metal_frac, g.second_metal_frac)
+    return np.asarray(out, float)
+
+
 def fig09_10(plt):
     c = read("x01_closed_scan.csv")
     g0 = c[(c.x == 0.5) & (c.T_K == 2000.0)]
@@ -337,15 +346,18 @@ def fig09_10(plt):
             for scen, ls in (("own", "-"), ("DFT-anch", "--")):
                 g = g0[(g0.system == sid) & (g0.model == m) & (g0.scenario == scen)].sort_values("delta")
                 if len(g):
-                    ax.plot(100 * g.delta, g.second_metal_frac, ls, color=COL[m], lw=1.2, label=f"{LABEL[m]}{' (DFT-anch)' if scen != 'own' else ''}")
+                    ax.plot(100 * g.delta, group_v_fraction(g), ls, color=COL[m], lw=1.2, marker=".", ms=3,
+                            label=f"{LABEL[m]}{' (DFT-anch)' if scen != 'own' else ''}")
         ax.set_title(SYSLAB[sid])
         ax.set_xlabel("δ (% of B lost)")
-        ax.set_ylabel("minority-phase fraction (metal basis)")
+        ax.set_ylabel("metal fraction in Group-V-rich\nproduct phase(s)")
     axes[0, 1].legend(fontsize=5.5, ncol=2)
     fig.tight_layout()
-    save(fig, "fig09_phase_fractions", "Equilibrium minority-phase fraction (metal basis) versus boron loss at x = 0.5 and 2000 K for every system and model "
-         "(solid: own energetics; dashed: TaB2 vacancy energy anchored to DFT). The plotted quantity is the minority phase, so it cannot exceed 0.5; "
-         "kinks mark changes of the second phase (e.g. AlB2 → metal-rich boride).", ["supplementary_data/x01_closed_scan.csv"])
+    save(fig, "fig09_phase_fractions", "Fraction of the metal in the Group-V-rich product phase(s) versus boron loss at x = 0.5 and 2000 K for every system "
+         "and model (solid: own energetics; dashed: TaB2 vacancy energy anchored to DFT). Product = the higher-x, B-deficient AlB2 phase or a "
+         "metal-rich boride. Discontinuities are real changes of assemblage: e.g. at δ = 12.5 % the whole alloy reaches the imposed vacancy cap "
+         "(B/M = 1.75) as one phase, and beyond it a metal-rich boride takes up further boron loss. Non-zero values at δ = 0 (DFT-anchored "
+         "MACE-OMAT/MatterSim/SevenNet) reflect stoichiometric TaB2 itself being unstable toward TaB2−x + B with the DFT vacancy energy.", ["supplementary_data/x01_closed_scan.csv"])
     g1 = g0[(g0.delta == 0.05) & (g0.scenario.isin(["own", "DFT-anch"]))]
     fig, ax = plt.subplots(figsize=(9, 4))
     for k, sid in enumerate(SYSTEMS):
@@ -389,17 +401,28 @@ def fig11(plt):
     ax = axes[1]
     if p is not None:
         q = p[p.status == "ok"]
-        for k, col in enumerate(["dEv_MB2_eV", "slope_eV_per_nn", "W_MB2_eV_fu"]):
-            for i, sid in enumerate(SYSTEMS):
-                v = q[q.system == sid][col]
-                ax.plot(np.full(len(v), i + 7 * k), v / (abs(v).max() if abs(v).max() > 0 else 1), "_", color="k", ms=10)
-        ax.set_xticks([2.5, 9.5, 16.5], ["E$_v$(MB$_2$)", "coupling slope", "W(MB$_2$)"])
-        ax.set_ylabel("model values / max |value| per system")
-        ax.set_title("(b) model-to-model spread of the controlling terms")
+        cats = [("E$_v$(NbB$_2$)\n(eV)", "Nb", "dEv_MB2_eV"), ("E$_v$(TaB$_2$)\n(eV)", "Ta", "dEv_MB2_eV"),
+                ("W(NbB$_2$)\n(eV/fu)", "Nb", "W_MB2_eV_fu"), ("W(TaB$_2$)\n(eV/fu)", "Ta", "W_MB2_eV_fu"),
+                ("coupling slope ×10\n(eV per Group-V nn,\nmean of systems)", None, "slope_eV_per_nn")]
+        for k, (lab, m_el, col) in enumerate(cats):
+            for i, m in enumerate(MODELS):
+                qm = q[q.model == m]
+                if m_el:
+                    qm = qm[qm.system.str.endswith(m_el)]
+                    val = qm[col].iloc[0] if len(qm) else np.nan
+                else:
+                    val = 10 * qm[col].mean()
+                ax.plot(k + (i - 2) * 0.08, val, "o", color=COL[m], ms=6, label=LABEL[m] if k == 0 else None)
+        ax.plot(1, -0.389, "k*", ms=12, label="DFT TaB$_2$ (Ektarawong 2023)")
+        ax.axhline(0, color="0.6", lw=0.6)
+        ax.set_xticks(range(len(cats)), [c[0] for c in cats], fontsize=7)
+        ax.set_ylabel("value")
+        ax.legend(fontsize=6)
+        ax.set_title("(b) controlling terms, per model")
     fig.tight_layout()
     save(fig, "fig11_sensitivity", "Model disagreement and sensitivity. (a) Shift of the Group-V boron-vacancy energy needed to change the predicted phase "
-         "assemblage at the reference condition, per system, model and scenario ('none': no change within ±1.5 eV). (b) Spread of the three controlling "
-         "parameters across the five MLIPs.", ["supplementary_data/x02_flip_thresholds.csv", "supplementary_data/x01_params.csv"])
+         "assemblage at the reference condition, per system, model and scenario ('none': no change within ±1.5 eV). (b) The controlling terms for each MLIP: "
+         "Group-V vacancy energies, vacancy–vacancy interaction W and the environment coupling slope (×10).", ["supplementary_data/x02_flip_thresholds.csv", "supplementary_data/x01_params.csv"])
 
 
 def fig12(plt):
@@ -495,7 +518,9 @@ def fig15(plt):
     hc = hc.dropna(subset=["MP_AlB2_ehull_eV_atom"])
     ax.plot(hc.MP_AlB2_ehull_eV_atom * 1000, hc.ORB_dG_hull_eV_atom * 1000, "ko")
     for r in hc.itertuples():
-        ax.annotate(f"{r.metal}B$_2$", (r.MP_AlB2_ehull_eV_atom * 1000, r.ORB_dG_hull_eV_atom * 1000), fontsize=7, xytext=(3, 3), textcoords="offset points")
+        if max(r.MP_AlB2_ehull_eV_atom, r.ORB_dG_hull_eV_atom) * 1000 > 10:  # on-hull MB2 are summarised in one label
+            ax.annotate(f"{r.metal}B$_2$", (r.MP_AlB2_ehull_eV_atom * 1000, r.ORB_dG_hull_eV_atom * 1000), fontsize=7, xytext=(3, 3), textcoords="offset points")
+    ax.annotate("Hf, Nb, Ta, Ti, Y, Zr B$_2$ (on hull)", (0, 0), fontsize=6.5, xytext=(8, 14), textcoords="offset points")
     lim = max(hc.MP_AlB2_ehull_eV_atom.max(), hc.ORB_dG_hull_eV_atom.max()) * 1000 * 1.1
     ax.plot([0, lim], [0, lim], "k:", lw=0.8)
     ax.set_xlabel("MP (GGA) E$_{hull}$ of AlB$_2$-type MB$_2$ (meV/atom)")
@@ -534,16 +559,19 @@ def fig16(plt):
         for k_, sid in enumerate(SYSTEMS):
             for scen, off, mk in (("own", -0.12, "o"), ("DFT-anch", 0.12, "s")):
                 q = g[(g.system == sid) & (g.scenario == scen)]
-                for m in MODELS:
+                for i_m, m in enumerate(MODELS):
                     r = q[q.model == m]
                     if len(r):
-                        ax.plot(k_ + off, 100 * r[col].iloc[0] if r[col].iloc[0] == r[col].iloc[0] else 21, mk, color=COL[m], ms=4,
-                                mfc=COL[m] if scen == "own" else "none")
+                        ax.plot(k_ + off + (i_m - 2) * 0.035, 100 * r[col].iloc[0] if r[col].iloc[0] == r[col].iloc[0] else 21, mk, color=COL[m], ms=4,
+                                mfc=COL[m] if scen == "own" else "none", label=(LABEL[m] if (k_ == 0 and scen == "own") else None))
         ax.axhline(20.5, color="0.7", ls=":")
         ax.text(5.3, 20.8, "not reached ≤ 20 %", fontsize=6, ha="right")
         ax.set_xticks(range(6), [SYSLAB[s] for s in SYSTEMS], rotation=30, fontsize=7)
         ax.set_ylabel("boron loss (% of B)")
         ax.set_title(lab)
+    from matplotlib.lines import Line2D
+    axes[0].legend(handles=axes[0].get_legend_handles_labels()[0] + [Line2D([], [], marker="s", ls="", mfc="none", color="k", label="DFT-anchored TaB$_2$")],
+                   fontsize=6, loc="upper left")
     fig.tight_layout()
     save(fig, "fig16_vacancy_aware_metrics", "Proposed vacancy-aware stability metrics for the six systems at x = 0.5, 2000 K: critical boron loss for destabilisation "
          "(δc), for a detectable (5 %) and for a substantial (30 %) second phase. Circles: own MLIP energetics; open squares: DFT-anchored TaB2. Points at "

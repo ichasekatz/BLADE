@@ -3,8 +3,8 @@
 Reference: x = 0.5, T = 2000 K, B/M = 1.95 (delta = 2.5 %), AlB2 vacancy fraction <= 0.125, each model's own energetics
 (and the DFT-anchored TaB2 V_B for the Ta systems). Classes: homogeneous | two AlB2 | metal-rich boride |
 vacancy-ordered MB2-x | ordered metal. One term varied at a time:
-  d_m    Group-V B-vacancy energy shift (eV)              -1.5 ... +1.5
-  d_h    host (Ti/Zr/Hf)B2 B-vacancy energy shift (eV)    -1.5 ... +1.5
+  d_m    Group-V B-vacancy energy shift (eV), applied to the solution AND per vacancy to ordered MB2-x cells  -1.5 ... +1.5
+  d_h    host (Ti/Zr/Hf)B2 B-vacancy energy shift (eV), likewise for host-side ordered cells           -1.5 ... +1.5
   slope  multiplier on the local-environment coupling      0 ... 2
   w      multiplier on the vacancy-vacancy interaction     0.1 ... 10
   comp   shift of all metal-rich borides (eV/atom; ordered cells not shifted) -0.10 ... +0.10
@@ -40,6 +40,12 @@ def perturb(sysm, d_m=0.0, d_h=0.0, slope=1.0, w=1.0, comp=0.0):
 
     new = replace(a, dEv_m=a.dEv_m + d_m, dEv_zr=a.dEv_zr + d_h, ev_env=env, w_vv_zr=a.w_vv_zr * w, w_vv_m=a.w_vv_m * w)
     c = sysm.compounds.copy()
+    # the same vacancy-energy shift applies to every explicit vacancy-containing cell (consistency with the CEF):
+    # Group-V ordered cells (n_Zr = 0) by d_m per vacancy, host-side ordered cells (n_M = 0) by d_h per vacancy
+    ov = c.kind == "ordered_vacancy"
+    nvac = 2 * (c.n_Zr + c.n_M) - c.n_B
+    c.loc[ov & (c.n_Zr == 0), "G"] += d_m * nvac[ov & (c.n_Zr == 0)]
+    c.loc[ov & (c.n_M == 0), "G"] += d_h * nvac[ov & (c.n_M == 0)]
     if comp:
         mrb = (c.kind == "reference") & (c.n_B > 0) & (c.n_Zr + c.n_M > 0)
         c.loc[mrb, "G"] += comp * (c.loc[mrb, "n_Zr"] + c.loc[mrb, "n_M"] + c.loc[mrb, "n_B"])

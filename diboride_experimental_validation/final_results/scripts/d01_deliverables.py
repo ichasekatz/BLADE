@@ -166,7 +166,7 @@ def six_system(k2: pd.DataFrame) -> pd.DataFrame:
         num.append({"system": sid,
                     "stoich. miscibility (|DFT dH|/40)": min(abs(s8.loc[sid, "dHmix_0.5_Tang_LDA_meV_per_atom"]) / 40, 1),
                     "exp. segregation observed": 1.0,
-                    "vacancy coupling (|slope|/0.2)": float(abs(q.slope_eV_per_nn).mean() / 0.2) if len(q) else np.nan,
+                    "vacancy coupling (|slope|/0.2)": float(min(abs(q.slope_eV_per_nn).mean() / 0.2, 1.0)) if len(q) else np.nan,
                     "B-loss sensitivity (1-δ5/0.1)": float(max(0, 1 - own.delta_5.median() / 0.10)) if len(own) else np.nan,
                     "model agreement on product": float(agree),
                     "DFT anchor available": 1.0 if sid.endswith("Ta") else 0.0})
