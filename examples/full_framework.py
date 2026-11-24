@@ -926,6 +926,7 @@ class FullFrameworkPipeline:
             "exclude_oxides", "mu_o_values", "allowed_elements", "output_folder", "temperature_range",
             "composition_step", "skip_existing", "rk_order", "n_workers",
             "parent_threshold", "strict_dg_tol", "min_metal_frac", "run_pareto", "pareto",
+            "sublattice_mults",
         }  # fmt: skip
         unknown = sorted(set(cfg) - known_keys)
         if unknown:
@@ -974,6 +975,7 @@ class FullFrameworkPipeline:
             strict_dg_tol=float(cfg.get("strict_dg_tol", 1e-3)),
             min_metal_frac=float(cfg.get("min_metal_frac", 0.05)),
         )
+        sublattice_mults = cfg.get("sublattice_mults")  # e.g. {a = 2, b = 1} for MAX
         BladeStability(
             system_structures_root=sys_root,
             output_dir=out_dir,
@@ -993,6 +995,7 @@ class FullFrameworkPipeline:
             thresholds=thresholds,
             run_pareto=run_pareto,
             pareto_options=pareto_options,
+            sublattice_mults=sublattice_mults,
         ).run()
 
     def run(self, *, dry_run: bool = False) -> None:

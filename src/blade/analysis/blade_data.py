@@ -80,7 +80,7 @@ class BLADEData:
                 match = re.search(r"sqs_lev=(\d+)", parent.name)
                 if match:
                     sqs_level = int(match.group(1))
-                for el, val in re.findall(r"a_([A-Za-z]+)=([0-9]*\.?[0-9]+)", parent.name):
+                for el, val in re.findall(r"[a-z]_([A-Za-z]+)=([0-9]*\.?[0-9]+)", parent.name):
                     a_fracs[el] = float(val)
                 break
 

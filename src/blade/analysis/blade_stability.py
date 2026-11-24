@@ -135,6 +135,7 @@ class BladeStability:
         thresholds: StabilityThresholds | None = None,
         run_pareto: bool = False,
         pareto_options: dict | None = None,
+        sublattice_mults: dict[str, int] | None = None,
     ) -> None:
         """Initialize with file paths and stability scan parameters."""
         self._system_structures_root = Path(system_structures_root)
@@ -165,6 +166,7 @@ class BladeStability:
         self.thresholds = thresholds or StabilityThresholds()
         self.run_pareto = bool(run_pareto)
         self.pareto_options = dict(pareto_options or {})
+        self._sublattice_mults = sublattice_mults  # e.g. {"a": 2, "b": 1} for MAX
 
     @cached_property
     def output_dir(self) -> Path:
@@ -202,6 +204,7 @@ class BladeStability:
                 self.output_dir,
                 self.skip_existing,
                 self.thresholds,
+                self._sublattice_mults,
             )
             for sdir, bdir in system_dirs
         ]
@@ -559,6 +562,7 @@ def _stability_worker(
         (DataFrame, None) on success, or (None, error_message) on failure.
     """
     from blade.analysis._stability_tables import build_phase_data, detect_metals
+    from blade.analysis._sublattice import detect_sublattice_metals
 
     (
         system_dir,
@@ -574,7 +578,9 @@ def _stability_worker(
         output_dir,
         skip_existing,
         thresholds,
+        *_extra,
     ) = args
+    sublattice_mults: dict[str, int] | None = _extra[0] if _extra else None
 
     if isinstance(competitors_subdir, str):  # a bare string is one subdir, not characters
         competitors_subdir = (competitors_subdir,) if competitors_subdir else None
@@ -603,16 +609,34 @@ def _stability_worker(
         if len(metals) < 2:
             return None, f"{system_tag}: fewer than 2 metals detected, skipping"
 
-        phase_data = build_phase_data(
-            blade_dir,
-            metals,
-            phase_element,
-            phase_stoich,
-            rk_order=rk_order,
-            y_step=composition_step,
-            competitors_dir=competitors_dir,
-            exclude_oxides=exclude_oxides,
-        )
+        subl_metal_dict, is_multi_subl = detect_sublattice_metals(blade_dir, phase_element)
+        if is_multi_subl and sublattice_mults:
+            subl_letters = sorted(subl_metal_dict.keys())
+            subl_metals_list = [subl_metal_dict[k] for k in subl_letters]
+            subl_mults_list = [sublattice_mults[k] for k in subl_letters]
+            phase_data = build_phase_data(
+                blade_dir,
+                metals,
+                phase_element,
+                phase_stoich,
+                rk_order=rk_order,
+                y_step=composition_step,
+                competitors_dir=competitors_dir,
+                exclude_oxides=exclude_oxides,
+                sublattice_metals=subl_metals_list,
+                sublattice_mults=subl_mults_list,
+            )
+        else:
+            phase_data = build_phase_data(
+                blade_dir,
+                metals,
+                phase_element,
+                phase_stoich,
+                rk_order=rk_order,
+                y_step=composition_step,
+                competitors_dir=competitors_dir,
+                exclude_oxides=exclude_oxides,
+            )
     except MissingEndpointError as e:
         return None, f"{system_tag}: {e}"
     except Exception as e:

@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from blade.analysis._sublattice import parse_subl_fracs, product_simplex_grid
 from blade.oxidation._db_utils import get_formula_counts
 from blade.oxidation.framework._grid import simplex_grid_nd
 from blade.oxidation.framework._mixing import ideal_mixing_nd, muggianu_energy_nd
@@ -15,6 +16,235 @@ from blade.oxidation.framework._mixing import ideal_mixing_nd, muggianu_energy_n
 
 class MissingEndpointError(ValueError):
     """Raised when a pure-metal endpoint composition is absent from the SQS data."""
+
+
+def _scan_sqs_dirs_contcar(
+    lattice_dir: Path,
+    metals: list[str],
+    elements: list[str],
+) -> list[dict]:
+    """Scan sqs_lev=* dirs using CONTCAR for composition (reliable for 2-sublattice).
+
+    Stores ``_subl_fracs`` (from dir name) in each row for endpoint detection.
+    n_fu = total metal atom count from CONTCAR; energy_eV_per_formula = e_total / n_fu.
+    """
+    y_cols = [f"y_{m}_metal_site" for m in metals]
+    n = len(metals)
+    rows: list[dict] = []
+    for d in lattice_dir.iterdir():
+        if not d.is_dir():
+            continue
+        ep, cp = d / "energy", d / "CONTCAR"
+        if not ep.exists() or not cp.exists():
+            continue
+        counts = _read_contcar_counts(cp, elements)
+        n_fu = sum(counts[m] for m in metals)
+        if n_fu <= 0:
+            continue
+        fracs = [float(counts[m]) / n_fu for m in metals]
+        e_total = _read_scalar(ep)
+        rows.append(
+            {
+                "phase_id": d.name,
+                **{y_cols[k]: fracs[k] for k in range(n)},
+                "energy_eV_per_formula": e_total / n_fu,
+                "_subl_fracs": parse_subl_fracs(d.name),
+                "_contcar_counts": counts,
+            }
+        )
+    return rows
+
+
+def _cross_endpoint_energies_2subl(
+    rows: list[dict],
+    subl_metals: list[list[str]],
+    lattice_dir: Path,
+) -> np.ndarray:
+    """Find H_ref[i,j] for each (M_i on a, A_j on b) cross-product endpoint.
+
+    Uses ``_subl_fracs`` stored by :func:`_scan_sqs_dirs_contcar`. Raises
+    :class:`MissingEndpointError` when any (i,j) endpoint is absent.
+
+    Returns:
+        Array of shape (n_a, n_b).
+    """
+    n_a, n_b = len(subl_metals[0]), len(subl_metals[1])
+    h_ref = np.full((n_a, n_b), np.nan)
+    for i, m_a in enumerate(subl_metals[0]):
+        for j, m_b in enumerate(subl_metals[1]):
+            matches = [
+                r["energy_eV_per_formula"]
+                for r in rows
+                if _is_cross_endpoint(r["_subl_fracs"], m_a, m_b, subl_metals)
+            ]
+            if not matches:
+                raise MissingEndpointError(
+                    f"Missing cross-endpoint ({m_a}, {m_b}) in {lattice_dir}"
+                )
+            h_ref[i, j] = matches[0]
+    return h_ref
+
+
+def _is_cross_endpoint(
+    subl_fracs: dict[str, dict[str, float]],
+    m_a: str,
+    m_b: str,
+    subl_metals: list[list[str]],
+) -> bool:
+    """Return True when subl_fracs represents the pure (m_a on a, m_b on b) endpoint."""
+    letters = sorted(subl_fracs.keys())
+    if len(letters) < 2:
+        return False
+    la, lb = letters[0], letters[1]
+    a_map = subl_fracs.get(la, {})
+    b_map = subl_fracs.get(lb, {})
+    # sublattice a: only m_a present (all other metals absent or zero)
+    for sym in subl_metals[0]:
+        if sym == m_a:
+            if abs(a_map.get(sym, 0.0) - 1.0) > 1e-6:
+                return False
+        elif a_map.get(sym, 0.0) > 1e-6:
+            return False
+    # sublattice b: only m_b present
+    for sym in subl_metals[1]:
+        if sym == m_b:
+            if abs(b_map.get(sym, 0.0) - 1.0) > 1e-6:
+                return False
+        elif b_map.get(sym, 0.0) > 1e-6:
+            return False
+    return True
+
+
+def _cef_enthalpy(
+    y_a_grid: np.ndarray,
+    y_b_grid: np.ndarray,
+    h_ref: np.ndarray,
+) -> np.ndarray:
+    """Ideal sublattice model enthalpy over the product grid (no interaction terms).
+
+    H0[k] = sum_ij y_a_i * y_b_j * h_ref[i,j]  (eV per metal atom).
+    Row k = (k // n_b_pts, k % n_b_pts).
+
+    Returns:
+        Shape (n_a_pts * n_b_pts,).
+    """
+    h_mid = y_a_grid @ h_ref  # (n_a_pts, n_b)
+    h_all = h_mid @ y_b_grid.T  # (n_a_pts, n_b_pts)
+    return h_all.ravel()
+
+
+def _ideal_mixing_2subl(
+    y_a_grid: np.ndarray,
+    y_b_grid: np.ndarray,
+    subl_mults: list[int],
+) -> np.ndarray:
+    """2-sublattice configurational entropy shape for the product grid.
+
+    phase_mix[k] = [mult_a*S_a + mult_b*S_b] / (mult_a+mult_b), same row order as
+    :func:`product_simplex_grid`. Multiply by kb_ev_per_k * T to get -TS contribution.
+
+    Returns:
+        Shape (n_a_pts * n_b_pts,).
+    """
+    total = sum(subl_mults)
+    s_a = ideal_mixing_nd(y_a_grid)  # (n_a_pts,)
+    s_b = ideal_mixing_nd(y_b_grid)  # (n_b_pts,)
+    s_mix = (subl_mults[0] * s_a[:, np.newaxis] + subl_mults[1] * s_b[np.newaxis, :]) / total
+    return s_mix.ravel()
+
+
+def _build_phase_data_2subl(
+    lattice_dir: Path,
+    subl_metals: list[list[str]],
+    subl_mults: list[int],
+    phase_element: str,
+    phase_stoich: float,
+    rk_order: int,
+    y_step: float,
+    competitors_dir: Path | list[Path] | None,
+    exclude_oxides: bool,
+) -> dict:
+    """build_phase_data code path for two-sublattice phases (ideal CEF).
+
+    Uses cross-product endmember reference energies (H_ref[i,j]) instead of
+    single-element endpoints. SQS structures are added as fixed LP competitors.
+    """
+    metals = [m for sub in subl_metals for m in sub]
+    n = len(metals)
+    elements = metals + [phase_element, "O"]
+    y_cols = [f"y_{m}_metal_site" for m in metals]
+
+    rows = _scan_sqs_dirs_contcar(lattice_dir, metals, elements)
+    if not rows:
+        raise RuntimeError(f"No valid SQS structures found in {lattice_dir}")
+
+    h_ref = _cross_endpoint_energies_2subl(rows, subl_metals, lattice_dir)
+
+    y_overall, (y_a_grid, y_b_grid) = product_simplex_grid(subl_metals, subl_mults, y_step)
+    n_pts = len(y_overall)
+
+    phase_h0 = _cef_enthalpy(y_a_grid, y_b_grid, h_ref)
+    phase_mix = _ideal_mixing_2subl(y_a_grid, y_b_grid, subl_mults)
+
+    fixed_rows = _build_fixed_rows(rows, lattice_dir, metals, elements, phase_element)
+    n_sqs = len(fixed_rows)
+    n_competitors = 0
+    if competitors_dir is not None:
+        dirs = competitors_dir if isinstance(competitors_dir, list) else [competitors_dir]
+        competitors = load_competitor_rows(dirs, metals, phase_element, exclude_oxides=exclude_oxides)
+        n_competitors = len(competitors)
+        fixed_rows.extend(competitors)
+    n_fixed = len(fixed_rows)
+
+    fmetal = np.array([fr["metals"] for fr in fixed_rows])
+    fphase_el = np.array([fr["phase_el"] for fr in fixed_rows])
+    fo = np.array([fr["O"] for fr in fixed_rows])
+    fixed_is_parent = np.arange(n_fixed) < n_sqs
+    with np.errstate(invalid="ignore", divide="ignore"):
+        fixed_y = fmetal / fmetal.sum(axis=1, keepdims=True)
+    fatoms = fmetal.sum(axis=1) + fphase_el + fo
+    fef = np.array([fr["energy_eV_per_atom"] for fr in fixed_rows]) * fatoms
+
+    pmetal = np.vstack([fmetal, y_overall])
+    pphase_el = np.concatenate([fphase_el, phase_stoich * np.ones(n_pts)])
+    a_eq = np.vstack([pmetal.T, pphase_el[np.newaxis, :]])
+
+    fixed_ids = np.array([fr["phase_id"] for fr in fixed_rows])
+    ss_ids = _ss_phase_ids(y_overall, metals, n, n_pts)
+    phase_ids = np.concatenate([fixed_ids, ss_ids])
+    phase_kinds = np.concatenate([np.full(n_fixed, "fixed"), np.full(n_pts, "ss")])
+    phase_y_nd = np.vstack([np.full((n_fixed, n), np.nan), y_overall])
+
+    return {
+        "phase_ids": phase_ids,
+        "phase_kinds": phase_kinds,
+        "phase_y_nd": phase_y_nd,
+        "phase_metal_stoich": pmetal,
+        "phase_H0": phase_h0,
+        "phase_mix_shape": phase_mix,
+        "fixed_energy_formula": fef,
+        "fixed_O": fo,
+        "fixed_is_parent": fixed_is_parent,
+        "fixed_y": fixed_y,
+        "n_competitors": n_competitors,
+        "A_eq": a_eq,
+        "n_fixed": n_fixed,
+        "n_metals": n,
+        "metals": metals,
+        "phase_element": phase_element,
+        "phase_element_stoichiometry": phase_stoich,
+        "y_grid": y_overall,
+        "h_ref_2subl": h_ref,
+        "subl_metals": subl_metals,
+        "subl_mults": subl_mults,
+        # Stubs so _run_stability_grid can read these keys unconditionally
+        "h_endpoints": h_ref.ravel()[:n],
+        "binary_coeffs": {},
+        "ternary_coeff": 0.0,
+        "ternary_coeffs": {},
+        # y_cols stored for diagnostics
+        "_y_cols": y_cols,
+    }
 
 
 def build_phase_data(
@@ -26,6 +256,8 @@ def build_phase_data(
     y_step: float = 0.02,
     competitors_dir: Path | list[Path] | None = None,
     exclude_oxides: bool = True,
+    sublattice_metals: list[list[str]] | None = None,
+    sublattice_mults: list[int] | None = None,
 ) -> dict:
     r"""Build the full phase data dictionary for stability LP from a BLADE lattice dir.
 
@@ -75,13 +307,29 @@ def build_phase_data(
         ``h_endpoints``, ``binary_coeffs``, ``ternary_coeff`` (3 metals only) and
         ``ternary_coeffs`` (one L^{ijk} per metal triple, any number of metals).
 
+        When ``sublattice_metals`` is provided, the two-sublattice CEF path is used
+        instead: ``h_ref_2subl``, ``subl_metals``, ``subl_mults`` are added and
+        ``binary_coeffs`` / ``ternary_coeffs`` are empty stubs.
+
     Raises:
         MissingEndpointError: If any pure-metal endpoint is absent from the SQS data.
         RuntimeError: If no valid SQS structures are found in ``lattice_dir``.
     """
+    if sublattice_metals is not None:
+        return _build_phase_data_2subl(
+            lattice_dir,
+            sublattice_metals,
+            sublattice_mults or [1] * len(sublattice_metals),
+            phase_element,
+            phase_stoich,
+            rk_order,
+            y_step,
+            competitors_dir,
+            exclude_oxides,
+        )
     n = len(metals)
     elements = metals + [phase_element, "O"]
-    metal_pats = [re.compile(rf"a_{m}=([0-9.]+)") for m in metals]
+    metal_pats = [re.compile(rf"[a-z]_{m}=([0-9.]+)") for m in metals]
     y_cols = [f"y_{m}_metal_site" for m in metals]
 
     rows = _scan_sqs_dirs(lattice_dir, metals, elements, metal_pats, y_cols, n)
