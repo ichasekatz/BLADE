@@ -115,6 +115,97 @@ def _is_cross_endpoint(
     return True
 
 
+def _load_tdb_excess(
+    tdb_path: Path,
+    subl_metals: list[list[str]],
+    subl_mults: list[int],
+    y_a_grid: np.ndarray,
+    y_b_grid: np.ndarray,
+) -> np.ndarray:
+    """Parse ATAT-generated TDB L parameters and evaluate RK excess on the product grid.
+
+    Reads ``PARAMETER L(...)`` lines directly — ATAT TDB output lacks SPECIES
+    declarations, so pycalphad's parser cannot load these files.  All L values
+    in BLADE MAX TDBs are numeric constants (temperature-independent).
+
+    Three term types are handled:
+
+    - **M-site pair** ``L(PHASE, Mi,Mj:Ak:C;r)``:
+      ``G_exc += y_b_Ak · y_a_Mi · y_a_Mj · (y_a_Mi − y_a_Mj)^r · L``
+    - **A-site pair** ``L(PHASE, Mi:Aj,Ak:C;r)``:
+      ``G_exc += y_a_Mi · y_b_Aj · y_b_Ak · (y_b_Aj − y_b_Ak)^r · L``
+    - **Reciprocal** ``L(PHASE, Mi,Mj:Ak,Al:C;0)``:
+      ``G_exc += y_a_Mi · y_a_Mj · y_b_Ak · y_b_Al · L``
+
+    Args:
+        tdb_path: Path to the ATAT-generated ``*.tdb`` file.
+        subl_metals: ``[a_metals, b_metals]`` ordered metal lists.
+        subl_mults: ``[mult_a, mult_b]``.
+        y_a_grid: M-site simplex grid, shape ``(n_a_pts, n_a_metals)``.
+        y_b_grid: A-site simplex grid, shape ``(n_b_pts, n_b_metals)``.
+
+    Returns:
+        Excess contribution in eV per total-metal-atom, shape
+        ``(n_a_pts * n_b_pts,)``.  Zero array on file error or when no L
+        parameters match the given metals.
+    """
+    try:
+        text = tdb_path.read_text()
+    except OSError:
+        return np.zeros(len(y_a_grid) * len(y_b_grid))
+
+    # PARAMETER L(PHASENAME,a_consts:b_consts:fixed;order) T_low  value ;
+    _L_PAT = re.compile(
+        r"PARAMETER\s+L\(\w+,([\w,]+):([\w,]+):[\w,]+;(\d+)\)\s+[\d.]+\s+"
+        r"([+-]?\d+\.?\d*(?:[eE][+-]?\d+)?)\s*;"
+    )
+
+    n_a_pts, n_b_pts = len(y_a_grid), len(y_b_grid)
+    total_mult = sum(subl_mults)
+    ev_per_j_mol = 1.0 / 96485.0
+    excess = np.zeros((n_a_pts, n_b_pts))
+
+    a_upper = [m.upper() for m in subl_metals[0]]
+    b_upper = [m.upper() for m in subl_metals[1]]
+    a_idx = {m: i for i, m in enumerate(a_upper)}
+    b_idx = {m: i for i, m in enumerate(b_upper)}
+
+    for match in _L_PAT.finditer(text):
+        a_consts = [s.strip() for s in match.group(1).split(",")]
+        b_consts = [s.strip() for s in match.group(2).split(",")]
+        order = int(match.group(3))
+        val_ev = float(match.group(4)) * ev_per_j_mol / total_mult
+
+        a_in = [s for s in a_consts if s in a_idx]
+        b_in = [s for s in b_consts if s in b_idx]
+
+        if len(a_in) == 2 and len(b_in) == 1:
+            # M-site pair with specific A-site: G_exc += y_bk * y_ai * y_aj * (y_ai-y_aj)^r * L
+            i, j = a_idx[a_in[0]], a_idx[a_in[1]]
+            k_b = b_idx[b_in[0]]
+            yi, yj = y_a_grid[:, i], y_a_grid[:, j]
+            rk_a = yi * yj * (yi - yj) ** order * val_ev  # (n_a_pts,)
+            excess += rk_a[:, np.newaxis] * y_b_grid[:, k_b][np.newaxis, :]
+
+        elif len(a_in) == 1 and len(b_in) == 2:
+            # A-site pair with specific M-site: G_exc += y_ai * y_bj * y_bk * (y_bj-y_bk)^r * L
+            k_a = a_idx[a_in[0]]
+            j_b, k_b = b_idx[b_in[0]], b_idx[b_in[1]]
+            yj_b, yk_b = y_b_grid[:, j_b], y_b_grid[:, k_b]
+            rk_b = yj_b * yk_b * (yj_b - yk_b) ** order * val_ev  # (n_b_pts,)
+            excess += y_a_grid[:, k_a][:, np.newaxis] * rk_b[np.newaxis, :]
+
+        elif len(a_in) == 2 and len(b_in) == 2:
+            # Reciprocal: G_exc += y_ai * y_aj * y_bk * y_bl * L  (no power term)
+            i, j = a_idx[a_in[0]], a_idx[a_in[1]]
+            j_b, k_b = b_idx[b_in[0]], b_idx[b_in[1]]
+            rk_a = y_a_grid[:, i] * y_a_grid[:, j] * val_ev  # (n_a_pts,)
+            rk_b = y_b_grid[:, j_b] * y_b_grid[:, k_b]  # (n_b_pts,)
+            excess += rk_a[:, np.newaxis] * rk_b[np.newaxis, :]
+
+    return excess.ravel()
+
+
 def _cef_enthalpy(
     y_a_grid: np.ndarray,
     y_b_grid: np.ndarray,
@@ -163,6 +254,8 @@ def _build_phase_data_2subl(
     y_step: float,
     competitors_dir: Path | list[Path] | None,
     exclude_oxides: bool,
+    use_tdb_excess: bool = False,
+    tdb_path: Path | None = None,
 ) -> dict:
     """build_phase_data code path for two-sublattice phases (ideal CEF).
 
@@ -184,6 +277,11 @@ def _build_phase_data_2subl(
     n_pts = len(y_overall)
 
     phase_h0 = _cef_enthalpy(y_a_grid, y_b_grid, h_ref)
+    # g_ref_grid is always the ideal-CEF endmember surface, used for formation-energy
+    # reporting regardless of whether TDB excess is added.
+    g_ref_grid = phase_h0.copy()
+    if use_tdb_excess and tdb_path is not None and tdb_path.exists():
+        phase_h0 = phase_h0 + _load_tdb_excess(tdb_path, subl_metals, subl_mults, y_a_grid, y_b_grid)
     phase_mix = _ideal_mixing_2subl(y_a_grid, y_b_grid, subl_mults)
 
     fixed_rows = _build_fixed_rows(rows, lattice_dir, metals, elements, phase_element)
@@ -239,10 +337,10 @@ def _build_phase_data_2subl(
         "subl_mults": subl_mults,
         # Stubs so _run_stability_grid can read these keys unconditionally
         "h_endpoints": h_ref.ravel()[:n],
-        # Per-grid-point formation reference: the CEF endmember surface
-        # sum_ij y_a,i y_b,j H_ref[i,j] (= phase_H0). A per-metal endpoint vector
-        # has no meaning for two sublattices; _run_stability_grid prefers this key.
-        "g_ref_grid": phase_h0,
+        # Per-grid-point formation reference: ideal-CEF endmember surface.
+        # Always kept at the ideal surface even when TDB excess is added to phase_H0,
+        # so G_ss_formation shows the full excess contribution.
+        "g_ref_grid": g_ref_grid,
         "binary_coeffs": {},
         "ternary_coeff": 0.0,
         "ternary_coeffs": {},
@@ -262,6 +360,8 @@ def build_phase_data(
     exclude_oxides: bool = True,
     sublattice_metals: list[list[str]] | None = None,
     sublattice_mults: list[int] | None = None,
+    use_tdb_excess: bool = False,
+    tdb_path: Path | None = None,
 ) -> dict:
     r"""Build the full phase data dictionary for stability LP from a BLADE lattice dir.
 
@@ -330,6 +430,8 @@ def build_phase_data(
             y_step,
             competitors_dir,
             exclude_oxides,
+            use_tdb_excess=use_tdb_excess,
+            tdb_path=tdb_path,
         )
     n = len(metals)
     elements = metals + [phase_element, "O"]

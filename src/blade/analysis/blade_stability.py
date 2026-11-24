@@ -137,6 +137,8 @@ class BladeStability:
         run_pareto: bool = False,
         pareto_options: dict | None = None,
         sublattice_mults: dict[str, int] | None = None,
+        use_tdb_excess: bool = False,
+        tdb_root: str | Path | None = None,
     ) -> None:
         """Initialize with file paths and stability scan parameters."""
         self._system_structures_root = Path(system_structures_root)
@@ -169,6 +171,8 @@ class BladeStability:
         self.run_pareto = bool(run_pareto)
         self.pareto_options = dict(pareto_options or {})
         self._sublattice_mults = sublattice_mults  # e.g. {"a": 2, "b": 1} for MAX
+        self._use_tdb_excess = bool(use_tdb_excess)
+        self._tdb_root = Path(tdb_root) if tdb_root else None
 
     @cached_property
     def output_dir(self) -> Path:
@@ -208,6 +212,8 @@ class BladeStability:
                 self.thresholds,
                 self._sublattice_mults,
                 self.composition_step_2subl,
+                self._use_tdb_excess,
+                self._tdb_root,
             )
             for sdir, bdir in system_dirs
         ]
@@ -665,6 +671,8 @@ def _stability_worker(
     ) = args
     sublattice_mults: dict[str, int] | None = _extra[0] if _extra else None
     composition_step_2subl: float | None = _extra[1] if len(_extra) > 1 else None
+    use_tdb_excess: bool = bool(_extra[2]) if len(_extra) > 2 else False
+    tdb_root: Path | None = Path(_extra[3]) if len(_extra) > 3 and _extra[3] else None
 
     if isinstance(competitors_subdir, str):  # a bare string is one subdir, not characters
         competitors_subdir = (competitors_subdir,) if competitors_subdir else None
@@ -699,6 +707,12 @@ def _stability_worker(
             subl_metals_list = [subl_metal_dict[k] for k in subl_letters]
             subl_mults_list = [sublattice_mults[k] for k in subl_letters]
             step = composition_step_2subl if composition_step_2subl is not None else composition_step
+            # Find TDB: search for *.tdb under tdb_root/<system_name>/**/ (ATAT-generated).
+            tdb_path: Path | None = None
+            if use_tdb_excess and tdb_root is not None and tdb_root.is_dir():
+                candidates = sorted((tdb_root / system_tag).glob("**/*.tdb"))
+                if candidates:
+                    tdb_path = candidates[0]
             phase_data = build_phase_data(
                 blade_dir,
                 metals,
@@ -710,6 +724,8 @@ def _stability_worker(
                 exclude_oxides=exclude_oxides,
                 sublattice_metals=subl_metals_list,
                 sublattice_mults=subl_mults_list,
+                use_tdb_excess=use_tdb_excess,
+                tdb_path=tdb_path,
             )
         else:
             phase_data = build_phase_data(

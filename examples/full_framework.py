@@ -927,7 +927,7 @@ class FullFrameworkPipeline:
             "exclude_oxides", "mu_o_values", "allowed_elements", "output_folder", "temperature_range",
             "composition_step", "composition_step_2subl", "skip_existing", "rk_order", "n_workers",
             "parent_threshold", "strict_dg_tol", "min_metal_frac", "run_pareto", "pareto",
-            "sublattice_mults",
+            "sublattice_mults", "use_tdb_excess", "tdb_root",
         }  # fmt: skip
         unknown = sorted(set(cfg) - known_keys)
         if unknown:
@@ -998,6 +998,8 @@ class FullFrameworkPipeline:
             run_pareto=run_pareto,
             pareto_options=pareto_options,
             sublattice_mults=sublattice_mults,
+            use_tdb_excess=bool(cfg.get("use_tdb_excess", False)),
+            tdb_root=cfg.get("tdb_root"),
         ).run()
 
     def run(self, *, dry_run: bool = False) -> None:

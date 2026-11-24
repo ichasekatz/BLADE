@@ -109,6 +109,8 @@ phase_element               = "C"
 phase_element_stoichiometry = 0.3333333333
 sublattice_mults            = {a = 2, b = 1}
 composition_step_2subl      = 0.1   # coarser than boride default; 3+3 product grid = 11x11=121 pts (vs 53k at 0.05)
+use_tdb_excess              = false # set true to add fitted L0/L1 RK excess from TDB on top of ideal CEF
+# tdb_root = "Files/Comps_MAX"      # required when use_tdb_excess = true (path to Comps_MAX/<System>/MAX1_N/*.tdb)
 # stability = true in [stages] once system_structures is populated
 
 # ── Oxidation ─────────────────────────────────────────────────────────────────
